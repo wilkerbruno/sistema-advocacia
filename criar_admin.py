@@ -1,4 +1,4 @@
-"""
+pyt"""
 Cria um usuário administrador (acesso a todas as unidades) ou promove um
 usuário já existente a admin.
 
