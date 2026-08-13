@@ -1,0 +1,48 @@
+===============================================================================
+ROADMAP DE IMPLEMENTAÇÃO - SISTEMA DE GOVERNANÇA PROCESSUAL
+===============================================================================
+
+FASE 1: MVP - "ENXERGAR" (Automação de Ingestão)
+-------------------------------------------------------------------------------
+[ ] Task 1.1: Integração com Provedor de Dados (API)
+    - Objetivo: Conectar sistema a provedor (Judit/Escavador), validar CNJ e capturar capa.
+    - Tempo Estimado: 4 horas
+[ ] Task 1.2: Fluxo de Carga Automática e Lote
+    - Objetivo: Implementar cadastro via número CNJ e importação via CSV.
+    - Tempo Estimado: 3 horas
+[ ] Task 1.3: Robô de Monitoramento Diário (Worker)
+    - Objetivo: Criar rotina assíncrona de varredura e deduplicação via Hash.
+    - Tempo Estimado: 6 horas
+[ ] Task 1.4: Painel de Observatório Fase 1
+    - Objetivo: Tela de erros de captura e alertas de processos parados.
+    - Tempo Estimado: 3 horas
+
+FASE 2: CONTROLE - "GERIR" (Motor de Prazos)
+-------------------------------------------------------------------------------
+[ ] Task 2.1: Máquina de Estados (Vocabulário TPU)
+    - Objetivo: Traduzir códigos TPU para Estados de Negócio via interface.
+    - Tempo Estimado: 4 horas
+[ ] Task 2.2: Motor de Cálculo de Prazos e Regras
+    - Objetivo: Implementar dias úteis CPC, feriados e Tabela de Próxima Ação.
+    - Tempo Estimado: 8 horas
+[ ] Task 2.3: Fluxo de Governança e Trava de Evidência
+    - Objetivo: Automação Publicação -> Prazo e fechamento apenas via protocolo.
+    - Tempo Estimado: 6 horas
+[ ] Task 2.4: Fila de Intimações (Worklist)
+    - Objetivo: Tela de trabalho diária ordenada por data fatal.
+    - Tempo Estimado: 3 horas
+
+FASE 3: MEDIR - "OTIMIZAR" (Métricas e Jurimetria)
+-------------------------------------------------------------------------------
+[ ] Task 3.1: Painel de Governança de Topo (Analytics)
+    - Objetivo: Métricas de cumprimento, exposição financeira e idade da carteira.
+    - Tempo Estimado: 5 horas
+[ ] Task 3.2: Integração Ecossistema (Google & Data Lake)
+    - Objetivo: OAuth Google e API de exportação tabular (Parquet/CSV).
+    - Tempo Estimado: 6 horas
+[ ] Task 3.3: Camada de Jurimetria e Busca Semântica
+    - Objetivo: Persistência de inteiro teor e indexação para busca de teses.
+    - Tempo Estimado: 10 horas
+
+TOTAL ESTIMADO: 62 horas de desenvolvimento técnico.
+===============================================================================

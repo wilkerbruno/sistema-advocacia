@@ -1,0 +1,33 @@
+===============================================================================
+RELATÓRIO DE PENDÊNCIAS - SISTEMA DE GOVERNANÇA PROCESSUAL
+===============================================================================
+
+[CRÍTICO: INGESTÃO AUTOMÁTICA - CORAÇÃO DO PROJETO]
+- [ ] Implementação de Integração com API de Dados Processuais (Judit, Escavador, etc)
+- [ ] Rotina de Carga Inicial (Input do número CNJ -> Preenchimento automático da capa)
+- [ ] Monitoramento Diário Automático (Polling de andamentos e publicações)
+- [ ] Sistema de Deduplicação de Eventos via Hash (Seção 5.2)
+- [ ] Processamento de Cadastro em Lote via CSV (Seção 5.0)
+
+[CRÍTICO: MOTOR DE PRAZOS E AÇÕES]
+- [ ] Motor de Cálculo de Prazos (Dias úteis CPC, Feriados Forenses, Recessos)
+- [ ] Implementação da Tabela de Regras de Próxima Ação (Ato -> Ação Exigida)
+- [ ] Automatização de Geração de Tarefas a partir de Publicações capturadas
+- [ ] Validação de Cumprimento por Evidência (Travar fechamento de prazo sem protocolo)
+
+[MÉDIO: CAMADA DE TRADUÇÃO E GOVERNANÇA]
+- [ ] Máquina de Estados: Tradução de Códigos TPU para Estados de Negócio
+- [ ] Painel de Governança de Topo (Métricas de processos parados, exposição financeira)
+- [ ] Alertas Automáticos (E-mail/WhatsApp) para movimentações críticas e prazos fatais
+- [ ] Relatório Semanal Automático de Governança
+
+[MÉDIO: SEGURANÇA E INTEROPERABILIDADE]
+- [ ] Implementação da Criptografia real no Cofre de Senhas (Integração com Vault/KMS)
+- [ ] Autenticação via Google OAuth (Google Workspace)
+- [ ] API de Leitura para Integração com Data Lake do Escritório
+- [ ] Exportação de Dados em formato tabular (CSV/Parquet)
+
+[BAIXO: JURIMETRIA E FASE 3]
+- [ ] Indexação Textual/Vetorial de Decisões para Busca Semântica
+- [ ] Estruturação de Teses e Resultados para Análise de Precedentes
+===============================================================================
