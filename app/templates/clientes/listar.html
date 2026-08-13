@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}Clientes — JusControl{% endblock %}
+{% block eyebrow %}Cadastro{% endblock %}
+{% block cabecalho %}Clientes{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <form method="get" class="d-flex gap-2">
+    <input type="text" name="q" value="{{ termo }}" class="form-control" placeholder="Buscar por nome ou CPF/CNPJ" style="width: 280px;">
+    <button class="btn btn-outline-doc" type="submit">Buscar</button>
+  </form>
+  <a href="{{ url_for('clientes.novo') }}" class="btn btn-brass">+ Novo cliente</a>
+</div>
+
+<div class="card-doc tab p-0">
+  {% if clientes %}
+  <div class="table-responsive">
+    <table class="table-doc mb-0">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>CPF/CNPJ</th>
+          <th>Contato</th>
+          {% if current_user.is_admin %}<th>Unidade</th>{% endif %}
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in clientes %}
+        <tr>
+          <td><a class="linha-link" href="{{ url_for('clientes.detalhe', cliente_id=c.id) }}">{{ c.nome }}</a>
+            <div class="text-muted-doc small">{{ c.tipo_pessoa }}</div>
+          </td>
+          <td>{{ c.cpf_cnpj or "—" }}</td>
+          <td>{{ c.telefone or c.email or "—" }}</td>
+          {% if current_user.is_admin %}<td><span class="pill-unidade">{{ c.unidade.codigo }}</span></td>{% endif %}
+          <td>
+            {% if c.ativo %}<span class="badge-status badge-ativo">Ativo</span>
+            {% else %}<span class="badge-status badge-arquivado">Inativo</span>{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum cliente encontrado</div>
+    <p class="mb-0">Cadastre o primeiro cliente da unidade para começar a vincular processos.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

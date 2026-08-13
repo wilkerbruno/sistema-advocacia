@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titulo %}Novo lançamento — JusControl{% endblock %}
+{% block eyebrow %}Financeiro{% endblock %}
+{% block cabecalho %}Novo lançamento{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 700px;">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label">Descrição *</label>
+        <input type="text" name="descricao" class="form-control" required>
+      </div>
+      {% if unidades %}
+      <div class="col-md-4">
+        <label class="form-label">Unidade</label>
+        <select name="unidade_id" class="form-select">
+          {% for u in unidades %}<option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>{% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-md-4">
+        <label class="form-label">Natureza</label>
+        <select name="natureza" class="form-select">
+          <option value="receita">Receita</option>
+          <option value="despesa">Despesa</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tipo</label>
+        <select name="tipo" class="form-select">
+          <option value="honorario">Honorário</option>
+          <option value="custas">Custas processuais</option>
+          <option value="despesa">Despesa operacional</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Valor (R$) *</label>
+        <input type="number" step="0.01" name="valor" class="form-control" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Vencimento</label>
+        <input type="date" name="data_vencimento" class="form-control">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Parcela (ex: 2/6)</label>
+        <input type="text" name="parcela" class="form-control">
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Cliente</label>
+        <select name="cliente_id" class="form-select">
+          <option value="">Nenhum</option>
+          {% for c in clientes %}<option value="{{ c.id }}">{{ c.nome }}</option>{% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Processo</label>
+        <select name="processo_id" class="form-select">
+          <option value="">Nenhum</option>
+          {% for p in processos %}<option value="{{ p.id }}">{{ p.numero_processo or p.numero_interno }}</option>{% endfor %}
+        </select>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Forma de pagamento</label>
+        <input type="text" name="forma_pagamento" class="form-control" placeholder="Pix, boleto, cartão...">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          <option value="pendente">Pendente</option>
+          <option value="pago">Pago</option>
+        </select>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Observações</label>
+        <textarea name="observacoes" class="form-control"></textarea>
+      </div>
+    </div>
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Salvar lançamento</button>
+      <a href="{{ url_for('financeiro.listar') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

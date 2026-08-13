@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block titulo %}Equipe — JusControl{% endblock %}
+{% block eyebrow %}Gestão{% endblock %}
+{% block cabecalho %}Equipe{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex justify-content-end mb-3">
+  <a href="{{ url_for('admin.novo_usuario') }}" class="btn btn-brass">+ Novo usuário</a>
+</div>
+
+<div class="card-doc tab p-0">
+  {% if usuarios %}
+  <table class="table-doc mb-0">
+    <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th>{% if current_user.is_admin %}<th>Unidade</th>{% endif %}<th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr>
+        <td>{{ u.nome }}{% if u.oab %} <span class="text-muted-doc small">OAB {{ u.oab }}</span>{% endif %}</td>
+        <td>{{ u.email }}</td>
+        <td><span class="badge-status badge-normal">{{ u.papel }}</span></td>
+        {% if current_user.is_admin %}<td>{% if u.unidade %}<span class="pill-unidade">{{ u.unidade.codigo }}</span>{% else %}Todas{% endif %}</td>{% endif %}
+        <td>{% if u.ativo %}<span class="badge-status badge-ativo">Ativo</span>{% else %}<span class="badge-status badge-arquivado">Inativo</span>{% endif %}</td>
+        <td><a href="{{ url_for('admin.editar_usuario', usuario_id=u.id) }}" class="btn btn-outline-doc btn-sm">Editar</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum usuário cadastrado</div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

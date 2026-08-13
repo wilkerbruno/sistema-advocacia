@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar processo" if processo else "Novo processo" }} — JusControl{% endblock %}
+{% block eyebrow %}Acervo{% endblock %}
+{% block cabecalho %}{{ "Editar processo" if processo else "Novo processo" }}{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 900px;">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Nº do processo (CNJ)</label>
+        <input type="text" name="numero_processo" class="form-control" placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Nº de controle interno</label>
+        <input type="text" name="numero_interno" class="form-control" value="{{ processo.numero_interno if processo else '' }}">
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">Cliente *</label>
+        <select name="cliente_id" class="form-select" required>
+          <option value="">Selecione…</option>
+          {% for c in clientes %}
+          <option value="{{ c.id }}" {{ "selected" if processo and processo.cliente_id == c.id }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {% if unidades %}
+      <div class="col-md-4">
+        <label class="form-label">Unidade</label>
+        <select name="unidade_id" class="form-select">
+          {% for u in unidades %}
+          <option value="{{ u.id }}" {{ "selected" if processo and processo.unidade_id == u.id }}>{{ u.codigo }} — {{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+      <div class="col-md-4">
+        <label class="form-label">Área do direito *</label>
+        <input type="text" name="area_direito" class="form-control" required placeholder="Cível, Trabalhista, Tributário..." value="{{ processo.area_direito if processo else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tipo de ação</label>
+        <input type="text" name="tipo_acao" class="form-control" value="{{ processo.tipo_acao if processo else '' }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Fase</label>
+        <input type="text" name="fase" class="form-control" placeholder="Conhecimento, Execução..." value="{{ processo.fase if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Instância</label>
+        <input type="text" name="instancia" class="form-control" value="{{ processo.instancia if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Comarca</label>
+        <input type="text" name="comarca" class="form-control" value="{{ processo.comarca if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Vara / Tribunal</label>
+        <input type="text" name="vara" class="form-control" value="{{ processo.vara if processo else '' }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Polo do cliente</label>
+        <select name="polo_cliente" class="form-select">
+          {% for op in ["Autor","Réu","Interessado","Terceiro"] %}
+          <option value="{{ op }}" {{ "selected" if processo and processo.polo_cliente == op }}>{{ op }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">Parte contrária</label>
+        <input type="text" name="parte_contraria" class="form-control" value="{{ processo.parte_contraria if processo else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Advogado da parte contrária</label>
+        <input type="text" name="advogado_contrario" class="form-control" value="{{ processo.advogado_contrario if processo else '' }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Valor da causa (R$)</label>
+        <input type="number" step="0.01" name="valor_causa" class="form-control" value="{{ processo.valor_causa if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Data de distribuição</label>
+        <input type="date" name="data_distribuicao" class="form-control" value="{{ processo.data_distribuicao if processo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Responsável</label>
+        <select name="responsavel_id" class="form-select">
+          <option value="">Selecione…</option>
+          {% for r in responsaveis %}
+          <option value="{{ r.id }}" {{ "selected" if processo and processo.responsavel_id == r.id }}>{{ r.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% if processo %}
+      <div class="col-md-3">
+        <label class="form-label">Status</label>
+        <select name="status" class="form-select">
+          {% for s in ["ativo","suspenso","arquivado","encerrado"] %}
+          <option value="{{ s }}" {{ "selected" if processo.status == s }}>{{ s|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="col-12">
+        <label class="form-label">Descrição / objeto</label>
+        <textarea name="descricao" class="form-control">{{ processo.descricao if processo else '' }}</textarea>
+      </div>
+
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="segredo_justica" id="segredo" {{ "checked" if processo and processo.segredo_justica }}>
+          <label class="form-check-label small" for="segredo">Processo em segredo de justiça</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Salvar processo</button>
+      <a href="{{ url_for('processos.listar') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

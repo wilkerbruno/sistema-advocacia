@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block titulo %}Painel — JusControl{% endblock %}
+{% block eyebrow %}Visão geral{% endblock %}
+{% block cabecalho %}
+  {% if current_user.is_admin %}Painel consolidado{% else %}Painel da unidade{% endif %}
+{% endblock %}
+
+{% block conteudo %}
+
+<div class="kpi-grid mb-4">
+  <div class="kpi-card">
+    <div class="kpi-label">Processos ativos</div>
+    <div class="kpi-value">{{ total_processos_ativos }}</div>
+    <div class="kpi-sub">{% if current_user.is_admin %}em todas as unidades{% else %}na sua unidade{% endif %}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Clientes ativos</div>
+    <div class="kpi-value">{{ total_clientes }}</div>
+    <div class="kpi-sub">cadastrados</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Prazos em atenção</div>
+    <div class="kpi-value">{{ prazos_vencendo|length }}</div>
+    <div class="kpi-sub">vencendo nos próximos 5 dias</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Prazos perdidos</div>
+    <div class="kpi-value" style="color: var(--status-danger);">{{ prazos_perdidos_count }}</div>
+    <div class="kpi-sub">pendentes e já vencidos</div>
+  </div>
+  {% if current_user.is_admin %}
+  <div class="kpi-card">
+    <div class="kpi-label">Unidades ativas</div>
+    <div class="kpi-value">{{ total_unidades }}</div>
+    <div class="kpi-sub">em operação</div>
+  </div>
+  {% endif %}
+</div>
+
+{% if current_user.is_admin and resumo_unidades %}
+<div class="card-doc tab p-3 mb-4">
+  <h4 class="mb-3" style="font-size:1rem;">Comparativo entre unidades</h4>
+  <div class="table-responsive">
+    <table class="table-doc">
+      <thead>
+        <tr>
+          <th>Unidade</th>
+          <th>Processos ativos</th>
+          <th>Clientes ativos</th>
+          <th>Prazos críticos</th>
+          <th>Receita pendente</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in resumo_unidades %}
+        <tr>
+          <td><span class="pill-unidade">{{ r.unidade.codigo }}</span> {{ r.unidade.nome }}</td>
+          <td>{{ r.qtd_processos }}</td>
+          <td>{{ r.qtd_clientes }}</td>
+          <td>{% if r.qtd_prazos_criticos > 0 %}<span class="badge-status badge-perdido">{{ r.qtd_prazos_criticos }}</span>{% else %}—{% endif %}</td>
+          <td>{{ r.receita_pendente|moeda }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card-doc tab p-3 h-100">
+      <h4 class="mb-3" style="font-size:1rem;">Prazos em atenção</h4>
+      {% if prazos_vencendo %}
+        {% for p in prazos_vencendo %}
+        <div class="d-flex justify-content-between align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}" style="border-color: var(--paper-200) !important;">
+          <div>
+            <a href="{{ url_for('processos.detalhe', processo_id=p.processo_id) }}" class="linha-link" style="color: var(--ink-800); font-weight:500;">{{ p.descricao }}</a>
+            <div class="text-muted-doc small">{{ p.processo.numero_processo or p.processo.numero_interno or "sem número" }}
+              {% if current_user.is_admin %} · <span class="pill-unidade">{{ p.processo.unidade.codigo }}</span>{% endif %}
+            </div>
+          </div>
+          <span class="badge-status {% if p.data_vencimento < hoje %}badge-perdido{% else %}badge-pendente{% endif %}">{{ p.data_vencimento|data_br }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-doc small mb-0">Nenhum prazo crítico no momento.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card-doc tab p-3 h-100">
+      <h4 class="mb-3" style="font-size:1rem;">Próximas audiências</h4>
+      {% if proximas_audiencias %}
+        {% for a in proximas_audiencias %}
+        <div class="d-flex justify-content-between align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}" style="border-color: var(--paper-200) !important;">
+          <div>
+            <a href="{{ url_for('processos.detalhe', processo_id=a.processo_id) }}" class="linha-link" style="color: var(--ink-800); font-weight:500;">{{ a.tipo or "Audiência" }}</a>
+            <div class="text-muted-doc small">{{ a.processo.numero_processo or a.processo.numero_interno or "sem número" }} · {{ a.local or a.modalidade }}</div>
+          </div>
+          <span class="badge-status badge-agendada">{{ a.data_hora|data_hora_br }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-doc small mb-0">Nenhuma audiência agendada.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card-doc tab p-3 h-100">
+      <h4 class="mb-3" style="font-size:1rem;">Tarefas pendentes</h4>
+      {% if tarefas_pendentes %}
+        {% for t in tarefas_pendentes %}
+        <div class="d-flex justify-content-between align-items-start py-2 {% if not loop.last %}border-bottom{% endif %}" style="border-color: var(--paper-200) !important;">
+          <div>
+            <span style="font-weight:500;">{{ t.titulo }}</span>
+            <div class="text-muted-doc small">{{ t.responsavel.nome if t.responsavel else "sem responsável" }}</div>
+          </div>
+          <span class="badge-status badge-{{ t.prioridade }}">{{ t.data_vencimento|data_br if t.data_vencimento else "sem prazo" }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-doc small mb-0">Nenhuma tarefa pendente.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card-doc tab p-3 h-100">
+      <h4 class="mb-3" style="font-size:1rem;">Processos por área do direito</h4>
+      {% if processos_por_area %}
+        {% for area, qtd in processos_por_area.items() %}
+        <div class="d-flex justify-content-between align-items-center py-2 {% if not loop.last %}border-bottom{% endif %}" style="border-color: var(--paper-200) !important;">
+          <span>{{ area }}</span>
+          <span class="fw-semibold">{{ qtd }}</span>
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-muted-doc small mb-0">Nenhum processo cadastrado ainda.</p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+{% endblock %}
