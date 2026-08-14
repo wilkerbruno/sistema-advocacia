@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Resultado da importação — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Resultado da importação{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-3 mb-3">
+  <p class="mb-0"><strong>{{ criados }}</strong> de <strong>{{ total }}</strong> linhas cadastradas com sucesso.</p>
+</div>
+<table class="table-doc">
+  <thead><tr><th>Número</th><th>Resultado</th><th>Motivo</th></tr></thead>
+  <tbody>
+    {% for r in relatorio %}
+    <tr>
+      <td>{{ r.numero }}</td>
+      <td>{% if r.sucesso %}<span class="badge-status badge-cumprido">cadastrado</span>{% else %}<span class="badge-status badge-perdido">falhou</span>{% endif %}</td>
+      <td>{{ r.motivo or "—" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<a href="{{ url_for('processos.listar') }}" class="btn btn-brass mt-3">Ver processos</a>
+{% endblock %}

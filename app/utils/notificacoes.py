@@ -2,9 +2,11 @@ from datetime import datetime
 from flask import request
 from app.extensions import db
 from app.models import LogAtividade, Notificacao
+from app.utils.rede import obter_mac_por_ip
 
 
 def registrar_log(usuario, acao, entidade, entidade_id=None, detalhes=None):
+    ip = request.remote_addr if request else None
     log = LogAtividade(
         usuario_id=usuario.id if usuario else None,
         unidade_id=getattr(usuario, "unidade_id", None),
@@ -12,7 +14,8 @@ def registrar_log(usuario, acao, entidade, entidade_id=None, detalhes=None):
         entidade=entidade,
         entidade_id=entidade_id,
         detalhes=detalhes,
-        ip=request.remote_addr if request else None,
+        ip=ip,
+        mac_address=obter_mac_por_ip(ip) if ip else None,
     )
     db.session.add(log)
 

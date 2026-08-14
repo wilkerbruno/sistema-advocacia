@@ -6,7 +6,7 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento
+from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403
 from app.utils.notificacoes import registrar_log, notificar
 
@@ -116,7 +116,10 @@ def novo():
 def detalhe(processo_id):
     processo = db.get_or_404(Processo, processo_id)
     checar_acesso_unidade_ou_403(processo.unidade_id)
-    return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date())
+    from app.models import RegraProximaAcao
+    regras_ativas = RegraProximaAcao.query.filter_by(ativo=True).order_by(RegraProximaAcao.ato_capturado).all()
+    return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
+                            regras_ativas=regras_ativas)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -213,16 +216,73 @@ def add_prazo(processo_id):
 @processos_bp.route("/prazos/<int:prazo_id>/status", methods=["POST"])
 @login_required
 def atualizar_status_prazo(prazo_id):
+    """
+    Governança central do projeto (seção 7.2 do briefing): "o prazo só
+    fecha como cumprido quando o sistema encontra a movimentação de
+    protocolo correspondente no andamento do processo, ou quando é
+    anexado o comprovante de protocolo. Marcar como 'feito' no botão não
+    fecha o prazo sozinho."
+
+    Por isso este endpoint aceita qualquer status EXCETO "cumprido" —
+    fechar como cumprido só é permitido pela rota dedicada
+    `cumprir_prazo_com_evidencia`, que exige evidência.
+    """
     prazo = db.get_or_404(Prazo, prazo_id)
     checar_acesso_unidade_ou_403(prazo.processo.unidade_id)
     novo_status = request.form.get("status")
+
+    if novo_status == "cumprido":
+        flash("Prazo não pode ser marcado como cumprido sem evidência. "
+              "Anexe o comprovante de protocolo ou vincule a movimentação correspondente.", "warning")
+        return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+
     if novo_status in Prazo.STATUS:
         prazo.status = novo_status
-        if novo_status == "cumprido":
-            prazo.cumprido_em = datetime.utcnow()
         registrar_log(current_user, "status_prazo", "Prazo", prazo.id, novo_status)
         db.session.commit()
         flash("Status do prazo atualizado.", "info")
+    return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+
+
+@processos_bp.route("/prazos/<int:prazo_id>/cumprir-com-evidencia", methods=["POST"])
+@login_required
+def cumprir_prazo_com_evidencia(prazo_id):
+    """
+    Único caminho para fechar um prazo como cumprido (seção 7.2):
+    exige `evidencia_movimentacao_id` (uma Movimentacao já capturada/
+    registrada para o processo) OU `evidencia_documento_id` (um Documento
+    já anexado ao processo, ex: comprovante de protocolo).
+    """
+    prazo = db.get_or_404(Prazo, prazo_id)
+    checar_acesso_unidade_ou_403(prazo.processo.unidade_id)
+
+    evidencia_mov_id = request.form.get("evidencia_movimentacao_id") or None
+    evidencia_doc_id = request.form.get("evidencia_documento_id") or None
+
+    if not evidencia_mov_id and not evidencia_doc_id:
+        flash("Selecione uma movimentação capturada ou um documento comprobatório para fechar o prazo.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+
+    if evidencia_mov_id:
+        mov = db.session.get(Movimentacao, int(evidencia_mov_id))
+        if not mov or mov.processo_id != prazo.processo_id:
+            flash("Movimentação de evidência inválida para este processo.", "danger")
+            return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+        prazo.evidencia_movimentacao_id = mov.id
+
+    if evidencia_doc_id:
+        doc = db.get_or_404(Documento, int(evidencia_doc_id))
+        if doc.processo_id != prazo.processo_id:
+            flash("Documento de evidência inválido para este processo.", "danger")
+            return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+        prazo.evidencia_documento_id = doc.id
+
+    prazo.status = "cumprido"
+    prazo.cumprido_em = datetime.utcnow()
+    registrar_log(current_user, "cumprir_prazo_com_evidencia", "Prazo", prazo.id,
+                  f"mov={evidencia_mov_id} doc={evidencia_doc_id}")
+    db.session.commit()
+    flash("Prazo fechado como cumprido, com evidência registrada.", "success")
     return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
 
 

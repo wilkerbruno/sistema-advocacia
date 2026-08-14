@@ -4,10 +4,44 @@
 {% block cabecalho %}Trilha de auditoria{% endblock %}
 
 {% block conteudo %}
+<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
+  <p class="small mb-0">
+    A coluna MAC só é preenchida quando o dispositivo está na mesma rede
+    local do servidor (ex: uso dentro do escritório, ou em teste local).
+    Em produção no EasyPanel, o servidor fica em um datacenter e os
+    usuários acessam pela internet — nesse caso a coluna vai aparecer como
+    "—" quase sempre. Não é uma falha do sistema: nenhum servidor na
+    internet consegue descobrir o MAC de quem acessa de fora da própria
+    rede local, é uma limitação do próprio protocolo de rede.
+  </p>
+</div>
+<form method="get" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
+  <div class="col-md-4">
+    <label class="form-label small mb-1">Usuário</label>
+    <select name="usuario_id" class="form-select form-select-sm">
+      <option value="">Todos</option>
+      {% for u in usuarios %}
+      <option value="{{ u.id }}" {{ "selected" if filtro_usuario_id == u.id }}>{{ u.nome }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small mb-1">De</label>
+    <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ filtro_data_inicio or '' }}">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label small mb-1">Até</label>
+    <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ filtro_data_fim or '' }}">
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-brass btn-sm w-100">Filtrar</button>
+  </div>
+</form>
+
 <div class="card-doc tab p-0">
   {% if logs.items %}
   <table class="table-doc mb-0">
-    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th></tr></thead>
+    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>MAC</th></tr></thead>
     <tbody>
       {% for l in logs.items %}
       <tr>
@@ -17,6 +51,7 @@
         <td>{{ l.entidade }} {% if l.entidade_id %}#{{ l.entidade_id }}{% endif %}</td>
         <td class="text-muted-doc">{{ l.detalhes or "—" }}</td>
         <td class="text-muted-doc">{{ l.ip or "—" }}</td>
+        <td class="text-muted-doc" title="{{ '' if l.mac_address else 'Não resolvível: dispositivo fora da rede local do servidor' }}">{{ l.mac_address or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
@@ -31,7 +66,7 @@
   <ul class="pagination pagination-sm">
     {% for p in range(1, logs.pages + 1) %}
     <li class="page-item {{ 'active' if p == logs.page }}">
-      <a class="page-link" href="{{ url_for('admin.auditoria', pagina=p) }}">{{ p }}</a>
+      <a class="page-link" href="{{ url_for('admin.auditoria', pagina=p, usuario_id=filtro_usuario_id, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim) }}">{{ p }}</a>
     </li>
     {% endfor %}
   </ul>

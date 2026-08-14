@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block titulo %}Relatório semanal (preview) — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Relatório semanal — {{ inicio_semana|data_br }} a {{ fim_semana|data_br }}{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
+  <p class="small mb-0">
+    <strong>Preview apenas.</strong> O envio automático por e-mail (seção 10 do briefing)
+    ainda não está ligado — falta configurar SMTP (ou WhatsApp via Evolution API) e um
+    agendador no servidor. Este é exatamente o conteúdo que seria enviado.
+  </p>
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <p class="small text-muted-doc mb-2"><strong>Prazos desta semana ({{ prazos_da_semana|length }})</strong></p>
+  {% if prazos_da_semana %}
+  <ul class="small mb-0">
+    {% for p in prazos_da_semana %}
+    <li>{{ p.data_vencimento|data_br }} — {{ p.processo.numero_processo or p.processo.numero_interno }} — {{ p.descricao }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <p class="small text-muted-doc mb-2"><strong>Prazos perdidos na semana passada ({{ prazos_perdidos_semana_passada|length }})</strong></p>
+  {% if prazos_perdidos_semana_passada %}
+  <ul class="small mb-0">
+    {% for p in prazos_perdidos_semana_passada %}
+    <li>{{ p.data_vencimento|data_br }} — {{ p.processo.numero_processo or p.processo.numero_interno }} — {{ p.descricao }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <p class="small text-muted-doc mb-2"><strong>Processos parados há 30+ dias ({{ processos_parados|length }})</strong></p>
+  {% if processos_parados %}
+  <ul class="small mb-0">
+    {% for p in processos_parados %}
+    <li>{{ p.numero_processo or p.numero_interno }} — {{ p.cliente.nome }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+</div>
+
+<div class="card-doc tab p-3">
+  <p class="small text-muted-doc mb-2"><strong>Movimentações da semana ({{ movimentacoes_semana|length }})</strong></p>
+  {% if movimentacoes_semana %}
+  <ul class="small mb-0">
+    {% for m in movimentacoes_semana %}
+    <li>{{ m.data|data_hora_br }} — {{ m.processo.numero_processo or m.processo.numero_interno }} — {{ m.texto_integral[:100] }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}<p class="text-muted-doc small mb-0">Nenhuma.</p>{% endif %}
+</div>
+{% endblock %}

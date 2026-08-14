@@ -162,27 +162,45 @@ Acesse `http://localhost:5000`. Logins criados pelo seed:
 
 ## Aderência ao briefing de governança de carteira processual
 
-O documento enviado (`briefing-sistema-governanca-juridica`) descreve um
-sistema bem mais amplo do que "criar tabelas" — ele cobre também robôs de
-captura (Judit/Escavador/Digesto/DJE), workers assíncronos, dashboards de
-jurimetria e um motor de cálculo de prazo em dias úteis rodando em produção.
-O que foi feito agora é a **base de dados** para sustentar tudo isso:
+Atualização (13/08/2026): a maior parte do que dava para implementar sem
+depender de terceiros foi feita nesta rodada. Veja `PENDENCIAS.md` para o
+detalhamento item a item do que está pronto, o que está bloqueado e por quê.
 
-**Já modelado (tabelas prontas):**
-- Movimentação e Publicação capturadas (com hash de deduplicação e origem)
-- Decisão (base da jurimetria)
-- Mapa TPU → estado de negócio, e histórico de transição de estado
-- Motor de próxima ação (regras editáveis, pré-populadas com os atos mais comuns)
-- Prazo com evidência de cumprimento obrigatória e auditoria de alteração manual
-- Cofre de senha de processo (criptografado)
-- Log de captura (observabilidade dos robôs) e calendário de feriados forenses
-- Soft delete em Movimentação e Prazo (nunca exclusão física)
+Resumo rápido do que passou a funcionar de verdade (não só schema):
+- Cadastro de processo por número CNJ, com validação real do dígito
+  verificador (módulo 97) — `app/utils/cnj.py`.
+- Motor de prazos calculando data fatal em dias úteis, lendo a tabela de
+  feriados/recesso forense — `app/utils/prazos_engine.py`.
+- Fechamento de prazo como "cumprido" agora **exige evidência** (movimentação
+  capturada ou documento anexado) — não é mais possível fechar só no clique.
+- Máquina de estados traduzindo automaticamente o código TPU da movimentação
+  para o estado de negócio, com fila de triagem para código não mapeado —
+  `app/utils/estado_processual_engine.py`.
+- Motor de próxima ação criando prazo automaticamente a partir de uma
+  movimentação (por código TPU ou por texto do ato).
+- Cofre de senha de processo com criptografia Fernet real (cifra/decifra) —
+  `app/utils/cofre.py`.
+- Fila de intimações, painel de governança (prazos por janela, processos
+  parados, exposição financeira, movimentações críticas, não monitoráveis) e
+  tela de métricas de governança — `app/routes/governanca.py`.
+- Auditoria com filtro por usuário e período.
+- Export CSV autenticado (processos/movimentações/decisões/prazos) para uso
+  em Data Lake externo.
+- Preview do relatório semanal (o envio automático continua bloqueado — ver `PENDENCIAS.md`).
 
-**Ainda não incluído neste pacote** (é integração/infraestrutura, não schema):
-- Os robôs de captura em si (integração com Judit/Escavador/Digesto/Codilo ou scraping de DJE)
-- Fila assíncrona (Celery/RQ) para rodar a captura periodicamente
-- O motor de cálculo de prazo em dias úteis lendo `Feriado` automaticamente (hoje o campo existe, mas o cálculo ainda é manual na tela)
-- Telas de jurimetria/dashboards analíticos (as tabelas `Decisao`/`HistoricoEstadoProcesso` já existem para alimentá-los)
-- Criptografia efetiva do cofre de senha (o campo `COFRE_SENHA_PROCESSO_KEY` está previsto no `.env`, mas a rotina de cifrar/decifrar ainda precisa ser implementada)
+**Bloqueado nesta rodada** (não é falta de código, é decisão/credencial que
+só você resolve): captura automática real (Judit/Escavador/Digesto/Codilo),
+envio de e-mail/WhatsApp, integração com o For Legal / Data Lake do
+escritório, Google OAuth, e a divergência de arquitetura entre o "sistema
+interno multiunidade" que existe e o "observatório single-user read-only"
+descrito na fase 1 do briefing. Detalhes e o porquê de cada um em `PENDENCIAS.md`.
 
-Esses pontos dá para priorizar em uma próxima etapa, um de cada vez.
+**Importante sobre teste:** este ambiente de geração de código não tem
+acesso de rede ao MySQL do EasyPanel (só alcança PyPI/GitHub/npm), então a
+validação foi feita com checagem de sintaxe (`py_compile`) e inicialização
+do app sem conectar a nenhum banco. Nenhuma tabela nova foi criada — o
+schema já existente sustenta tudo o que foi implementado, então
+`python criar_tabelas.py` não precisa rodar de novo por causa disso. Mas
+vale testar o fluxo completo (cadastrar por CNJ, registrar movimentação,
+fechar prazo com evidência, cofre de senha) no seu ambiente antes de usar
+em produção — não ficou testado contra o banco real.

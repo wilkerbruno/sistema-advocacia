@@ -51,3 +51,17 @@ class Config:
     # Em produção real, mover para um Vault/KMS dedicado; isso aqui é o
     # mínimo necessário para nunca gravar a senha em texto puro no banco.
     COFRE_SENHA_PROCESSO_KEY = os.environ.get("COFRE_SENHA_PROCESSO_KEY", "")
+
+    # API de leitura autenticada para o Data Lake do escritório (seção 12).
+    # Sem essa variável definida, a API /api/v1/* responde 503 (nunca abre
+    # os dados sem token configurado).
+    DATALAKE_API_TOKEN = os.environ.get("DATALAKE_API_TOKEN", "")
+
+    # Envio do relatório semanal por e-mail (seção 10). Sem essas variáveis,
+    # o script enviar_relatorio_semanal.py avisa e não tenta enviar.
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USER = os.environ.get("SMTP_USER", "")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
+    SMTP_REMETENTE = os.environ.get("SMTP_REMETENTE", "")
+    RELATORIO_SEMANAL_DESTINATARIOS = os.environ.get("RELATORIO_SEMANAL_DESTINATARIOS", "")  # e-mails separados por vírgula

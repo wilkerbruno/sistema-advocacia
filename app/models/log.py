@@ -16,4 +16,5 @@ class LogAtividade(db.Model):
     entidade_id = db.Column(db.Integer)
     detalhes = db.Column(db.String(500))
     ip = db.Column(db.String(45))
+    mac_address = db.Column(db.String(20))  # best-effort via tabela ARP — só resolve em rede local, ver app/utils/rede.py
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)

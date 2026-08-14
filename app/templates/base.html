@@ -42,6 +42,26 @@
         <span class="tab-index">05</span> Financeiro
       </a>
 
+      <div class="grupo-titulo">Governança de carteira</div>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.painel' }}" href="{{ url_for('governanca.painel') }}">
+        <span class="tab-index">G1</span> Painel de governança
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.fila_intimacoes' }}" href="{{ url_for('governanca.fila_intimacoes') }}">
+        <span class="tab-index">G2</span> Fila de intimações
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.metricas' }}" href="{{ url_for('governanca.metricas') }}">
+        <span class="tab-index">G3</span> Métricas
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.novo_por_cnj' }}" href="{{ url_for('governanca.novo_por_cnj') }}">
+        <span class="tab-index">G4</span> Cadastro por CNJ
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.importar_lote' }}" href="{{ url_for('governanca.importar_lote') }}">
+        <span class="tab-index">G5</span> Importar em lote
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.relatorio_semanal_preview' }}" href="{{ url_for('governanca.relatorio_semanal_preview') }}">
+        <span class="tab-index">G6</span> Relatório semanal (preview)
+      </a>
+
       {% if current_user.is_authenticated and current_user.pode_gerenciar_usuarios() %}
       <div class="grupo-titulo">Gestão</div>
       {% if current_user.is_admin %}

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}Fila de intimações — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Fila de intimações{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Todos os prazos pendentes, ordenados por data fatal — a tela de trabalho do dia (seção 7.2 do briefing).
+</p>
+{% if prazos %}
+<table class="table-doc">
+  <thead>
+    <tr>
+      <th>Processo</th><th>Cliente</th><th>Ato / ação exigida</th><th>Responsável</th>
+      <th>Data fatal</th><th>Dias restantes</th><th>Status</th><th>Evidência</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in prazos %}
+    {% set dias_restantes = (p.data_vencimento - hoje).days %}
+    <tr>
+      <td><a href="{{ url_for('processos.detalhe', processo_id=p.processo_id) }}">{{ p.processo.numero_processo or p.processo.numero_interno }}</a></td>
+      <td>{{ p.processo.cliente.nome }}</td>
+      <td>{{ p.descricao }}</td>
+      <td>{{ p.responsavel.nome if p.responsavel else "—" }}</td>
+      <td>{{ p.data_vencimento|data_br }}</td>
+      <td>
+        {% if dias_restantes < 0 %}<span class="badge-status badge-perdido">{{ -dias_restantes }} dia(s) atrasado</span>
+        {% elif dias_restantes == 0 %}<span class="badge-status badge-urgente">vence hoje</span>
+        {% else %}{{ dias_restantes }} dia(s){% endif %}
+      </td>
+      <td><span class="badge-status badge-{{ p.status }}">{{ p.status }}</span></td>
+      <td>{{ "com evidência" if (p.evidencia_movimentacao_id or p.evidencia_documento_id) else "sem evidência" }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted-doc small">Nenhum prazo pendente na fila.</p>
+{% endif %}
+{% endblock %}

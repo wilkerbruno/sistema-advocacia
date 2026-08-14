@@ -24,6 +24,25 @@
       {% if current_user.is_admin %}<p class="small mb-1"><strong>Unidade:</strong> <span class="pill-unidade">{{ processo.unidade.codigo }}</span> {{ processo.unidade.nome }}</p>{% endif %}
       {% if processo.descricao %}<hr class="divider-doc"><p class="small mb-0">{{ processo.descricao }}</p>{% endif %}
     </div>
+
+    <div class="card-doc tab p-3 mb-4">
+      <p class="small mb-1"><strong>Estado de negócio:</strong> {{ processo.estado_negocio_atual or "—" }}</p>
+      <p class="small mb-1"><strong>Última movimentação:</strong> {{ processo.ultima_movimentacao_em|data_hora_br if processo.ultima_movimentacao_em else "—" }}</p>
+      <p class="small mb-1">
+        <strong>Acompanhamento:</strong>
+        {% if processo.monitoravel %}<span class="badge-status badge-cumprido">{{ processo.forma_acompanhamento }}</span>
+        {% else %}<span class="badge-status badge-perdido">não monitorável</span>{% endif %}
+      </p>
+      {% if not processo.monitoravel and processo.motivo_nao_monitoravel %}
+      <p class="small text-muted-doc mb-0">Motivo: {{ processo.motivo_nao_monitoravel }}</p>
+      {% endif %}
+      {% if not processo.monitoravel %}
+      <form method="post" action="{{ url_for('governanca.marcar_nao_monitoravel', processo_id=processo.id) }}" class="mt-2">
+        <input type="text" name="motivo" class="form-control form-control-sm mb-1" placeholder="Atualizar motivo (opcional)">
+        <button class="btn btn-outline-doc btn-sm w-100">Atualizar marcação</button>
+      </form>
+      {% endif %}
+    </div>
   </div>
 
   <div class="col-lg-8">
@@ -32,6 +51,8 @@
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#prazos" type="button">Prazos {% if processo.prazos|selectattr('status','equalto','pendente')|list|length %}<span class="badge-status badge-pendente">{{ processo.prazos|selectattr('status','equalto','pendente')|list|length }}</span>{% endif %}</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#audiencias" type="button">Audiências</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#documentos" type="button">Documentos</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#governanca-mov" type="button">Governança {% if processo.movimentacoes|selectattr('triagem_pendente')|list|length %}<span class="badge-status badge-pendente">{{ processo.movimentacoes|selectattr('triagem_pendente')|list|length }} em triagem</span>{% endif %}</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cofre" type="button">Cofre de senha</button></li>
     </ul>
 
     <div class="tab-content">
@@ -96,11 +117,31 @@
               <td><span class="badge-status badge-{{ p.prioridade }}">{{ p.prioridade }}</span></td>
               <td><span class="badge-status badge-{{ p.status }}">{{ p.status }}</span></td>
               <td>
-                {% if p.status == "pendente" %}
-                <form method="post" action="{{ url_for('processos.atualizar_status_prazo', prazo_id=p.id) }}" class="d-flex gap-1">
-                  <button name="status" value="cumprido" class="btn btn-outline-doc btn-sm">Cumprido</button>
-                  <button name="status" value="perdido" class="btn btn-outline-doc btn-sm">Perdido</button>
+                {% if p.status not in ("cumprido",) %}
+                <form method="post" action="{{ url_for('processos.atualizar_status_prazo', prazo_id=p.id) }}" class="d-inline">
+                  <button name="status" value="perdido" class="btn btn-outline-doc btn-sm">Marcar perdido</button>
                 </form>
+                <details class="d-inline-block ms-1">
+                  <summary class="btn btn-outline-doc btn-sm">Fechar com evidência</summary>
+                  <form method="post" action="{{ url_for('processos.cumprir_prazo_com_evidencia', prazo_id=p.id) }}"
+                        class="card-doc p-2 mt-1" style="min-width:260px;">
+                    <label class="form-label small mb-1">Movimentação capturada (protocolo)</label>
+                    <select name="evidencia_movimentacao_id" class="form-select form-select-sm mb-2">
+                      <option value="">— nenhuma —</option>
+                      {% for m in processo.movimentacoes %}
+                      <option value="{{ m.id }}">{{ m.data|data_hora_br }} — {{ m.texto_integral[:60] }}</option>
+                      {% endfor %}
+                    </select>
+                    <label class="form-label small mb-1">Ou documento comprobatório</label>
+                    <select name="evidencia_documento_id" class="form-select form-select-sm mb-2">
+                      <option value="">— nenhum —</option>
+                      {% for d in processo.documentos %}
+                      <option value="{{ d.id }}">{{ d.nome_original }}</option>
+                      {% endfor %}
+                    </select>
+                    <button class="btn btn-brass btn-sm w-100">Confirmar cumprimento</button>
+                  </form>
+                </details>
                 {% endif %}
               </td>
             </tr>
@@ -196,6 +237,86 @@
         {% else %}
         <p class="text-muted-doc small">Nenhum documento anexado.</p>
         {% endif %}
+      </div>
+
+      <!-- GOVERNANÇA: movimentações capturadas/registradas -->
+      <div class="tab-pane fade" id="governanca-mov">
+        <div class="card-doc tab p-3 mb-3">
+          <p class="small text-muted-doc mb-2">
+            Sem conector de captura automática configurado, registre aqui manualmente
+            (stand-in) — o registro roda a mesma máquina de estados e motor de próxima
+            ação que rodariam automaticamente com uma fonte real (ver README).
+          </p>
+          <form method="post" action="{{ url_for('governanca.nova_movimentacao', processo_id=processo.id) }}" class="row g-2">
+            <div class="col-md-3"><input type="datetime-local" name="data" class="form-control form-control-sm"></div>
+            <div class="col-md-2"><input type="text" name="codigo_tpu" class="form-control form-control-sm" placeholder="Código TPU"></div>
+            <div class="col-md-5"><input type="text" name="texto_integral" class="form-control form-control-sm" placeholder="Texto da movimentação" list="lista-atos" required></div>
+            <div class="col-md-2"><button class="btn btn-brass btn-sm w-100">Registrar</button></div>
+          </form>
+          <datalist id="lista-atos">
+            {% for r in regras_ativas %}
+            <option value="{{ r.ato_capturado }}">
+            {% endfor %}
+          </datalist>
+          <p class="small text-muted-doc mt-2 mb-0">
+            Dica: se o texto contiver o nome exato de um dos atos cadastrados no motor de
+            próxima ação (sugestões ao digitar), o prazo correspondente é criado automaticamente.
+          </p>
+        </div>
+        {% if processo.movimentacoes %}
+        <table class="table-doc">
+          <thead><tr><th>Data</th><th>Código TPU</th><th>Texto</th><th>Estado resultante</th></tr></thead>
+          <tbody>
+            {% for m in processo.movimentacoes %}
+            <tr>
+              <td>{{ m.data|data_hora_br }}</td>
+              <td>{{ m.codigo_tpu or "—" }}</td>
+              <td>{{ m.texto_integral[:100] }}</td>
+              <td>
+                {% if m.triagem_pendente %}<span class="badge-status badge-pendente">triagem pendente</span>
+                {% else %}{{ m.estado_negocio_resultante or "—" }}{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted-doc small">Nenhuma movimentação registrada ainda.</p>
+        {% endif %}
+
+        <div class="card-doc tab p-3 mt-3">
+          <p class="small text-muted-doc mb-1"><strong>Histórico de estados</strong></p>
+          {% if processo.historico_estados %}
+          <ul class="small mb-0">
+            {% for h in processo.historico_estados %}
+            <li>{{ h.data_evento|data_hora_br }} — {{ h.estado_negocio }}</li>
+            {% endfor %}
+          </ul>
+          {% else %}
+          <p class="text-muted-doc small mb-0">Nenhuma transição de estado registrada ainda.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- COFRE DE SENHA -->
+      <div class="tab-pane fade" id="cofre">
+        <div class="card-doc tab p-3">
+          {% if processo.senha_processo %}
+          <p class="small mb-1"><strong>Tribunal:</strong> {{ processo.senha_processo.tribunal or "—" }}</p>
+          <p class="small mb-1"><strong>Cadastrada por:</strong> {{ processo.senha_processo.cadastrado_por.nome }} em {{ processo.senha_processo.cadastrado_em|data_hora_br }}</p>
+          <p class="small text-muted-doc mb-3">Último acesso: {{ processo.senha_processo.ultimo_acesso_em|data_hora_br if processo.senha_processo.ultimo_acesso_em else "nunca" }}{% if processo.senha_processo.ultimo_acesso_por %} — {{ processo.senha_processo.ultimo_acesso_por.nome }}{% endif %}</p>
+          <form method="post" action="{{ url_for('governanca.ver_senha_processo', processo_id=processo.id) }}" class="d-inline">
+            <button class="btn btn-outline-doc btn-sm">Ver senha (registra acesso)</button>
+          </form>
+          <hr class="divider-doc">
+          <p class="small mb-2">Atualizar senha:</p>
+          {% endif %}
+          <form method="post" action="{{ url_for('governanca.cadastrar_senha_processo', processo_id=processo.id) }}" class="row g-2">
+            <div class="col-md-4"><input type="text" name="tribunal" class="form-control form-control-sm" placeholder="Tribunal (ex: e-SAJ TJSP)" value="{{ processo.senha_processo.tribunal if processo.senha_processo else '' }}"></div>
+            <div class="col-md-5"><input type="password" name="valor" class="form-control form-control-sm" placeholder="Senha do processo" required></div>
+            <div class="col-md-3"><button class="btn btn-brass btn-sm w-100">{{ "Atualizar" if processo.senha_processo else "Cadastrar no cofre" }}</button></div>
+          </form>
+        </div>
       </div>
     </div>
   </div>

@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block titulo %}Importar em lote — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Importar processos em lote (CSV){% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width:640px;">
+  <p class="small text-muted-doc mb-3">
+    Envie um arquivo <code>.csv</code> com um número CNJ por linha (pode ter
+    cabeçalho). Cada linha é validada (dígito verificador) e cadastrada;
+    números inválidos ou já existentes aparecem no relatório de resultado,
+    nunca são ignorados silenciosamente.
+  </p>
+  <p class="small text-muted-doc mb-3">
+    <strong>Limitação atual:</strong> o processamento é síncrono (sem fila
+    assíncrona provisionada) — para lotes muito grandes a página pode
+    demorar a responder. Para os ~500 processos do briefing, deve funcionar,
+    mas vale testar com um lote pequeno primeiro.
+  </p>
+  <form method="post" enctype="multipart/form-data">
+    <div class="mb-3">
+      <label class="form-label">Arquivo CSV</label>
+      <input type="file" name="arquivo_csv" accept=".csv" class="form-control" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Cliente (aplicado a todos os processos do lote)</label>
+      <select name="cliente_id" class="form-select" required>
+        <option value="">Selecione...</option>
+        {% for c in clientes %}
+        <option value="{{ c.id }}">{{ c.nome }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Área do direito</label>
+      <input type="text" name="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
+    </div>
+    <button class="btn btn-brass">Importar</button>
+  </form>
+</div>
+{% endblock %}

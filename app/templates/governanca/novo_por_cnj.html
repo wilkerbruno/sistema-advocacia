@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block titulo %}Cadastro por CNJ — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Cadastrar processo por número CNJ{% endblock %}
+
+{% block conteudo %}
+<div class="row">
+  <div class="col-lg-7">
+    <div class="card-doc tab p-4">
+      <p class="small text-muted-doc mb-3">
+        Digite ou cole o número CNJ (20 dígitos). O sistema valida o dígito
+        verificador (módulo 97) antes de cadastrar — se ainda não houver
+        provedor de captura configurado, o processo é cadastrado mesmo assim,
+        mas marcado como <strong>não monitorável automaticamente</strong>,
+        para nunca ficar um buraco silencioso na carteira.
+      </p>
+      <form method="post">
+        <div class="mb-3">
+          <label class="form-label">Número CNJ</label>
+          <input type="text" name="numero_cnj" class="form-control" placeholder="0000000-00.0000.0.00.0000" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Cliente</label>
+          <select name="cliente_id" class="form-select" required>
+            <option value="">Selecione...</option>
+            {% for c in clientes %}
+            <option value="{{ c.id }}">{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Área do direito</label>
+          <input type="text" name="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
+        </div>
+        {% if unidades %}
+        <div class="mb-3">
+          <label class="form-label">Unidade</label>
+          <select name="unidade_id" class="form-select" required>
+            {% for u in unidades %}
+            <option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <div class="form-check mb-3">
+          <input type="checkbox" name="segredo_justica" class="form-check-input" id="segredo">
+          <label class="form-check-label" for="segredo">Segredo de justiça</label>
+        </div>
+        <button class="btn btn-brass">Validar e cadastrar</button>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="card-doc tab p-3">
+      <p class="small mb-1"><strong>Precisa de vários processos de uma vez?</strong></p>
+      <p class="small text-muted-doc">Use a <a href="{{ url_for('governanca.importar_lote') }}">importação em lote (CSV)</a>.</p>
+    </div>
+  </div>
+</div>
+{% endblock %}

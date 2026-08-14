@@ -1,4 +1,5 @@
 from flask import Blueprint, render_template, request, redirect, url_for, flash
+from datetime import datetime, timedelta
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
@@ -187,5 +188,19 @@ def relatorios():
 @apenas_admin
 def auditoria():
     pagina = request.args.get("pagina", 1, type=int)
-    logs = LogAtividade.query.order_by(LogAtividade.criado_em.desc()).paginate(page=pagina, per_page=50)
-    return render_template("admin/auditoria.html", logs=logs)
+    usuario_id = request.args.get("usuario_id", type=int)
+    data_inicio = request.args.get("data_inicio")
+    data_fim = request.args.get("data_fim")
+
+    query = LogAtividade.query
+    if usuario_id:
+        query = query.filter(LogAtividade.usuario_id == usuario_id)
+    if data_inicio:
+        query = query.filter(LogAtividade.criado_em >= datetime.strptime(data_inicio, "%Y-%m-%d"))
+    if data_fim:
+        query = query.filter(LogAtividade.criado_em < datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1))
+
+    logs = query.order_by(LogAtividade.criado_em.desc()).paginate(page=pagina, per_page=50)
+    usuarios = Usuario.query.order_by(Usuario.nome).all()
+    return render_template("admin/auditoria.html", logs=logs, usuarios=usuarios,
+                            filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim)
