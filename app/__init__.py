@@ -39,6 +39,8 @@ def create_app(config_class=Config):
     from app.routes.api import api_bp
     from app.routes.governanca import governanca_bp
     from app.routes.api_integracao import api_integracao_bp
+    from app.routes.plataforma import plataforma_bp
+    from app.routes.licenciamento import licenciamento_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -50,6 +52,46 @@ def create_app(config_class=Config):
     app.register_blueprint(api_bp, url_prefix="/api")
     app.register_blueprint(governanca_bp, url_prefix="/governanca")
     app.register_blueprint(api_integracao_bp, url_prefix="/api/v1")
+    app.register_blueprint(plataforma_bp, url_prefix="/plataforma")
+    app.register_blueprint(licenciamento_bp)
+
+    # ---------------------- Bloqueio por licença vencida ----------------------
+    # Admin desenvolvedor e a empresa dona da plataforma nunca são bloqueados.
+    # Demais empresas: se a licença não está ativa, só conseguem acessar
+    # login/logout e a própria área de licenciamento (pra poder pagar).
+    ENDPOINTS_SEMPRE_LIBERADOS = {
+        "auth.login", "auth.logout", "static",
+        "licenciamento.minha_licenca", "licenciamento.pagar_licenca",
+        "licenciamento.pagamento_retorno", "licenciamento.webhook_mercadopago",
+    }
+
+    @app.before_request
+    def bloquear_empresa_sem_licenca_ativa():
+        from flask import request as req, redirect as redir, url_for as urlf, flash as fl
+        from flask_login import current_user as cu
+
+        if req.endpoint in ENDPOINTS_SEMPRE_LIBERADOS or req.endpoint is None:
+            return None
+        if not cu.is_authenticated:
+            return None
+        if cu.is_admin_desenvolvedor:
+            return None
+
+        empresa = cu.empresa
+        if empresa is None or empresa.dono_da_plataforma:
+            return None
+
+        licenca = empresa.licenca
+        if licenca is not None and licenca.esta_ativa():
+            return None
+
+        if cu.is_admin:
+            fl("A licença da sua empresa está vencida ou pendente de pagamento. "
+               "Regularize para voltar a usar o sistema.", "danger")
+            return redir(urlf("licenciamento.minha_licenca"))
+        from flask import render_template as rt
+        return rt("erro.html", codigo=402,
+                   mensagem="A licença da sua empresa está vencida. Fale com o administrador da sua conta."), 402
 
     from app.utils.notificacoes import contar_notificacoes_nao_lidas
 
