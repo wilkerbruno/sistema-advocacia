@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar empresa" if empresa else "Nova empresa" }} — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}{{ "Editar empresa" if empresa else "Nova empresa cliente" }}{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 720px;">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Nome da empresa *</label>
+        <input type="text" name="nome" class="form-control" required value="{{ empresa.nome if empresa else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">CNPJ</label>
+        <input type="text" name="cnpj" class="form-control" value="{{ empresa.cnpj if empresa else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">E-mail de contato</label>
+        <input type="email" name="email_contato" class="form-control" value="{{ empresa.email_contato if empresa else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Telefone</label>
+        <input type="text" name="telefone" class="form-control" value="{{ empresa.telefone if empresa else '' }}">
+      </div>
+
+      {% if not empresa %}
+      <div class="col-12"><hr class="divider-doc"><p class="small text-muted-doc mb-0">Primeira unidade e primeiro admin da empresa</p></div>
+      <div class="col-md-6">
+        <label class="form-label">Nome da unidade</label>
+        <input type="text" name="unidade_nome" class="form-control" placeholder="Matriz" value="Matriz">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Código da unidade *</label>
+        <input type="text" name="unidade_codigo" class="form-control" required placeholder="EMP-01">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Nome do admin *</label>
+        <input type="text" name="admin_nome" class="form-control" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">E-mail do admin *</label>
+        <input type="email" name="admin_email" class="form-control" required>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Senha inicial *</label>
+        <input type="password" name="admin_senha" class="form-control" required>
+      </div>
+
+      <div class="col-12"><hr class="divider-doc"><p class="small text-muted-doc mb-0">Licença inicial (valor negociado com esta empresa — não é uma tabela pública)</p></div>
+      <div class="col-md-4">
+        <label class="form-label">Plano</label>
+        <select name="plano" class="form-select">
+          <option value="mensal">Mensal</option>
+          <option value="trimestral">Trimestral</option>
+          <option value="anual">Anual</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Valor por ciclo (R$) *</label>
+        <input type="text" name="valor_negociado" class="form-control" required placeholder="0,00">
+      </div>
+      {% else %}
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="ativa" id="ativa" {{ "checked" if empresa.ativa }}>
+          <label class="form-check-label small" for="ativa">Empresa ativa</label>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Salvar</button>
+      <a href="{{ url_for('plataforma.empresas') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

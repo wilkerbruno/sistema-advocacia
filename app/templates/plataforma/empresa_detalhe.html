@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titulo %}{{ empresa.nome }} — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}{{ empresa.nome }}{% endblock %}
+
+{% block conteudo %}
+<div class="row g-3 mb-3">
+  <div class="col-md-6">
+    <div class="card-doc tab p-3">
+      <p class="small mb-1"><strong>CNPJ:</strong> {{ empresa.cnpj or "—" }}</p>
+      <p class="small mb-1"><strong>Contato:</strong> {{ empresa.email_contato or "—" }} {{ empresa.telefone or "" }}</p>
+      <p class="small mb-0"><strong>Status:</strong> {{ "ativa" if empresa.ativa else "inativa" }}</p>
+      <a href="{{ url_for('plataforma.editar_empresa', empresa_id=empresa.id) }}" class="btn btn-outline-doc btn-sm mt-2">Editar</a>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card-doc tab p-3">
+      {% if empresa.licenca %}
+      <p class="small mb-1"><strong>Plano:</strong> {{ empresa.licenca.plano }}</p>
+      <p class="small mb-1"><strong>Valor negociado:</strong> {{ empresa.licenca.valor_negociado|moeda }}</p>
+      <p class="small mb-1"><strong>Status:</strong>
+        {% if empresa.licenca.esta_ativa() %}<span class="badge-status badge-cumprido">ativa até {{ empresa.licenca.data_fim|data_br }}</span>
+        {% else %}<span class="badge-status badge-perdido">{{ empresa.licenca.status }}</span>{% endif %}
+      </p>
+      {% else %}
+      <p class="small text-muted-doc mb-0">Sem licença definida ainda.</p>
+      {% endif %}
+      <a href="{{ url_for('plataforma.licenca_empresa', empresa_id=empresa.id) }}" class="btn btn-outline-doc btn-sm mt-2">Gerenciar licença</a>
+    </div>
+  </div>
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <p class="small text-muted-doc mb-2"><strong>Unidades ({{ unidades|length }})</strong></p>
+  <table class="table-doc">
+    <thead><tr><th>Código</th><th>Nome</th><th>Cidade/UF</th><th>Ativa</th></tr></thead>
+    <tbody>
+      {% for u in unidades %}
+      <tr><td>{{ u.codigo }}</td><td>{{ u.nome }}</td><td>{{ u.cidade or "—" }}/{{ u.estado or "—" }}</td><td>{{ "sim" if u.ativa else "não" }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card-doc tab p-3">
+  <p class="small text-muted-doc mb-2"><strong>Usuários ({{ usuarios|length }})</strong></p>
+  <table class="table-doc">
+    <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th><th>Unidade</th></tr></thead>
+    <tbody>
+      {% for u in usuarios %}
+      <tr><td>{{ u.nome }}</td><td>{{ u.email }}</td><td>{{ u.papel }}</td><td>{{ u.unidade.codigo }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

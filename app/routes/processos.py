@@ -7,7 +7,7 @@ from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
 from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
 
 processos_bp = Blueprint("processos", __name__)
@@ -50,7 +50,7 @@ def listar():
         query = query.filter(Processo.unidade_id == int(unidade_filtro))
 
     processos = query.order_by(Processo.atualizado_em.desc()).all()
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
     return render_template("processos/listar.html", processos=processos, unidades=unidades,
                             status=status, area=area, termo=termo)
 
@@ -58,7 +58,7 @@ def listar():
 @processos_bp.route("/novo", methods=["GET", "POST"])
 @login_required
 def novo():
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = aplicar_escopo_unidade(Unidade.query, Unidade, "id").filter_by(ativa=True).all() if current_user.is_admin else None
     minha_unidade_id = None if current_user.is_admin else current_user.unidade_id
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).filter_by(ativo=True).order_by(Cliente.nome).all()
 
@@ -105,7 +105,7 @@ def novo():
 
     responsaveis = Usuario.query.filter_by(
         unidade_id=minha_unidade_id, ativo=True
-    ).all() if minha_unidade_id else Usuario.query.filter_by(ativo=True).all()
+    ).all() if minha_unidade_id else usuarios_do_escopo()
 
     return render_template("processos/form.html", processo=None, unidades=unidades,
                             clientes=clientes, responsaveis=responsaveis)
@@ -127,7 +127,7 @@ def detalhe(processo_id):
 def editar(processo_id):
     processo = db.get_or_404(Processo, processo_id)
     checar_acesso_unidade_ou_403(processo.unidade_id)
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).order_by(Cliente.nome).all()
     responsaveis = Usuario.query.filter_by(unidade_id=processo.unidade_id, ativo=True).all()
 

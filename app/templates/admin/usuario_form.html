@@ -27,13 +27,16 @@
         </select>
       </div>
       <div class="col-md-4" id="campoUnidade">
-        <label class="form-label">Unidade</label>
-        <select name="unidade_id" class="form-select">
+        <label class="form-label">Unidade *</label>
+        <select name="unidade_id" class="form-select" required>
           <option value="">—</option>
           {% for u in unidades %}
-          <option value="{{ u.id }}" {{ "selected" if usuario and usuario.unidade_id == u.id }}>{{ u.codigo }} — {{ u.nome }}</option>
+          <option value="{{ u.id }}" {{ "selected" if usuario and usuario.unidade_id == u.id }}>{{ u.codigo }} — {{ u.nome }}{% if current_user.is_admin_desenvolvedor %} ({{ u.empresa.nome }}){% endif %}</option>
           {% endfor %}
         </select>
+        {% if current_user.is_admin_desenvolvedor %}
+        <p class="small text-muted-doc mt-1 mb-0">A unidade escolhida define de qual empresa este usuário faz parte.</p>
+        {% endif %}
       </div>
       {% else %}
       <div class="col-md-4">
@@ -74,14 +77,4 @@
     </div>
   </form>
 </div>
-
-<script>
-  const selectPapel = document.getElementById('selectPapel');
-  const campoUnidade = document.getElementById('campoUnidade');
-  function alternarUnidade() {
-    if (!selectPapel) return;
-    campoUnidade.style.display = selectPapel.value === 'admin' ? 'none' : '';
-  }
-  if (selectPapel) { selectPapel.addEventListener('change', alternarUnidade); alternarUnidade(); }
-</script>
 {% endblock %}

@@ -1,3 +1,4 @@
+from .empresa import Empresa
 from .unidade import Unidade
 from .usuario import Usuario
 from .cliente import Cliente
@@ -10,8 +11,10 @@ from .movimentacao import Movimentacao, Publicacao, Decisao
 from .estado_processual import MapaEstadoTPU, HistoricoEstadoProcesso, RegraProximaAcao
 from .senha_processo import SenhaProcesso
 from .observabilidade import Feriado, LogCaptura
+from .licenca import Licenca, Pagamento
 
 __all__ = [
+    "Empresa",
     "Unidade",
     "Usuario",
     "Cliente",
@@ -33,4 +36,6 @@ __all__ = [
     "SenhaProcesso",
     "Feriado",
     "LogCaptura",
+    "Licenca",
+    "Pagamento",
 ]

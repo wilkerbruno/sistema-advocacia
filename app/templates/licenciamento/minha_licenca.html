@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block titulo %}Minha licença — JusControl{% endblock %}
+{% block eyebrow %}Minha empresa{% endblock %}
+{% block cabecalho %}Licença{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 560px;">
+  {% if not licenca %}
+  <p class="text-muted-doc">Sua empresa ainda não tem um plano definido. Entre em contato com o suporte.</p>
+  {% else %}
+  <p class="small mb-1"><strong>Plano:</strong> {{ licenca.plano|capitalize }}</p>
+  <p class="small mb-1"><strong>Valor:</strong> {{ licenca.valor_negociado|moeda }} / {{ licenca.plano }}</p>
+  <p class="small mb-3">
+    <strong>Status:</strong>
+    {% if licenca.esta_ativa() %}
+      <span class="badge-status badge-cumprido">ativa até {{ licenca.data_fim|data_br }}</span>
+    {% else %}
+      <span class="badge-status badge-perdido">{{ "pendente de pagamento" if licenca.status == "pendente_pagamento" else licenca.status }}</span>
+    {% endif %}
+  </p>
+
+  {% if not licenca.esta_ativa() %}
+  <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
+    <button class="btn btn-brass">Pagar {{ licenca.valor_negociado|moeda }} via Mercado Pago</button>
+  </form>
+  {% else %}
+  <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
+    <button class="btn btn-outline-doc btn-sm">Renovar antecipadamente</button>
+  </form>
+  {% endif %}
+  {% endif %}
+</div>
+{% endblock %}

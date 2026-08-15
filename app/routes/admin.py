@@ -3,8 +3,8 @@ from datetime import datetime, timedelta
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
-from app.models import Unidade, Usuario, Processo, Cliente, Lancamento, LogAtividade
-from app.utils.acesso import apenas_admin, login_papel_requerido
+from app.models import Unidade, Usuario, Processo, Cliente, Lancamento, LogAtividade, Empresa
+from app.utils.acesso import apenas_admin, login_papel_requerido, checar_acesso_unidade_ou_403
 from app.utils.notificacoes import registrar_log
 
 admin_bp = Blueprint("admin", __name__)
@@ -16,7 +16,10 @@ admin_bp = Blueprint("admin", __name__)
 @login_required
 @apenas_admin
 def unidades():
-    lista = Unidade.query.order_by(Unidade.nome).all()
+    query = Unidade.query
+    if not current_user.is_admin_desenvolvedor:
+        query = query.filter_by(empresa_id=current_user.empresa_id_atual)
+    lista = query.order_by(Unidade.nome).all()
     return render_template("admin/unidades.html", unidades=lista)
 
 
@@ -24,8 +27,11 @@ def unidades():
 @login_required
 @apenas_admin
 def nova_unidade():
+    empresas = Empresa.query.filter_by(ativa=True).order_by(Empresa.nome).all() if current_user.is_admin_desenvolvedor else None
     if request.method == "POST":
+        empresa_id = int(request.form["empresa_id"]) if current_user.is_admin_desenvolvedor else current_user.empresa_id_atual
         unidade = Unidade(
+            empresa_id=empresa_id,
             nome=request.form["nome"],
             codigo=request.form["codigo"].upper(),
             cidade=request.form.get("cidade"),
@@ -41,7 +47,7 @@ def nova_unidade():
         db.session.commit()
         flash("Unidade cadastrada com sucesso.", "success")
         return redirect(url_for("admin.unidades"))
-    return render_template("admin/unidade_form.html", unidade=None)
+    return render_template("admin/unidade_form.html", unidade=None, empresas=empresas)
 
 
 @admin_bp.route("/unidades/<int:unidade_id>/editar", methods=["GET", "POST"])
@@ -49,6 +55,8 @@ def nova_unidade():
 @apenas_admin
 def editar_unidade(unidade_id):
     unidade = db.get_or_404(Unidade, unidade_id)
+    checar_acesso_unidade_ou_403(unidade.id)
+    empresas = Empresa.query.filter_by(ativa=True).order_by(Empresa.nome).all() if current_user.is_admin_desenvolvedor else None
     if request.method == "POST":
         unidade.nome = request.form["nome"]
         unidade.codigo = request.form["codigo"].upper()
@@ -59,11 +67,13 @@ def editar_unidade(unidade_id):
         unidade.email = request.form.get("email")
         unidade.responsavel = request.form.get("responsavel")
         unidade.ativa = bool(request.form.get("ativa"))
+        if current_user.is_admin_desenvolvedor:
+            unidade.empresa_id = int(request.form["empresa_id"])
         registrar_log(current_user, "editou", "Unidade", unidade.id, unidade.nome)
         db.session.commit()
         flash("Unidade atualizada com sucesso.", "success")
         return redirect(url_for("admin.unidades"))
-    return render_template("admin/unidade_form.html", unidade=unidade)
+    return render_template("admin/unidade_form.html", unidade=unidade, empresas=empresas)
 
 
 # ---------------------- Usuários ----------------------
@@ -72,11 +82,19 @@ def editar_unidade(unidade_id):
 @login_required
 @login_papel_requerido("admin", "gestor")
 def usuarios():
-    query = Usuario.query
-    if not current_user.is_admin:
-        query = query.filter_by(unidade_id=current_user.unidade_id)
+    query = Usuario.query.join(Unidade)
+    if current_user.is_admin_desenvolvedor:
+        pass  # vê todos, de todas as empresas
+    elif current_user.is_admin:
+        query = query.filter(Unidade.empresa_id == current_user.empresa_id_atual)
+    else:
+        query = query.filter(Usuario.unidade_id == current_user.unidade_id)
     lista = query.order_by(Usuario.nome).all()
-    unidades = Unidade.query.filter_by(ativa=True).all()
+
+    if current_user.is_admin_desenvolvedor:
+        unidades = Unidade.query.filter_by(ativa=True).all()
+    else:
+        unidades = Unidade.query.filter_by(ativa=True, empresa_id=current_user.empresa_id_atual).all()
     return render_template("admin/usuarios.html", usuarios=lista, unidades=unidades)
 
 
@@ -84,19 +102,28 @@ def usuarios():
 @login_required
 @login_papel_requerido("admin", "gestor")
 def novo_usuario():
-    unidades = Unidade.query.filter_by(ativa=True).all()
+    if current_user.is_admin_desenvolvedor:
+        unidades = Unidade.query.filter_by(ativa=True).all()
+    elif current_user.is_admin:
+        unidades = Unidade.query.filter_by(ativa=True, empresa_id=current_user.empresa_id_atual).all()
+    else:
+        unidades = Unidade.query.filter_by(id=current_user.unidade_id).all()
 
     if request.method == "POST":
         papel = request.form.get("papel", "funcionario")
+        unidade_id = request.form.get("unidade_id") or None
+
         # gestor só pode criar usuários da própria unidade e nunca cria admin
         if not current_user.is_admin:
             papel = "funcionario" if papel not in ("advogado", "funcionario") else papel
             unidade_id = current_user.unidade_id
-        else:
-            unidade_id = request.form.get("unidade_id") or None
-            if papel != "admin" and not unidade_id:
-                flash("Selecione a unidade do usuário.", "danger")
-                return render_template("admin/usuario_form.html", usuario=None, unidades=unidades)
+        elif not unidade_id:
+            flash("Selecione a unidade do usuário.", "danger")
+            return render_template("admin/usuario_form.html", usuario=None, unidades=unidades)
+
+        # empresa admin (não-dev) só pode atribuir unidade da própria empresa,
+        # mesmo manipulando o formulário
+        checar_acesso_unidade_ou_403(int(unidade_id))
 
         if Usuario.query.filter_by(email=request.form["email"].strip().lower()).first():
             flash("Já existe um usuário com este e-mail.", "danger")
@@ -108,7 +135,7 @@ def novo_usuario():
             papel=papel,
             oab=request.form.get("oab"),
             telefone=request.form.get("telefone"),
-            unidade_id=unidade_id if papel != "admin" else None,
+            unidade_id=unidade_id,
         )
         usuario.set_senha(request.form["senha"])
         db.session.add(usuario)
@@ -126,11 +153,27 @@ def novo_usuario():
 @login_papel_requerido("admin", "gestor")
 def editar_usuario(usuario_id):
     usuario = db.get_or_404(Usuario, usuario_id)
-    if not current_user.is_admin and usuario.unidade_id != current_user.unidade_id:
-        flash("Você não pode editar usuários de outra unidade.", "danger")
+
+    # nunca deixa uma empresa cliente enxergar/editar um admin desenvolvedor
+    if usuario.is_admin_desenvolvedor and not current_user.is_admin_desenvolvedor:
+        flash("Usuário não encontrado.", "danger")
         return redirect(url_for("admin.usuarios"))
 
-    unidades = Unidade.query.filter_by(ativa=True).all()
+    if not current_user.is_admin_desenvolvedor:
+        if current_user.is_admin:
+            if usuario.empresa_id_atual != current_user.empresa_id_atual:
+                flash("Você não pode editar usuários de outra empresa.", "danger")
+                return redirect(url_for("admin.usuarios"))
+        elif usuario.unidade_id != current_user.unidade_id:
+            flash("Você não pode editar usuários de outra unidade.", "danger")
+            return redirect(url_for("admin.usuarios"))
+
+    if current_user.is_admin_desenvolvedor:
+        unidades = Unidade.query.filter_by(ativa=True).all()
+    elif current_user.is_admin:
+        unidades = Unidade.query.filter_by(ativa=True, empresa_id=current_user.empresa_id_atual).all()
+    else:
+        unidades = Unidade.query.filter_by(id=current_user.unidade_id).all()
 
     if request.method == "POST":
         usuario.nome = request.form["nome"]
@@ -141,7 +184,9 @@ def editar_usuario(usuario_id):
         if current_user.is_admin:
             usuario.papel = request.form.get("papel", usuario.papel)
             unidade_id = request.form.get("unidade_id") or None
-            usuario.unidade_id = unidade_id if usuario.papel != "admin" else None
+            if unidade_id:
+                checar_acesso_unidade_ou_403(int(unidade_id))
+                usuario.unidade_id = unidade_id
 
         nova_senha = request.form.get("senha")
         if nova_senha:
@@ -161,8 +206,12 @@ def editar_usuario(usuario_id):
 @login_required
 @apenas_admin
 def relatorios():
+    query_unidades = Unidade.query
+    if not current_user.is_admin_desenvolvedor:
+        query_unidades = query_unidades.filter_by(empresa_id=current_user.empresa_id_atual)
+
     por_unidade = []
-    for u in Unidade.query.order_by(Unidade.nome).all():
+    for u in query_unidades.order_by(Unidade.nome).all():
         por_unidade.append(dict(
             unidade=u,
             processos_ativos=Processo.query.filter_by(unidade_id=u.id, status="ativo").count(),
@@ -176,8 +225,13 @@ def relatorios():
                 Lancamento.status == "pago").scalar(),
         ))
 
+    query_processos = Processo.query
+    if not current_user.is_admin_desenvolvedor:
+        ids_unidades = [u.id for u in query_unidades.all()]
+        query_processos = query_processos.filter(Processo.unidade_id.in_(ids_unidades))
+
     por_area = dict(
-        db.session.query(Processo.area_direito, func.count(Processo.id)).group_by(Processo.area_direito).all()
+        query_processos.with_entities(Processo.area_direito, func.count(Processo.id)).group_by(Processo.area_direito).all()
     )
 
     return render_template("admin/relatorios.html", por_unidade=por_unidade, por_area=por_area)
@@ -193,6 +247,11 @@ def auditoria():
     data_fim = request.args.get("data_fim")
 
     query = LogAtividade.query
+    if not current_user.is_admin_desenvolvedor:
+        # empresa admin só vê auditoria de usuários da própria empresa
+        query = query.join(Usuario, LogAtividade.usuario_id == Usuario.id).join(
+            Unidade, Usuario.unidade_id == Unidade.id
+        ).filter(Unidade.empresa_id == current_user.empresa_id_atual)
     if usuario_id:
         query = query.filter(LogAtividade.usuario_id == usuario_id)
     if data_inicio:
@@ -201,6 +260,9 @@ def auditoria():
         query = query.filter(LogAtividade.criado_em < datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1))
 
     logs = query.order_by(LogAtividade.criado_em.desc()).paginate(page=pagina, per_page=50)
-    usuarios = Usuario.query.order_by(Usuario.nome).all()
+    if current_user.is_admin_desenvolvedor:
+        usuarios = Usuario.query.order_by(Usuario.nome).all()
+    else:
+        usuarios = Usuario.query.join(Unidade).filter(Unidade.empresa_id == current_user.empresa_id_atual).order_by(Usuario.nome).all()
     return render_template("admin/auditoria.html", logs=logs, usuarios=usuarios,
                             filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim)

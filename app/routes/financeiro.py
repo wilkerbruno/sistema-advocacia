@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
 from app.models import Lancamento, Processo, Cliente, Unidade
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log
 
 financeiro_bp = Blueprint("financeiro", __name__)
@@ -51,7 +51,7 @@ def listar():
         Lancamento.data_vencimento < date.today(),
     ).with_entities(func.coalesce(func.sum(Lancamento.valor), 0)).scalar()
 
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
 
     return render_template("financeiro/listar.html", lancamentos=lancamentos, unidades=unidades,
                             total_a_receber=total_a_receber, total_recebido_mes=total_recebido_mes,
@@ -61,7 +61,7 @@ def listar():
 @financeiro_bp.route("/novo", methods=["GET", "POST"])
 @login_required
 def novo():
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
     processos = aplicar_escopo_unidade(Processo.query, Processo).order_by(Processo.numero_processo).all()
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).order_by(Cliente.nome).all()
 

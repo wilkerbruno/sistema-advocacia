@@ -47,6 +47,25 @@ class Usuario(db.Model, UserMixin):
     def is_gestor(self):
         return self.papel == "gestor"
 
+    @property
+    def empresa(self):
+        """Empresa a que este usuário pertence, derivada da própria unidade."""
+        return self.unidade.empresa if self.unidade else None
+
+    @property
+    def empresa_id_atual(self):
+        return self.unidade.empresa_id if self.unidade else None
+
+    @property
+    def is_admin_desenvolvedor(self):
+        """
+        Admin da empresa DONA da plataforma — enxerga e administra todas
+        as empresas clientes. Nunca aparece para nenhuma outra empresa,
+        porque simplesmente não pertence à unidade de nenhuma delas.
+        """
+        empresa = self.empresa
+        return self.papel == "admin" and empresa is not None and empresa.dono_da_plataforma
+
     def pode_ver_todas_unidades(self):
         return self.papel == "admin"
 

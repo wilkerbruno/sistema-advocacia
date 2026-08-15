@@ -24,7 +24,7 @@ from app.extensions import db
 from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, Decisao,
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
                          MapaEstadoTPU, RegraProximaAcao)
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
@@ -41,7 +41,7 @@ governanca_bp = Blueprint("governanca", __name__)
 @login_required
 def novo_por_cnj():
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).filter_by(ativo=True).order_by(Cliente.nome).all()
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
 
     if request.method == "POST":
         numero = request.form.get("numero_cnj", "")

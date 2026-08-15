@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block titulo %}Empresas — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Empresas clientes{% endblock %}
+
+{% block conteudo %}
+<a href="{{ url_for('plataforma.nova_empresa') }}" class="btn btn-brass mb-3">Nova empresa</a>
+
+<table class="table-doc">
+  <thead><tr><th>Empresa</th><th>CNPJ</th><th>Plano</th><th>Valor</th><th>Status licença</th><th>Vence em</th><th></th></tr></thead>
+  <tbody>
+    {% for e in empresas %}
+    <tr>
+      <td><a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=e.id) }}">{{ e.nome }}</a></td>
+      <td>{{ e.cnpj or "—" }}</td>
+      <td>{{ e.licenca.plano if e.licenca else "—" }}</td>
+      <td>{{ e.licenca.valor_negociado|moeda if e.licenca else "—" }}</td>
+      <td>
+        {% if e.licenca and e.licenca.esta_ativa() %}<span class="badge-status badge-cumprido">ativa</span>
+        {% elif e.licenca %}<span class="badge-status badge-perdido">{{ e.licenca.status }}</span>
+        {% else %}<span class="badge-status badge-pendente">sem licença</span>{% endif %}
+      </td>
+      <td>{{ e.licenca.data_fim|data_br if e.licenca and e.licenca.data_fim else "—" }}</td>
+      <td><a href="{{ url_for('plataforma.licenca_empresa', empresa_id=e.id) }}" class="btn btn-outline-doc btn-sm">Licença</a></td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

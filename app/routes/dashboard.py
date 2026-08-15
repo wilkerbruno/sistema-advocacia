@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
 from app.models import Processo, Prazo, Audiencia, Tarefa, Cliente, Unidade, Lancamento
-from app.utils.acesso import aplicar_escopo_unidade
+from app.utils.acesso import aplicar_escopo_unidade, unidades_do_escopo
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -66,8 +66,8 @@ def index():
     )
 
     if current_user.is_admin:
-        # Visão consolidada extra: comparativo entre todas as unidades
-        unidades = Unidade.query.filter_by(ativa=True).all()
+        # Visão consolidada extra: comparativo entre todas as unidades (da própria empresa, ou de todas se admin desenvolvedor)
+        unidades = unidades_do_escopo()
         resumo_unidades = []
         for u in unidades:
             qtd_processos = Processo.query.filter_by(unidade_id=u.id, status="ativo").count()

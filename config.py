@@ -65,3 +65,6 @@ class Config:
     SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD", "")
     SMTP_REMETENTE = os.environ.get("SMTP_REMETENTE", "")
     RELATORIO_SEMANAL_DESTINATARIOS = os.environ.get("RELATORIO_SEMANAL_DESTINATARIOS", "")  # e-mails separados por vírgula
+
+    # Cobrança de licenças via Mercado Pago (Checkout Pro).
+    MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")

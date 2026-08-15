@@ -160,6 +160,47 @@ Acesse `http://localhost:5000`. Logins criados pelo seed:
 - App mobile (ou PWA) consumindo os mesmos endpoints, no padrão do que você já fez no Smart Condominium.
 - Fila de notificação por e-mail além da notificação interna já implementada.
 
+## Multi-tenant (SaaS) — empresas, licenciamento e cobrança
+
+Atualização (14/08/2026): o sistema agora é multi-tenant de verdade.
+
+**Hierarquia:** `Empresa` → `Unidade` → `Usuario`. Toda unidade pertence a
+uma empresa; todo dado (processos, clientes, financeiro, tarefas, governança)
+já era escopado por unidade, então passa a ficar automaticamente escopado
+por empresa também, sem precisar adicionar `empresa_id` em cada tabela.
+
+**Papéis:**
+- **Admin desenvolvedor** — usuários com papel `admin` pertencentes à
+  empresa marcada `dono_da_plataforma=True`. Enxergam e administram TODAS
+  as empresas. Nenhuma empresa cliente consegue ver, listar ou atribuir
+  qualquer coisa a esses usuários — eles simplesmente não pertencem à
+  unidade de nenhuma empresa cliente, então nunca aparecem em nenhuma tela.
+- **Admin de empresa** — usuários com papel `admin` em qualquer outra
+  empresa. Enxergam e administram todas as unidades da PRÓPRIA empresa.
+- **Gestor/advogado/funcionário** — sem mudança, continuam restritos à
+  própria unidade.
+
+**Licenciamento:** cada empresa (exceto a dona da plataforma, que é isenta)
+tem uma `Licenca` com plano (mensal/trimestral/anual) e um valor **negociado
+por empresa** — só o admin desenvolvedor define esse valor
+(`/plataforma/empresas/<id>/licenca`), e a própria empresa nunca vê uma
+tabela de preços, só o próprio valor. Licença vencida bloqueia o acesso da
+empresa (exceto admin desenvolvedor, que sempre entra, para dar suporte).
+
+**Cobrança:** via Mercado Pago (Checkout Pro), com `MERCADOPAGO_ACCESS_TOKEN`
+no `.env`. O admin da empresa paga em `/minha-licenca`; o retorno é
+confirmado por webhook (`/webhooks/mercadopago`), que ativa a licença
+automaticamente.
+
+**Migração de dado existente:** rode `python migrar_multitenant.py` uma
+vez — ele cria a empresa dona da plataforma (pergunta o nome) e vincula a
+ela todas as unidades que já existiam, preservando 100% do dado atual. Os
+admins que já existem hoje passam a ser admins desenvolvedores automaticamente.
+Veja `PENDENCIAS.md` para o detalhamento completo e o que ainda depende de
+teste no ambiente real (não foi possível testar contra o MySQL de produção
+nem contra a API real do Mercado Pago a partir daqui).
+
+
 ## Aderência ao briefing de governança de carteira processual
 
 Atualização (13/08/2026): a maior parte do que dava para implementar sem

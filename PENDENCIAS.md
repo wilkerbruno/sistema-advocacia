@@ -1,3 +1,45 @@
+# Status das pendências do briefing (atualizado em 14/08/2026)
+
+## 0. Multi-tenant / SaaS (implementado nesta rodada, precisa de teste real)
+
+Sistema convertido para multi-tenant: `Empresa` → `Unidade` → `Usuario`,
+admin desenvolvedor (empresa dona da plataforma, vê tudo) vs. admin de
+empresa (vê só a própria empresa), licenciamento (mensal/trimestral/anual
+com valor negociado por empresa, nunca exposto como tabela pública) e
+cobrança real via Mercado Pago (Checkout Pro + webhook).
+
+**O que foi validado aqui:** sintaxe de todo o código, boot completo do
+app (63 rotas registrando sem erro, incluindo as novas de plataforma/
+licenciamento), e o escopo de dado por empresa foi revisado tela por tela
+(inclusive dois vazamentos reais que existiam antes — listas de "unidade"
+e "responsável" em formulários que mostravam dado de todas as empresas
+para um admin — corrigidos e centralizados em dois helpers únicos,
+`unidades_do_escopo()`/`usuarios_do_escopo()`, pra não vazar de novo numa
+tela futura).
+
+**O que NÃO foi possível testar daqui** (sem acesso de rede a nenhum dos
+dois): 
+- Contra o MySQL real — rode `python migrar_multitenant.py` no seu
+  servidor (ele pergunta antes de aplicar qualquer coisa, nunca mexe em
+  dado existente sem confirmação).
+- Contra a API real do Mercado Pago — o formato de request/response segue
+  a documentação oficial da API de Preferências, mas teste a primeira
+  cobrança com credencial de sandbox antes de usar em produção.
+
+**Passo a passo pra ativar:**
+1. `python migrar_multitenant.py` — cria a empresa dona da plataforma e
+   vincula as unidades existentes a ela.
+2. Adicione `MERCADOPAGO_ACCESS_TOKEN` no `.env` (você já tem o token).
+3. Cadastre a primeira empresa cliente de teste em `/plataforma/empresas/nova`
+   (isso já cria a unidade e o admin dela).
+4. Faça login como esse admin, vá em "Minha licença" e teste o botão de
+   pagamento (idealmente com uma preferência de valor baixo, em sandbox).
+5. Confirme no painel do Mercado Pago que o webhook está configurado para
+   `https://seu-dominio/webhooks/mercadopago` (a URL é gerada automaticamente
+   ao criar a preferência, mas vale conferir nos logs se a notificação chegou).
+
+---
+
 # Status das pendências do briefing (atualizado em 13/08/2026)
 
 Este arquivo substitui o relatório de pendências anterior. Organizado em

@@ -80,6 +80,19 @@
         <span class="tab-index">09</span> Auditoria
       </a>
       {% endif %}
+
+      {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.') }}" href="{{ url_for('licenciamento.minha_licenca') }}">
+        <span class="tab-index">10</span> Minha licença
+      </a>
+      {% endif %}
+      {% endif %}
+
+      {% if current_user.is_authenticated and current_user.is_admin_desenvolvedor %}
+      <div class="grupo-titulo">Plataforma</div>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.') }}" href="{{ url_for('plataforma.empresas') }}">
+        <span class="tab-index">P1</span> Empresas clientes
+      </a>
       {% endif %}
     </nav>
 

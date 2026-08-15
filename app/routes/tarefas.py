@@ -35,12 +35,13 @@ def listar():
 @tarefas_bp.route("/nova", methods=["GET", "POST"])
 @login_required
 def nova():
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = aplicar_escopo_unidade(Unidade.query, Unidade, "id").filter_by(ativa=True).all() if current_user.is_admin else None
     minha_unidade_id = None if current_user.is_admin else current_user.unidade_id
     processos = aplicar_escopo_unidade(Processo.query, Processo).order_by(Processo.numero_processo).all()
-    equipe = Usuario.query.filter_by(
-        unidade_id=minha_unidade_id, ativo=True
-    ).all() if minha_unidade_id else Usuario.query.filter_by(ativo=True).all()
+    if minha_unidade_id:
+        equipe = Usuario.query.filter_by(unidade_id=minha_unidade_id, ativo=True).all()
+    else:
+        equipe = aplicar_escopo_unidade(Usuario.query.join(Unidade, Usuario.unidade_id == Unidade.id), Unidade, "id").filter(Usuario.ativo == True).all()
 
     if request.method == "POST":
         unidade_id = unidade_id_para_novo_registro()

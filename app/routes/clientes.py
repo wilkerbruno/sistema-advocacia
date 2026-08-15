@@ -2,7 +2,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Cliente, Unidade
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log
 
 clientes_bp = Blueprint("clientes", __name__)
@@ -23,7 +23,7 @@ def listar():
 @clientes_bp.route("/novo", methods=["GET", "POST"])
 @login_required
 def novo():
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
 
     if request.method == "POST":
         unidade_id = unidade_id_para_novo_registro()
@@ -68,7 +68,7 @@ def detalhe(cliente_id):
 def editar(cliente_id):
     cliente = db.get_or_404(Cliente, cliente_id)
     checar_acesso_unidade_ou_403(cliente.unidade_id)
-    unidades = Unidade.query.filter_by(ativa=True).all() if current_user.is_admin else None
+    unidades = unidades_do_escopo() if current_user.is_admin else None
 
     if request.method == "POST":
         cliente.tipo_pessoa = request.form.get("tipo_pessoa", "PF")
