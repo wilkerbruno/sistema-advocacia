@@ -90,8 +90,11 @@
 
       {% if current_user.is_authenticated and current_user.is_admin_desenvolvedor %}
       <div class="grupo-titulo">Plataforma</div>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.') }}" href="{{ url_for('plataforma.empresas') }}">
-        <span class="tab-index">P1</span> Empresas clientes
+      <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.painel_licencas' }}" href="{{ url_for('plataforma.painel_licencas') }}">
+        <span class="tab-index">P1</span> Painel de licenças
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.') and request.endpoint != 'plataforma.painel_licencas' and request.endpoint != 'plataforma.atualizar_licenca_rapido' }}" href="{{ url_for('plataforma.empresas') }}">
+        <span class="tab-index">P2</span> Empresas clientes
       </a>
       {% endif %}
     </nav>

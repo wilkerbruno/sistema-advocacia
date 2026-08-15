@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block titulo %}Licenças — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Painel de licenças{% endblock %}
+
+{% block conteudo %}
+<div class="row g-3 mb-3">
+  <div class="col-md-3">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Receita mensal recorrente</div>
+      <div class="fs-3">{{ receita_mensal_recorrente|moeda }}</div>
+      <div class="small text-muted-doc">normalizado por mês (trimestral÷3, anual÷12)</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Empresas ativas</div>
+      <div class="fs-3" style="color: var(--status-ok, #2e7d32);">{{ totais.ativa }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Pendentes de pagamento</div>
+      <div class="fs-3">{{ totais.pendente_pagamento }}</div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Vencidas</div>
+      <div class="fs-3" style="color: var(--status-danger, #b71c1c);">{{ totais.vencida }}</div>
+    </div>
+  </div>
+</div>
+
+<form method="get" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
+  <div class="col-md-4">
+    <label class="form-label small mb-1">Buscar empresa</label>
+    <input type="text" name="busca" class="form-control form-control-sm" value="{{ busca }}">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label small mb-1">Status</label>
+    <select name="status" class="form-select form-select-sm">
+      <option value="">Todos</option>
+      {% for s in ["ativa", "pendente_pagamento", "vencida", "cancelada", "sem_licenca"] %}
+      <option value="{{ s }}" {{ "selected" if filtro_status == s }}>{{ s.replace("_", " ")|capitalize }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-2">
+    <button class="btn btn-brass btn-sm w-100">Filtrar</button>
+  </div>
+  <div class="col-md-2">
+    <a href="{{ url_for('plataforma.nova_empresa') }}" class="btn btn-outline-doc btn-sm w-100">Nova empresa</a>
+  </div>
+</form>
+
+<table class="table-doc">
+  <thead>
+    <tr><th>Empresa</th><th>Plano</th><th>Valor</th><th>Status</th><th>Vencimento</th><th style="min-width:340px;">Ação rápida</th></tr>
+  </thead>
+  <tbody>
+    {% for l in linhas %}
+    <tr>
+      <td><a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=l.empresa.id) }}">{{ l.empresa.nome }}</a></td>
+      <td>{{ l.licenca.plano|capitalize if l.licenca else "—" }}</td>
+      <td>{{ l.licenca.valor_negociado|moeda if l.licenca else "—" }}</td>
+      <td>
+        {% if l.status_calc == "ativa" %}<span class="badge-status badge-cumprido">ativa</span>
+        {% elif l.status_calc == "pendente_pagamento" %}<span class="badge-status badge-pendente">pendente</span>
+        {% elif l.status_calc == "vencida" %}<span class="badge-status badge-perdido">vencida</span>
+        {% elif l.status_calc == "cancelada" %}<span class="badge-status badge-perdido">cancelada</span>
+        {% else %}<span class="badge-status badge-pendente">sem licença</span>{% endif %}
+      </td>
+      <td>
+        {% if l.licenca and l.licenca.data_fim %}
+          {{ l.licenca.data_fim|data_br }}
+          {% if l.dias_restantes is not none %}
+            <span class="small text-muted-doc">({{ l.dias_restantes }} dia(s){{ " atrás" if l.dias_restantes < 0 else "" }})</span>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
+      <td>
+        <form method="post" action="{{ url_for('plataforma.atualizar_licenca_rapido', empresa_id=l.empresa.id) }}" class="d-flex gap-1 flex-wrap align-items-center">
+          <select name="plano" class="form-select form-select-sm" style="width:auto;">
+            {% for p in ["mensal", "trimestral", "anual"] %}
+            <option value="{{ p }}" {{ "selected" if l.licenca and l.licenca.plano == p }}>{{ p|capitalize }}</option>
+            {% endfor %}
+          </select>
+          <input type="text" name="valor_negociado" class="form-control form-control-sm" style="width:100px;"
+                 value="{{ l.licenca.valor_negociado if l.licenca else '' }}" placeholder="R$">
+          <button class="btn btn-outline-doc btn-sm" title="Salvar valor/plano">Salvar</button>
+          <button class="btn btn-brass btn-sm" name="marcar_paga_manualmente" value="1" title="Marcar como paga a partir de hoje">Marcar paga</button>
+          {% if l.licenca and l.licenca.status != "cancelada" %}
+          <button class="btn btn-outline-doc btn-sm" name="cancelar" value="1" title="Cancelar licença"
+                  onclick="return confirm('Cancelar a licença desta empresa?')">Cancelar</button>
+          {% endif %}
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% if not linhas %}
+<p class="text-muted-doc small">Nenhuma empresa encontrada com esse filtro.</p>
+{% endif %}
+{% endblock %}

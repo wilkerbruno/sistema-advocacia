@@ -10,11 +10,97 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from app.extensions import db
-from app.models import Empresa, Unidade, Usuario, Licenca
+from app.models import Empresa, Unidade, Usuario, Licenca, Pagamento
 from app.utils.acesso import apenas_admin_desenvolvedor
 from app.utils.notificacoes import registrar_log
 
 plataforma_bp = Blueprint("plataforma", __name__)
+
+
+# ---------------------- Painel de licenças (visão consolidada) ----------------------
+
+MESES_POR_PLANO = {"mensal": 1, "trimestral": 3, "anual": 12}
+
+
+@plataforma_bp.route("/licencas")
+@login_required
+@apenas_admin_desenvolvedor
+def painel_licencas():
+    filtro_status = request.args.get("status")  # ativa | pendente_pagamento | vencida | cancelada | sem_licenca
+    busca = request.args.get("busca", "").strip()
+
+    query = Empresa.query.filter_by(dono_da_plataforma=False)
+    if busca:
+        query = query.filter(Empresa.nome.ilike(f"%{busca}%"))
+    empresas_lista = query.order_by(Empresa.nome).all()
+
+    hoje = date.today()
+    linhas = []
+    totais = {"ativa": 0, "pendente_pagamento": 0, "vencida": 0, "cancelada": 0, "sem_licenca": 0}
+    receita_mensal_recorrente = Decimal("0")
+
+    for empresa in empresas_lista:
+        licenca = empresa.licenca
+        if licenca is None:
+            status_calc = "sem_licenca"
+        elif licenca.status == "ativa" and (licenca.data_fim is None or licenca.data_fim < hoje):
+            status_calc = "vencida"  # estava ativa mas passou da data e ninguém renovou ainda
+        else:
+            status_calc = licenca.status
+
+        totais[status_calc] = totais.get(status_calc, 0) + 1
+
+        if status_calc == "ativa" and licenca:
+            meses = MESES_POR_PLANO.get(licenca.plano, 1)
+            receita_mensal_recorrente += (licenca.valor_negociado / meses)
+
+        dias_restantes = (licenca.data_fim - hoje).days if (licenca and licenca.data_fim) else None
+
+        linhas.append(dict(empresa=empresa, licenca=licenca, status_calc=status_calc, dias_restantes=dias_restantes))
+
+    if filtro_status:
+        linhas = [l for l in linhas if l["status_calc"] == filtro_status]
+
+    return render_template(
+        "plataforma/painel_licencas.html",
+        linhas=linhas, totais=totais, total_empresas=len(empresas_lista),
+        receita_mensal_recorrente=receita_mensal_recorrente,
+        filtro_status=filtro_status, busca=busca,
+    )
+
+
+@plataforma_bp.route("/licencas/<int:empresa_id>/atualizar", methods=["POST"])
+@login_required
+@apenas_admin_desenvolvedor
+def atualizar_licenca_rapido(empresa_id):
+    """Edição rápida (valor/plano) direto da linha do painel de licenças,
+    sem precisar abrir a tela de detalhe da empresa."""
+    empresa = db.get_or_404(Empresa, empresa_id)
+    licenca = empresa.licenca
+
+    valor = Decimal(request.form["valor_negociado"].replace(",", "."))
+    plano = request.form.get("plano", "mensal")
+
+    if licenca is None:
+        licenca = Licenca(empresa_id=empresa.id, status="pendente_pagamento")
+        db.session.add(licenca)
+
+    licenca.plano = plano
+    licenca.valor_negociado = valor
+    licenca.definido_por_id = current_user.id
+
+    if request.form.get("marcar_paga_manualmente"):
+        licenca.status = "ativa"
+        licenca.data_inicio = date.today()
+        licenca.data_fim = date.today() + timedelta(days=Licenca.DIAS_POR_PLANO[plano])
+
+    if request.form.get("cancelar"):
+        licenca.status = "cancelada"
+
+    registrar_log(current_user, "definiu_licenca", "Empresa", empresa.id, f"{plano} R${valor}")
+    db.session.commit()
+    flash(f"Licença de \"{empresa.nome}\" atualizada.", "success")
+    return redirect(url_for("plataforma.painel_licencas", **request.args))
 
 
 @plataforma_bp.route("/empresas")
