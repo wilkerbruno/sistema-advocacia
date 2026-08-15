@@ -68,3 +68,11 @@ class Config:
 
     # Cobrança de licenças via Mercado Pago (Checkout Pro).
     MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
+
+    # Preços padrão mostrados no cadastro público de empresa (self-service).
+    # São só o "preço de tabela" inicial — o admin desenvolvedor pode
+    # ajustar o valor de cada empresa depois em /plataforma/empresas/<id>/licenca,
+    # sem que a empresa veja que existe negociação.
+    PRECO_PADRAO_MENSAL = os.environ.get("PRECO_PADRAO_MENSAL", "199.90")
+    PRECO_PADRAO_TRIMESTRAL = os.environ.get("PRECO_PADRAO_TRIMESTRAL", "539.90")
+    PRECO_PADRAO_ANUAL = os.environ.get("PRECO_PADRAO_ANUAL", "1999.90")

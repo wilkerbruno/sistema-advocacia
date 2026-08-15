@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cadastrar empresa — Sistema de Advocacia</title>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/estilo.css') }}" rel="stylesheet">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card" style="max-width: 480px;">
+      <div class="login-mark">Jus<span style="color: var(--brass-500);">Control</span><small>Cadastre sua empresa</small></div>
+
+      {% with mensagens = get_flashed_messages(with_categories=true) %}
+        {% if mensagens %}
+          {% for categoria, msg in mensagens %}
+            <div class="alert alert-{{ categoria }} py-2 px-3 small mt-3 mb-0">{{ msg }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" class="mt-4">
+        <div class="mb-3">
+          <label class="form-label">Nome da empresa *</label>
+          <input type="text" name="empresa_nome" class="form-control" required value="{{ form.empresa_nome or '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">CNPJ</label>
+          <input type="text" name="empresa_cnpj" class="form-control" value="{{ form.empresa_cnpj or '' }}">
+        </div>
+        <hr class="divider-doc">
+        <div class="mb-3">
+          <label class="form-label">Seu nome *</label>
+          <input type="text" name="admin_nome" class="form-control" required value="{{ form.admin_nome or '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Seu e-mail (será seu login) *</label>
+          <input type="email" name="admin_email" class="form-control" required value="{{ form.admin_email or '' }}">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Senha *</label>
+          <input type="password" name="admin_senha" class="form-control" required placeholder="mín. 6 caracteres">
+        </div>
+        <hr class="divider-doc">
+        <div class="mb-3">
+          <label class="form-label">Plano</label>
+          <select name="plano" class="form-select">
+            <option value="mensal" {{ "selected" if form.plano == "mensal" or not form.plano }}>Mensal — {{ precos.mensal|moeda }}</option>
+            <option value="trimestral" {{ "selected" if form.plano == "trimestral" }}>Trimestral — {{ precos.trimestral|moeda }}</option>
+            <option value="anual" {{ "selected" if form.plano == "anual" }}>Anual — {{ precos.anual|moeda }}</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-brass w-100">Criar minha empresa</button>
+      </form>
+      <p class="text-center small mt-4 mb-0"><a href="{{ url_for('auth.login') }}">Já tem conta? Entrar</a></p>
+    </div>
+  </div>
+</body>
+</html>
