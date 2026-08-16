@@ -86,9 +86,12 @@ def enviar_lembretes():
                             c.whatsapp_enviado_em = agora
                             print(f"  WHATSAPP OK compromisso #{c.id}: enviado para {c.cliente.nome}.")
                         else:
-                            print(f"  WHATSAPP FALHOU compromisso #{c.id}: o bridge respondeu com erro "
-                                  f"(confira se o serviço whatsapp-bridge está no ar e com o WhatsApp "
-                                  f"conectado — abra a rota /qr dele para checar o status).")
+                            print(f"  WHATSAPP FALHOU compromisso #{c.id}: o WAHA recusou o envio "
+                                  f"(veja o código HTTP no aviso 'WARNING in whatsapp' logo acima). "
+                                  f"Causas mais comuns: (1) WHATSAPP_BRIDGE_TOKEN (no app principal) "
+                                  f"diferente do WAHA_API_KEY (no serviço WAHA) — precisam ser "
+                                  f"IDÊNTICOS, char por char; (2) a sessão 'default' não está com "
+                                  f"status WORKING no dashboard do WAHA.")
 
                 c.notificacao_enviada_em = agora
                 db.session.commit()

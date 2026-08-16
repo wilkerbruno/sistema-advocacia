@@ -50,56 +50,83 @@ nenhuma configuração no painel do EasyPanel). Ele:
 do deploy, para criar a tabela `compromissos`. Nada mais — a Agenda já
 aparece com o botão "+ Novo compromisso" e o lembrete já roda sozinho.
 
-### WhatsApp do lembrete — implementado (automação não-oficial, escolha sua)
+### WhatsApp do lembrete — implementado com WAHA (automação não-oficial, escolha sua)
 Você optou pela automação não-oficial em vez da API paga da Meta (ver as
 3 opções na seção 2.2 abaixo) — ciente do risco real de o número usado
 ser banido pelo WhatsApp por comportamento automatizado, já que isso
-viola os Termos de Serviço da plataforma. Implementado como pediu, com
-esse risco documentado em vários lugares do código para nunca ficar
-escondido.
+viola os Termos de Serviço da plataforma. Esse risco continua valendo e
+está documentado em vários lugares do código para nunca ficar escondido.
 
-**Como funciona:** o formulário de compromisso já tem a opção "Também
-enviar por WhatsApp" — mas o envio de verdade depende de um **serviço
-separado**, na pasta `whatsapp-bridge/` (Node.js + `whatsapp-web.js`), que
-mantém uma sessão comum de WhatsApp Web logada (a mesma coisa que abrir
-web.whatsapp.com no navegador e escanear o QR code, só que automatizado
-via Puppeteer/Chromium). O app Flask principal só chama esse serviço por
-HTTP quando precisa mandar uma mensagem — nenhuma lógica de WhatsApp roda
-dentro do container principal.
+**Mudança em relação à primeira versão:** a primeira implementação usava
+um serviço Node.js escrito do zero (pasta `whatsapp-bridge/`, hoje
+**descontinuada** — ver `whatsapp-bridge/DEPRECATED.md`, pode apagar essa
+pasta). Troquei pelo **WAHA** (https://waha.devlike.pro), um projeto
+open-source mantido especificamente para isso: já vem com painel de
+conexão via QR code, chave de API e reconexão automática prontos, e roda
+a partir de uma imagem Docker pronta — nada de código pra escrever ou
+build pra configurar, só subir o serviço no EasyPanel apontando pra uma
+imagem pública. Mais simples de configurar e mais confiável do que manter
+na mão a mesma coisa que esse projeto já resolve.
 
-**Por que um serviço separado, e não dentro do mesmo container:** manter
-uma sessão de WhatsApp Web exige um navegador Chromium rodando o tempo
-todo (não é uma chamada de API simples) — bem diferente do resto do
-sistema (Flask + MySQL), então isolar num serviço próprio evita inflar o
-container principal e deixa mais fácil reiniciar/depurar um sem afetar o
-outro.
+**Como funciona:** o app Flask principal chama o WAHA por HTTP
+(`app/utils/whatsapp.py`) quando precisa mandar o lembrete de um
+compromisso — o WAHA é quem mantém a sessão do WhatsApp Web logada (a
+mesma coisa que abrir web.whatsapp.com e escanear o QR code, só que como
+um serviço rodando o tempo todo). Nenhuma lógica de WhatsApp roda dentro
+do container principal.
 
-**Passo a passo para ativar (nenhum destes eu consigo fazer por você —
-depende do seu painel do EasyPanel e do celular físico do escritório):**
-1. No EasyPanel, crie um **segundo serviço** dentro do mesmo projeto,
-   apontando para a pasta `whatsapp-bridge/` deste repositório (tem
-   `Dockerfile` próprio).
-2. **Anexe um volume persistente** em `/data/sessao` desse serviço — sem
-   isso, todo redeploy derruba a sessão e pede escanear o QR code de
-   novo. É o ponto mais fácil de esquecer.
-3. Defina `BRIDGE_TOKEN` no `.env` desse serviço (qualquer string
-   aleatória) — é o segredo que impede qualquer um que descubra a URL
-   interna de mandar mensagem pela sua conta.
-4. Depois do deploy, abra a URL interna do serviço + `/qr` no navegador
-   (ex: `https://whatsapp-bridge-xxxx.easypanel.host/qr`) e escaneie com
+**Passo a passo para ativar no EasyPanel (nenhum destes eu consigo fazer
+por você — depende do seu painel e do celular físico do escritório):**
+
+1. No EasyPanel, dentro do mesmo projeto do app principal, crie um
+   **segundo serviço do tipo App**, mas em vez de apontar para um
+   repositório Git, escolha a opção de origem **"Docker Image"** e use a
+   imagem `devlikeapro/waha` (se o servidor for ARM — Raspberry Pi, por
+   exemplo — use `devlikeapro/waha:arm`). Porta do serviço: `3000`.
+2. Na aba **Environment** desse serviço, defina:
+   - `WAHA_API_KEY` — uma chave forte que você escolher (qualquer string
+     aleatória longa serve).
+   - `WAHA_DASHBOARD_USERNAME` e `WAHA_DASHBOARD_PASSWORD` — usuário e
+     senha pra proteger o painel do WAHA (ele fica acessível pela
+     internet se o serviço tiver domínio público, então não deixe sem
+     senha).
+3. Na aba **Storage**, adicione um **Volume** montado em `/app/.sessions`
+   — sem isso, todo redeploy derruba a sessão e pede escanear o QR code
+   de novo. É o ponto mais fácil de esquecer.
+4. Faça o deploy desse serviço.
+5. Abra o painel do WAHA: `<URL do serviço>/dashboard`, entre com o
+   `WAHA_DASHBOARD_USERNAME`/`WAHA_DASHBOARD_PASSWORD` do passo 2, inicie
+   uma sessão chamada **"default"** e escaneie o QR code que aparecer com
    o WhatsApp do **número escolhido para isso** — use um número dedicado,
    nunca o WhatsApp pessoal de um advogado nem o número principal de
-   atendimento do escritório, justamente por causa do risco de banimento.
-5. No `.env` do app **principal** (não do bridge), defina
-   `WHATSAPP_BRIDGE_URL` (a URL interna do serviço, ex:
-   `http://whatsapp-bridge:3000` se os dois estiverem no mesmo projeto) e
-   `WHATSAPP_BRIDGE_TOKEN` (o mesmo valor do passo 3).
-6. Pronto — marque "Também enviar por WhatsApp" num compromisso vinculado
+   atendimento do escritório, justamente por causa do risco de
+   banimento. O status da sessão deve mudar para "WORKING" depois de
+   escanear.
+6. No `.env` do app **principal** (não do WAHA), defina:
+   - `WHATSAPP_BRIDGE_URL` — a URL do serviço WAHA. Tente primeiro o
+     endereço interno do EasyPanel (geralmente o nome do serviço, ex:
+     `http://waha:3000`, se os dois serviços estiverem no mesmo projeto —
+     não consegui confirmar com 100% de certeza a convenção exata de
+     endereço interno do EasyPanel a partir daqui); se não funcionar, use
+     a URL pública que o EasyPanel atribuiu ao serviço WAHA (com
+     `https://`).
+   - `WHATSAPP_BRIDGE_TOKEN` — o mesmo valor que você colocou em
+     `WAHA_API_KEY` no passo 2.
+7. Faça o redeploy do app principal (pra ele carregar as novas variáveis
+   de ambiente).
+8. Pronto — marque "Também enviar por WhatsApp" num compromisso vinculado
    a um cliente com número cadastrado, e o lembrete sai pelos 3 canais
    (sistema + e-mail + WhatsApp) na hora marcada.
 
+**Se depois de tudo isso ainda não funcionar:** rode
+`python enviar_lembretes_compromissos.py` manualmente no console do
+servidor (ou espere o próximo ciclo do cron, a cada 5 minutos) e confira
+o log — ele agora diz exatamente o motivo quando um envio por WhatsApp é
+pulado ou falha (bridge não configurada, cliente sem número, ou erro
+retornado pelo WAHA). Me mande essa linha de log que eu ajusto.
+
 **Recomendações práticas pra reduzir (não eliminar) o risco de
-banimento**, documentadas também em `whatsapp-bridge/server.js`:
+banimento:**
 - Número dedicado só pra isso, nunca o pessoal de ninguém.
 - Deixe o número "esquentar" alguns dias com uso normal (conversas reais)
   antes de começar a automatizar.
@@ -415,14 +442,14 @@ pelo lembrete de compromisso da Agenda (ver seção -4 acima).
 **Atualizado:** WhatsApp para o lembrete de compromisso da Agenda foi
 implementado — você escolheu o caminho da **automação não-oficial** entre
 as três opções que apresentei (API oficial paga da Meta / automação
-não-oficial grátis mas arriscada / não usar por enquanto). Ver seção -4
-acima para os detalhes técnicos completos e o passo a passo de ativação
-(`whatsapp-bridge/`). Continua valendo o alerta: esse caminho viola os
-Termos de Serviço do WhatsApp e corre risco real de o número usado ser
-banido — se em algum momento quiser migrar para a API oficial da Meta
-(mais caro, mas sem esse risco), me avise que eu troco o canal sem mexer
-no resto do sistema (a chamada em `app/utils/whatsapp.py` fica isolada
-disso).
+não-oficial grátis mas arriscada / não usar por enquanto), agora via
+**WAHA** (imagem Docker pronta, ver seção -4 acima para o passo a passo
+completo de ativação no EasyPanel). Continua valendo o alerta: esse
+caminho viola os Termos de Serviço do WhatsApp e corre risco real de o
+número usado ser banido — se em algum momento quiser migrar para a API
+oficial da Meta (mais caro, mas sem esse risco), me avise que eu troco o
+canal sem mexer no resto do sistema (a chamada em `app/utils/whatsapp.py`
+fica isolada disso).
 
 ### 2.3 Interoperabilidade com o For Legal e com o Data Lake do escritório
 **Atualizado:** criei uma API de leitura autenticada por token

@@ -100,16 +100,17 @@ class Config:
     # https://datajud-wiki.cnj.jus.br/
     DATAJUD_API_KEY = os.environ.get("DATAJUD_API_KEY", "")
 
-    # Lembrete de compromisso da Agenda por WhatsApp (ver
-    # app/utils/whatsapp.py e whatsapp-bridge/) — automação NÃO-OFICIAL,
-    # decisão explícita (não é a API paga da Meta), ciente do risco de
-    # banimento do número usado. WHATSAPP_BRIDGE_URL aponta para o serviço
-    # separado (Node.js) que mantém a sessão do WhatsApp Web logada — ex:
-    # "http://whatsapp-bridge:3000" se os dois serviços estiverem no mesmo
-    # projeto do EasyPanel. WHATSAPP_BRIDGE_TOKEN é opcional (mas
-    # recomendado): um segredo compartilhado pra esse endpoint não aceitar
-    # chamada de qualquer um que descubra a URL interna. Sem
-    # WHATSAPP_BRIDGE_URL definida, o lembrete de compromisso continua
+    # Lembrete de compromisso da Agenda por WhatsApp, via WAHA
+    # (https://waha.devlike.pro — ver app/utils/whatsapp.py e PENDENCIAS.md,
+    # seção -4, para o passo a passo completo de deploy no EasyPanel).
+    # Automação NÃO-OFICIAL, decisão explícita (não é a API paga da Meta),
+    # ciente do risco de banimento do número usado.
+    # WHATSAPP_BRIDGE_URL: URL do serviço WAHA (segundo serviço no mesmo
+    # projeto do EasyPanel) — ex: "http://waha:3000" (endereço interno) ou
+    # a URL pública que o EasyPanel atribuiu ao serviço.
+    # WHATSAPP_BRIDGE_TOKEN: mesmo valor definido em WAHA_API_KEY na
+    # configuração do serviço WAHA (usado no header X-Api-Key).
+    # Sem WHATSAPP_BRIDGE_URL definida, o lembrete de compromisso continua
     # saindo normalmente por notificação no sistema e e-mail — só o
     # WhatsApp fica desativado, nunca falha silenciosamente.
     WHATSAPP_BRIDGE_URL = os.environ.get("WHATSAPP_BRIDGE_URL", "")
