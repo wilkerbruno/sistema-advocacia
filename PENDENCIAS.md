@@ -90,6 +90,13 @@ por você — depende do seu painel e do celular físico do escritório):**
      senha pra proteger o painel do WAHA (ele fica acessível pela
      internet se o serviço tiver domínio público, então não deixe sem
      senha).
+   - `WHATSAPP_DEFAULT_ENGINE=GOWS` — usa o motor GOWS em vez do WEBJS
+     (padrão do WAHA). Fizemos essa troca porque o WEBJS tem um bug
+     conhecido e ainda sem correção do próprio projeto ("No LID for
+     user"/500 ao enviar mensagem) causado por uma mudança recente do
+     WhatsApp Web — GOWS não depende do navegador/JS interno do WhatsApp
+     Web, então não sofre desse bug. Ver detalhe mais abaixo, depois do
+     passo 8.
 3. Na aba **Storage**, adicione um **Volume** montado em `/app/.sessions`
    — sem isso, todo redeploy derruba a sessão e pede escanear o QR code
    de novo. É o ponto mais fácil de esquecer.
@@ -124,6 +131,21 @@ servidor (ou espere o próximo ciclo do cron, a cada 5 minutos) e confira
 o log — ele agora diz exatamente o motivo quando um envio por WhatsApp é
 pulado ou falha (bridge não configurada, cliente sem número, ou erro
 retornado pelo WAHA). Me mande essa linha de log que eu ajusto.
+
+**Sobre o erro "no LID found" / "No LID for user" (se aparecer):** é um
+problema conhecido de identificação interna de números pelo WhatsApp,
+mais comum em números brasileiros cujo cadastro no WhatsApp é anterior a
+2012 e ficou registrado sem o 9º dígito (fora de SP/RJ/ES) mesmo o
+telefone atual tendo o 9. Por isso `app/utils/whatsapp.py` NÃO monta mais
+o identificador do destinatário "no chute" — antes de cada envio, ele
+consulta o próprio WAHA (`GET /api/contacts/check-exists`) pra descobrir
+o identificador certo do número, e só tenta enviar se o WAHA confirmar
+que o número existe no WhatsApp. Combinado com `WHATSAPP_DEFAULT_ENGINE=
+GOWS` (passo 2 acima), isso resolve o erro nos casos que testamos. Se
+mesmo assim continuar falhando pra um número específico, o mais provável
+é que esse número realmente não tenha WhatsApp ativo, ou tenha alguma
+configuração de privacidade que impede a consulta — não é algo que dê
+pra contornar do nosso lado.
 
 **Recomendações práticas pra reduzir (não eliminar) o risco de
 banimento:**
