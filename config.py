@@ -77,17 +77,32 @@ class Config:
     PRECO_PADRAO_TRIMESTRAL = os.environ.get("PRECO_PADRAO_TRIMESTRAL", "539.90")
     PRECO_PADRAO_ANUAL = os.environ.get("PRECO_PADRAO_ANUAL", "1999.90")
 
-    # Agentes de IA jurídica (Operação/Gestão/Negócios) — modelo local de até
-    # 2B parâmetros (Qwen2.5-1.5B-Instruct em GGUF), rodando dentro do
-    # próprio servidor via llama-cpp-python (ver app/utils/ia_local.py).
-    # Sem chave de API, sem custo por mensagem, sem dado saindo do servidor.
-    # Sem o arquivo de pesos baixado (ver baixar_modelo_ia_local.py — roda
-    # sozinho durante o build da imagem Docker), o agente responde de forma
-    # honesta que está indisponível — nunca inventa resposta.
+    # Agentes de IA jurídica (Operação/Gestão/Negócios) e Análise de processo
+    # (resumo dos autos / rascunho de petição) — modelo local pequeno (até 2B
+    # parâmetros, Qwen2.5-1.5B-Instruct em GGUF), rodando dentro do próprio
+    # servidor via llama-cpp-python (ver app/utils/ia_local.py). Sem chave
+    # de API, sem custo por mensagem, sem dado saindo do servidor. Sem o
+    # arquivo de pesos baixado (roda sozinho durante o build da imagem
+    # Docker), o agente responde de forma honesta que está indisponível —
+    # nunca inventa resposta.
+    #
+    # Existe um modelo maior/mais robusto pronto para uso (Qwen3-4B, ~2,5
+    # GB) em baixar_modelo_ia_local.py, mas ele fica DESLIGADO por padrão —
+    # checamos o painel de recursos do servidor em produção (EasyPanel) e a
+    # RAM já estava em ~74% de uso antes de qualquer coisa da IA, sem folga
+    # para o modelo maior nos 2 workers do gunicorn. Ver PENDENCIAS.md,
+    # seção -6, para o passo a passo de como ativar o modelo maior quando
+    # (se) o plano do servidor tiver mais RAM.
     IA_LOCAL_MODELO_PATH = os.environ.get(
         "IA_LOCAL_MODELO_PATH",
         os.path.join(BASE_DIR, "app", "ia_local", "modelos", "qwen2.5-1.5b-instruct-q4_k_m.gguf"),
     )
+    # 4096 é o padrão seguro para o modelo pequeno. A Análise de processo por
+    # IA (resumo dos autos / rascunho de petição, ver
+    # app/utils/analise_processo_ia.py) já ajusta sozinha o tamanho do
+    # digest do processo a este limite — se um dia trocar para o modelo
+    # maior com mais RAM sobrando, pode valer a pena subir este valor (ver
+    # PENDENCIAS.md, seção -6).
     IA_LOCAL_CONTEXT_SIZE = int(os.environ.get("IA_LOCAL_CONTEXT_SIZE", "4096"))
     IA_LOCAL_MAX_TOKENS_RESPOSTA = int(os.environ.get("IA_LOCAL_MAX_TOKENS_RESPOSTA", "700"))
     IA_LOCAL_THREADS = int(os.environ["IA_LOCAL_THREADS"]) if os.environ.get("IA_LOCAL_THREADS") else None

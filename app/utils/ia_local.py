@@ -1,8 +1,15 @@
 """
-Motor local do Agente de IA jurídica (Operação/Gestão/Negócios) — modelo de
-até 2B parâmetros (Qwen2.5-1.5B-Instruct, quantizado em GGUF) rodando dentro
-do próprio servidor via llama-cpp-python. Sem chave de API, sem custo por
-mensagem, sem dado do escritório saindo do servidor.
+Motor local do Agente de IA jurídica (Operação/Gestão/Negócios) e da Análise
+de processo (resumo dos autos / rascunho de petição, ver
+app/utils/analise_processo_ia.py) — modelo de até 2B parâmetros
+(Qwen2.5-1.5B-Instruct, quantizado em GGUF) rodando dentro do próprio
+servidor via llama-cpp-python. Sem chave de API, sem custo por mensagem, sem
+dado do escritório saindo do servidor.
+
+Existe um modelo maior/mais robusto pronto (Qwen3-4B, ~2,5 GB) em
+baixar_modelo_ia_local.py, mas está desligado por padrão por falta de RAM
+sobrando no servidor de produção atual — ver PENDENCIAS.md, seção -6, para
+o passo a passo de como ativar quando (se) o plano do servidor crescer.
 
 Ver baixar_modelo_ia_local.py para o download dos pesos (feito automaticamente
 durante o build da imagem Docker — ver Dockerfile) e PENDENCIAS.md para o

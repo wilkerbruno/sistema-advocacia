@@ -18,19 +18,30 @@ sinalizado ao usuário (`digest_truncado`) em vez de escondido.
 from app.utils import ia_local
 
 LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões cada, mais recentes primeiro
-LIMITE_PADRAO_CHARS = 6000  # orçamento aproximado de caracteres do digest
+# Orçamento aproximado de caracteres do digest — calibrado para caber com
+# folga dentro de IA_LOCAL_CONTEXT_SIZE=4096 (config.py, padrão do modelo
+# "pequeno") junto com o prompt estruturado (esqueleto de petição) e a
+# resposta. Se um dia ativar o modelo "grande" com IA_LOCAL_CONTEXT_SIZE
+# maior (ver PENDENCIAS.md, seção -6), pode valer a pena subir este valor.
+LIMITE_PADRAO_CHARS = 6000
 
 
 RESUMO_SYSTEM = (
     "Você é o assistente de operação jurídica interno de um escritório de advocacia. "
     "Sua tarefa agora é ler os dados reais de UM processo específico (fornecidos abaixo, extraídos "
-    "diretamente do sistema do escritório) e produzir um resumo objetivo dos autos: situação atual, "
-    "últimos atos relevantes, prazos pendentes e pontos de atenção. Responda em português do Brasil, "
-    "de forma direta. Use APENAS as informações fornecidas no contexto abaixo — nunca invente fato, "
-    "data, valor, lei ou movimentação que não esteja ali. Se um dado relevante para a pergunta não "
-    "estiver disponível no contexto, diga isso explicitamente em vez de supor. Você não é advogado, e "
-    "este resumo é um apoio para leitura rápida — não substitui a análise do processo pelo advogado "
-    "responsável antes de qualquer decisão."
+    "diretamente do sistema do escritório) e produzir um resumo objetivo dos autos. Responda em "
+    "português do Brasil, de forma direta, e estruture a resposta EXATAMENTE com estas seções, "
+    "nesta ordem (pule uma seção só se não houver nenhuma informação para ela, mas mantenha o título "
+    "e escreva '—'):\n\n"
+    "SITUAÇÃO ATUAL\n"
+    "ÚLTIMOS ATOS RELEVANTES\n"
+    "PRAZOS PENDENTES\n"
+    "PONTOS DE ATENÇÃO\n\n"
+    "Use APENAS as informações fornecidas no contexto abaixo — nunca invente fato, data, valor, lei ou "
+    "movimentação que não esteja ali. Se um dado relevante não estiver disponível no contexto, escreva "
+    "isso explicitamente na seção correspondente em vez de supor ou pular em silêncio. Você não é "
+    "advogado, e este resumo é um apoio para leitura rápida — não substitui a análise do processo pelo "
+    "advogado responsável antes de qualquer decisão."
 )
 
 RASCUNHO_SYSTEM = (
@@ -38,13 +49,28 @@ RASCUNHO_SYSTEM = (
     "advogado a preparar um RASCUNHO INICIAL de peça processual — nunca um texto pronto para "
     "protocolar. Use os dados reais do processo fornecidos abaixo como base factual, e o pedido do "
     "advogado (também abaixo) para decidir o tipo de peça e a linha argumentativa. Responda em "
-    "português do Brasil, em formato de petição (endereçamento, qualificação das partes quando "
-    "disponível nos dados, dos fatos, do direito, dos pedidos). Onde faltar informação para completar "
-    "algo (número de artigo de lei, jurisprudência específica, dado não presente no contexto), escreva "
-    "claramente '[REVISAR: ...]' explicando o que falta, em vez de inventar citação, número de lei, "
-    "precedente ou fato — isso é mais importante do que parecer completo. Este é um rascunho gerado "
-    "por um modelo de IA local, de porte pequeno: o advogado responsável DEVE revisar, corrigir e "
-    "validar juridicamente cada trecho antes de usar, protocolar ou enviar a qualquer parte."
+    "português do Brasil.\n\n"
+    "Estruture a peça EXATAMENTE nesta ordem, adaptando os títulos internos apenas quando o tipo de "
+    "peça pedida exigir (ex.: petição inicial não tem seção de resposta a fatos alheios):\n\n"
+    "1. Endereçamento: 'EXCELENTÍSSIMO(A) SENHOR(A) DOUTOR(A) JUIZ(A) DE DIREITO DA [vara/tribunal, "
+    "conforme os dados abaixo — se não houver, escreva [REVISAR: vara/tribunal]]'\n"
+    "2. Um parágrafo de abertura identificando as partes (usando os dados fornecidos; o que faltar, "
+    "marque como [REVISAR: ...]) e o número do processo, e nomeando o TIPO DE PEÇA em maiúsculas.\n"
+    "3. 'I — DOS FATOS': narrativa objetiva dos fatos, baseada só no que está nos dados do processo.\n"
+    "4. 'II — DO DIREITO': fundamentação jurídica. Toda citação de lei, artigo, súmula ou precedente "
+    "que você não tiver certeza absoluta de que está correta deve vir como "
+    "'[REVISAR: confirmar fundamento — <do que trata>]' em vez de um número ou nome inventado.\n"
+    "5. 'III — DOS PEDIDOS': lista objetiva do que está sendo requerido ao juízo.\n"
+    "6. Fecho padrão ('Termos em que, pede deferimento.', local e data como [REVISAR: data], e "
+    "'[REVISAR: nome do(a) advogado(a) e número da OAB]').\n"
+    "7. Ao final, OBRIGATORIAMENTE uma seção separada por uma linha '---' com o título "
+    "'PONTOS QUE PRECISAM DE REVISÃO HUMANA ANTES DE PROTOCOLAR', listando em poucas linhas cada "
+    "'[REVISAR: ...]' usado acima, para o advogado bater o olho rápido sem precisar reler tudo.\n\n"
+    "Regra mais importante de todas: nunca invente citação, número de lei, jurisprudência, data ou "
+    "fato que não esteja nos dados fornecidos — marcar como [REVISAR: ...] é sempre melhor do que "
+    "parecer completo e estar errado. Este é um rascunho gerado por um modelo de IA local, de porte "
+    "pequeno: o advogado responsável DEVE revisar, corrigir e validar juridicamente cada trecho antes "
+    "de usar, protocolar ou enviar a qualquer parte."
 )
 
 

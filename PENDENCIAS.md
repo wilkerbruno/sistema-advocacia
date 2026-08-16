@@ -1,5 +1,52 @@
 # Status das pendências do briefing (atualizado em 16/08/2026)
 
+## -6. Modelo de IA local maior avaliado e revertido por falta de RAM — script de troca deixado pronto
+
+A pedido explícito ("deixar o agente de IA local mais robusto, se não
+ficar muito maior"), cheguei a trocar o modelo de
+**Qwen2.5-1.5B-Instruct (~1,1 GB)** para **Qwen3-4B-Instruct-2507 (~2,5
+GB)** — mesma filosofia (100% local, grátis, sem dado saindo do
+servidor), só que numa geração mais nova e maior, com ganhos relatados de
+raciocínio e cobertura multilíngue. Antes de você fazer o deploy, você
+checou o painel de recursos do EasyPanel e o servidor já estava com
+**74,2% de RAM em uso (5,8 GB de 7,8 GB) antes de qualquer coisa da IA**
+— com os 2 workers do gunicorn, o modelo maior sozinho poderia chegar a
+~5 GB, o que estouraria a RAM total e derrubaria o servidor (OOM). Por
+isso, **revertido para o modelo pequeno como padrão de produção**, que é
+o que está ativo agora.
+
+O que ficou, mesmo com a reversão (grátis, sem custo de RAM/download):
+- Os prompts mais estruturados (esqueleto fixo de petição, seção
+  obrigatória de "pontos para revisão humana" — ver
+  `app/utils/analise_processo_ia.py`), que ajudam mesmo o modelo pequeno a
+  ficar mais confiável.
+- `baixar_modelo_ia_local.py` agora sabe baixar os dois tamanhos (veja
+  abaixo) — não precisa reescrever nada quando quiser trocar de verdade,
+  só seguir o passo a passo.
+
+### Como ativar o modelo "grande" no futuro (se/quando o servidor tiver mais RAM)
+
+Confira antes no painel do EasyPanel se há folga real — o modelo grande
+soma ~5-6 GB de RAM com os 2 workers atuais; recomendo um servidor com
+8 GB+ de RAM **livre** (não total) antes de tentar de novo. Feito isso:
+
+1. No `Dockerfile`, troque a linha `RUN python baixar_modelo_ia_local.py`
+   por `RUN python baixar_modelo_ia_local.py grande`.
+2. Nas variáveis de ambiente do serviço do app principal no EasyPanel,
+   defina `IA_LOCAL_MODELO_PATH=/app/app/ia_local/modelos/Qwen3-4B-Instruct-2507-Q4_K_M.gguf`.
+3. (Opcional, mas recomendado) suba `IA_LOCAL_CONTEXT_SIZE` de `4096` para
+   `8192` — reduz o risco de cortar processos com histórico longo na
+   Análise de processo. Se fizer isso, também vale subir
+   `LIMITE_PADRAO_CHARS` em `app/utils/analise_processo_ia.py` (comentário
+   já deixado no código apontando pra isso).
+4. Redeploy — o build vai demorar mais na primeira vez (baixa ~2,5 GB).
+5. Depois do deploy, volte a checar o painel de recursos do EasyPanel com
+   o Agente de IA em uso (mande uma mensagem de teste) para confirmar que
+   a RAM não estourou antes de considerar o assunto resolvido.
+
+Se quiser, me chame de novo quando for fazer essa troca — eu ajudo a
+confirmar os números e reviso os arquivos antes do deploy.
+
 ## -5. Regras de próxima ação, mapa de estado (TPU) e Análise com IA por processo — implementado nesta rodada
 
 ### Regras de próxima ação e mapa de código TPU → estado (telas novas, só admin)
@@ -28,9 +75,10 @@ Nova aba "Análise IA" na tela de cada processo. Duas opções:
   em formato de petição, usando os dados reais do processo como base.
 
 Roda no mesmo modelo de IA local gratuito que já era usado no Agente de IA
-de portfólio (decisão sua, ver pergunta que te fiz antes de implementar) —
-sem custo por uso, sem dado saindo do servidor, mas com qualidade limitada
-por ser um modelo pequeno (até 2B parâmetros). Por isso:
+de portfólio (decisão sua, ver pergunta que te fiz antes de implementar, e
+ver seção -6 acima sobre a troca para um modelo maior/mais robusto) — sem
+custo por uso, sem dado saindo do servidor, mas com qualidade ainda
+limitada por ser um modelo pequeno (4B parâmetros). Por isso:
 - O sistema NUNCA deixa o rascunho passar por pronto: toda resposta vem
   com aviso para revisão humana, e o próprio modelo é instruído a escrever
   `[REVISAR: ...]` em vez de inventar lei, jurisprudência ou fato que não
@@ -295,6 +343,12 @@ de resposta pra eu ajustar o mapeamento.
 ---
 
 ## -2. Agente de IA passou a rodar num modelo local (até 2B parâmetros), não mais Claude
+
+> Nota: existe um modelo local maior/mais robusto pronto para ativar (ver
+> seção -6 no topo deste arquivo) quando o servidor tiver mais RAM
+> sobrando — hoje o modelo pequeno descrito nesta seção continua sendo o
+> padrão de produção. O restante da decisão registrada aqui (local em vez
+> da API paga da Anthropic) continua valendo.
 
 A pedido explícito: o Agente de IA jurídica (`/agente-ia`) trocou a API da
 Anthropic (Claude) por um modelo pequeno rodando **dentro do próprio

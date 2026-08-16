@@ -25,12 +25,23 @@ RUN chmod 0644 /etc/cron.d/capturar-movimentacoes /etc/cron.d/lembretes-compromi
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-# Baixa os pesos do modelo de IA local (~1,1 GB) ANTES de copiar o resto do
-# código-fonte, de propósito: assim esta camada do Docker fica em cache e só
-# baixa de novo se este script específico mudar — não a cada deploy de uma
-# alteração qualquer no resto do sistema. Evita ~1 GB de download
-# desnecessário em todo push. Se a rede cair durante o build, o deploy falha
-# aqui (de propósito) em vez de subir um Agente de IA quebrado em silêncio.
+# Baixa os pesos do modelo de IA local (~1,1 GB, o modelo "pequeno" — ver
+# baixar_modelo_ia_local.py) ANTES de copiar o resto do código-fonte, de
+# propósito: assim esta camada do Docker fica em cache e só baixa de novo
+# se este script específico mudar — não a cada deploy de uma alteração
+# qualquer no resto do sistema. Evita ~1,1 GB de download desnecessário em
+# todo push. Se a rede cair durante o build, o deploy falha aqui (de
+# propósito) em vez de subir um Agente de IA quebrado em silêncio.
+#
+# Existe um modelo "grande" (~2,5 GB, mais robusto) pronto no mesmo script,
+# desligado por padrão aqui por falta de RAM sobrando no servidor de
+# produção atual (checamos o painel do EasyPanel: ~74% de RAM já em uso
+# antes de qualquer coisa da IA). Para ativar quando o servidor tiver mais
+# RAM: troque a linha abaixo para
+# "RUN python baixar_modelo_ia_local.py grande", defina
+# IA_LOCAL_MODELO_PATH=/app/app/ia_local/modelos/Qwen3-4B-Instruct-2507-Q4_K_M.gguf
+# nas variáveis de ambiente do serviço, e veja PENDENCIAS.md (seção -6)
+# para os ajustes de workers/contexto que também valem a pena nesse caso.
 COPY baixar_modelo_ia_local.py .
 RUN python baixar_modelo_ia_local.py
 
@@ -40,8 +51,8 @@ RUN mkdir -p /app/uploads
 
 EXPOSE 5000
 
-# -w 2 (em vez de 4): o Agente de IA agora carrega o modelo local (~1,1 GB
-# de RAM) por worker do gunicorn, na primeira mensagem que cada um atender
+# -w 2 (em vez de 4): o Agente de IA carrega o modelo local (~1,1 GB de RAM)
+# por worker do gunicorn, na primeira mensagem que cada um atender
 # (carregamento tardio, não acontece se a IA não for usada). No pior caso,
 # com 4 workers isso somaria ~4-6 GB só de modelo, fora o resto da app; com
 # 2 workers o pior caso fica em ~2-3 GB. Se o plano do servidor tiver bastante
