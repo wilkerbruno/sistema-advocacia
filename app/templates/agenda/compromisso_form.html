@@ -1,7 +1,7 @@
 {% extends "base.html" %}
-{% block titulo %}{{ "Editar compromisso" if compromisso else "Novo compromisso" }} — JusControl{% endblock %}
+{% block titulo %}{{ "Editar compromisso" if editando else "Novo compromisso" }} — JusControl{% endblock %}
 {% block eyebrow %}Agenda{% endblock %}
-{% block cabecalho %}{{ "Editar compromisso" if compromisso else "Novo compromisso" }}{% endblock %}
+{% block cabecalho %}{{ "Editar compromisso" if editando else "Novo compromisso" }}{% endblock %}
 
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 760px;">
@@ -21,7 +21,7 @@
       <div class="col-md-6">
         <label class="form-label">Data e hora do compromisso *</label>
         <input type="datetime-local" name="data_hora" class="form-control" required
-               value="{{ compromisso.data_hora.strftime('%Y-%m-%dT%H:%M') if compromisso else '' }}">
+               value="{{ compromisso.data_hora.strftime('%Y-%m-%dT%H:%M') if compromisso and compromisso.data_hora else '' }}">
       </div>
       <div class="col-md-6">
         <label class="form-label">Notificar em (opcional)</label>
@@ -98,12 +98,12 @@
     </div>
 
     <div class="d-flex gap-2 mt-4">
-      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if compromisso else "Agendar compromisso" }}</button>
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if editando else "Agendar compromisso" }}</button>
       <a href="{{ url_for('agenda.index') }}" class="btn btn-outline-doc">Cancelar</a>
     </div>
   </form>
 
-  {% if compromisso and compromisso.status != "cancelado" %}
+  {% if compromisso and compromisso.id and compromisso.status != "cancelado" %}
   <form method="post" action="{{ url_for('agenda.cancelar_compromisso', compromisso_id=compromisso.id) }}"
         onsubmit="return confirm('Cancelar este compromisso?');" class="mt-2">
     <button type="submit" class="btn btn-outline-doc text-danger btn-sm">Cancelar compromisso</button>

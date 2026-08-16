@@ -13,6 +13,7 @@ lembrete na hora marcada.
 """
 from calendar import Calendar
 from datetime import date, datetime, timedelta
+from types import SimpleNamespace
 
 from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
@@ -142,6 +143,31 @@ def _parse_datetime_local(valor):
         return None
 
 
+def _rascunho_do_formulario(unidade_id, data_hora, notificar_em, compromisso_id=None, status="agendado"):
+    """
+    Monta um objeto "de mentira" só com o que o usuário acabou de digitar
+    no formulário, pra RE-RENDERIZAR a mesma página com os dados que ele
+    já preencheu quando a validação falha — em vez de redirecionar (o que
+    jogava fora tudo que ele tinha digitado e obrigava a preencher tudo de
+    novo, inclusive nos campos que estavam certos). O único jeito de saber
+    com certeza o que o usuário mandou é reler o `request.form` — nunca
+    confiar em cache/autofill do navegador para isso.
+    """
+    return SimpleNamespace(
+        id=compromisso_id,
+        status=status,
+        unidade_id=unidade_id,
+        titulo=request.form.get("titulo", ""),
+        descricao=request.form.get("descricao", ""),
+        local=request.form.get("local", ""),
+        data_hora=data_hora,
+        cliente_id=request.form.get("cliente_id", type=int),
+        notificar_em=notificar_em,
+        enviar_whatsapp=bool(request.form.get("enviar_whatsapp")),
+        responsavel_id=request.form.get("responsavel_id", type=int) or current_user.id,
+    )
+
+
 @agenda_bp.route("/compromissos/novo", methods=["GET", "POST"])
 @login_required
 def novo_compromisso():
@@ -149,19 +175,26 @@ def novo_compromisso():
     responsaveis = usuarios_do_escopo()
     unidades = unidades_do_escopo() if current_user.is_admin else None
 
+    def _rerender(rascunho):
+        return render_template("agenda/compromisso_form.html", compromisso=rascunho, editando=False,
+                                clientes=clientes, responsaveis=responsaveis, unidades=unidades,
+                                smtp_configurado=_smtp_configurado(),
+                                whatsapp_configurado=_whatsapp_configurado())
+
     if request.method == "POST":
         unidade_id = unidade_id_para_novo_registro()
         checar_acesso_unidade_ou_403(unidade_id)
 
         data_hora = _parse_datetime_local(request.form.get("data_hora"))
+        notificar_em = _parse_datetime_local(request.form.get("notificar_em"))
+
         if not data_hora:
             flash("Informe uma data/hora válida para o compromisso.", "danger")
-            return redirect(url_for("agenda.novo_compromisso"))
+            return _rerender(_rascunho_do_formulario(unidade_id, data_hora, notificar_em))
 
-        notificar_em = _parse_datetime_local(request.form.get("notificar_em"))
         if notificar_em and notificar_em >= data_hora:
             flash("O horário da notificação precisa ser antes do horário do compromisso.", "danger")
-            return redirect(url_for("agenda.novo_compromisso"))
+            return _rerender(_rascunho_do_formulario(unidade_id, data_hora, notificar_em))
 
         responsavel_id = request.form.get("responsavel_id", type=int) or current_user.id
 
@@ -184,7 +217,7 @@ def novo_compromisso():
         flash("Compromisso agendado com sucesso.", "success")
         return redirect(url_for("agenda.index", ano=data_hora.year, mes=data_hora.month))
 
-    return render_template("agenda/compromisso_form.html", compromisso=None,
+    return render_template("agenda/compromisso_form.html", compromisso=None, editando=False,
                             clientes=clientes, responsaveis=responsaveis, unidades=unidades,
                             smtp_configurado=_smtp_configurado(),
                             whatsapp_configurado=_whatsapp_configurado())
@@ -200,16 +233,25 @@ def editar_compromisso(compromisso_id):
     responsaveis = usuarios_do_escopo()
     unidades = unidades_do_escopo() if current_user.is_admin else None
 
+    def _rerender(rascunho):
+        return render_template("agenda/compromisso_form.html", compromisso=rascunho, editando=True,
+                                clientes=clientes, responsaveis=responsaveis, unidades=unidades,
+                                smtp_configurado=_smtp_configurado(),
+                                whatsapp_configurado=_whatsapp_configurado())
+
     if request.method == "POST":
         data_hora = _parse_datetime_local(request.form.get("data_hora"))
+        notificar_em = _parse_datetime_local(request.form.get("notificar_em"))
+
         if not data_hora:
             flash("Informe uma data/hora válida para o compromisso.", "danger")
-            return redirect(url_for("agenda.editar_compromisso", compromisso_id=compromisso.id))
+            return _rerender(_rascunho_do_formulario(compromisso.unidade_id, data_hora, notificar_em,
+                                                       compromisso_id=compromisso.id, status=compromisso.status))
 
-        notificar_em = _parse_datetime_local(request.form.get("notificar_em"))
         if notificar_em and notificar_em >= data_hora:
             flash("O horário da notificação precisa ser antes do horário do compromisso.", "danger")
-            return redirect(url_for("agenda.editar_compromisso", compromisso_id=compromisso.id))
+            return _rerender(_rascunho_do_formulario(compromisso.unidade_id, data_hora, notificar_em,
+                                                       compromisso_id=compromisso.id, status=compromisso.status))
 
         # Se a data/hora do lembrete mudou (ou foi removida/recolocada),
         # limpa a marca de "já enviado" para o novo horário poder disparar
@@ -233,7 +275,7 @@ def editar_compromisso(compromisso_id):
         flash("Compromisso atualizado.", "success")
         return redirect(url_for("agenda.index", ano=data_hora.year, mes=data_hora.month))
 
-    return render_template("agenda/compromisso_form.html", compromisso=compromisso,
+    return render_template("agenda/compromisso_form.html", compromisso=compromisso, editando=True,
                             clientes=clientes, responsaveis=responsaveis, unidades=unidades,
                             smtp_configurado=_smtp_configurado(),
                             whatsapp_configurado=_whatsapp_configurado())
