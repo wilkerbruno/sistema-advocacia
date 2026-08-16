@@ -6,19 +6,16 @@
 {% block conteudo %}
 <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
   <p class="small mb-0">
-    A coluna MAC só é preenchida quando o dispositivo está na mesma rede
-    local do servidor (ex: uso dentro do escritório, ou em teste local).
-    Em produção no EasyPanel, o servidor fica em um datacenter e os
-    usuários acessam pela internet — nesse caso a coluna vai aparecer como
-    "—" quase sempre. Não é uma falha do sistema: nenhum servidor na
-    internet consegue descobrir o MAC de quem acessa de fora da própria
-    rede local, é uma limitação do próprio protocolo de rede. Por isso,
-    pra rastrear acesso de verdade pela internet, use IP e Dispositivo
-    abaixo — esses dois sempre chegam ao servidor, mesmo fora da rede
-    local. "Dispositivo" é um identificador salvo num cookie no primeiro
-    acesso de cada navegador: continua igual mesmo se o IP mudar (ex: uso
-    pelo celular fora do wi-fi), então serve pra ver todo o histórico de
-    ações de um mesmo navegador/aparelho ao longo do tempo.
+    Rastreamento de acesso pela internet é feito por IP e Dispositivo
+    abaixo — esses dois sempre chegam ao servidor, mesmo com o usuário
+    fora da rede local. "Dispositivo" é um identificador salvo num cookie
+    no primeiro acesso de cada navegador: continua igual mesmo se o IP
+    mudar (ex: uso pelo celular fora do wi-fi), então serve pra ver todo o
+    histórico de ações de um mesmo navegador/aparelho ao longo do tempo.
+    (A coluna MAC foi removida daqui: nenhum servidor na internet consegue
+    descobrir o MAC de quem acessa de fora da própria rede local — é uma
+    limitação do protocolo de rede, não algo que dá pra contornar com
+    código.)
   </p>
 </div>
 <form method="get" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
@@ -58,7 +55,7 @@
 <div class="card-doc tab p-0">
   {% if logs.items %}
   <table class="table-doc mb-0">
-    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>Dispositivo</th><th>MAC</th></tr></thead>
+    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>Dispositivo</th></tr></thead>
     <tbody>
       {% for l in logs.items %}
       <tr>
@@ -74,7 +71,6 @@
           <br><a class="small" href="{{ url_for('admin.auditoria', dispositivo_id=l.dispositivo_id) }}" title="Ver todo o histórico deste dispositivo">{{ l.dispositivo_id[:8] }}…</a>
           {% endif %}
         </td>
-        <td class="text-muted-doc" title="{{ '' if l.mac_address else 'Não resolvível: dispositivo fora da rede local do servidor' }}">{{ l.mac_address or "—" }}</td>
       </tr>
       {% endfor %}
     </tbody>
