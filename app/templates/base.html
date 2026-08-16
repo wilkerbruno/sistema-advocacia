@@ -76,6 +76,14 @@
       <a class="nav-item {{ 'active' if request.endpoint == 'governanca.contingenciamento' }}" href="{{ url_for('governanca.contingenciamento') }}">
         <span class="tab-index">G8</span> Contingenciamento
       </a>
+      {% if current_user.is_admin %}
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao'] }}" href="{{ url_for('governanca.regras_proxima_acao_lista') }}">
+        <span class="tab-index">G9</span> Regras de próxima ação
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado'] }}" href="{{ url_for('governanca.mapa_estado_lista') }}">
+        <span class="tab-index">GA</span> Mapa de estado (TPU)
+      </a>
+      {% endif %}
 
       {% if current_user.is_authenticated and current_user.pode_gerenciar_usuarios() %}
       <div class="grupo-titulo">Gestão</div>

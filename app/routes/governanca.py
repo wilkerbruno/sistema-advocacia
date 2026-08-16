@@ -25,7 +25,8 @@ from app.extensions import db
 from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, Decisao,
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
                          MapaEstadoTPU, RegraProximaAcao)
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
+from app.utils.acesso import (aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
+                               unidades_do_escopo, usuarios_do_escopo, apenas_admin)
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
@@ -762,3 +763,150 @@ def relatorio_semanal_preview():
         prazos_da_semana=prazos_da_semana, prazos_perdidos_semana_passada=prazos_perdidos_semana_passada,
         processos_parados=processos_parados, movimentacoes_semana=movimentacoes_semana,
     )
+
+
+# ---------- Regras de próxima ação (seção 7.1) e mapa código TPU → estado (seção 6) ----------
+# Interface de configuração do motor de prazos automático e da tradução de
+# movimentação para estado de negócio (app/utils/prazos_engine.py e
+# app/utils/estado_processual_engine.py). Sem nenhuma regra/mapeamento
+# cadastrado aqui, os dois motores continuam funcionando, mas todo ato
+# capturado cai no caminho genérico ("análise necessária", prazo provisório
+# de 5 dias, ou "triagem pendente") por falta de regra específica — esta
+# tela é o que efetivamente liga o "lançamento automático de prazo" na
+# prática, para os tipos de ato que o escritório realmente enfrenta.
+#
+# Acesso restrito a admin: são regras de negócio jurídicas que valem para
+# toda a carteira, não configuração de uso pessoal. E, de propósito, o
+# sistema NÃO vem com nenhum prazo legal pré-cadastrado nem sugerido aqui —
+# cadastrar um prazo errado é grave (risco real de perda de prazo). Cabe ao
+# advogado responsável validar e digitar o prazo de cada tipo de ato
+# conforme a legislação e o rito aplicável ao caso (CPC, Lei de Execução
+# Fiscal etc.).
+
+@governanca_bp.route("/regras-proxima-acao")
+@login_required
+@apenas_admin
+def regras_proxima_acao_lista():
+    regras = RegraProximaAcao.query.order_by(RegraProximaAcao.ativo.desc(), RegraProximaAcao.ato_capturado).all()
+    return render_template("governanca/regras_proxima_acao_lista.html", regras=regras)
+
+
+@governanca_bp.route("/regras-proxima-acao/nova", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def nova_regra_proxima_acao():
+    if request.method == "POST":
+        prazo_base_dias = request.form.get("prazo_base_dias") or None
+        regra = RegraProximaAcao(
+            ato_capturado=request.form["ato_capturado"].strip(),
+            codigo_tpu=request.form.get("codigo_tpu") or None,
+            acao_exigida=request.form["acao_exigida"].strip(),
+            prazo_base_dias=int(prazo_base_dias) if prazo_base_dias else None,
+            unidade_prazo=request.form.get("unidade_prazo") or "dias_uteis",
+            observacao_prazo=request.form.get("observacao_prazo") or None,
+            responsavel_sugerido_papel=request.form.get("responsavel_sugerido_papel") or None,
+            ativo=True,
+        )
+        db.session.add(regra)
+        registrar_log(current_user, "criou", "RegraProximaAcao", None, regra.ato_capturado)
+        db.session.commit()
+        flash("Regra de próxima ação cadastrada.", "success")
+        return redirect(url_for("governanca.regras_proxima_acao_lista"))
+
+    return render_template("governanca/regra_proxima_acao_form.html", regra=None)
+
+
+@governanca_bp.route("/regras-proxima-acao/<int:regra_id>/editar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def editar_regra_proxima_acao(regra_id):
+    regra = db.get_or_404(RegraProximaAcao, regra_id)
+    if request.method == "POST":
+        prazo_base_dias = request.form.get("prazo_base_dias") or None
+        regra.ato_capturado = request.form["ato_capturado"].strip()
+        regra.codigo_tpu = request.form.get("codigo_tpu") or None
+        regra.acao_exigida = request.form["acao_exigida"].strip()
+        regra.prazo_base_dias = int(prazo_base_dias) if prazo_base_dias else None
+        regra.unidade_prazo = request.form.get("unidade_prazo") or "dias_uteis"
+        regra.observacao_prazo = request.form.get("observacao_prazo") or None
+        regra.responsavel_sugerido_papel = request.form.get("responsavel_sugerido_papel") or None
+        registrar_log(current_user, "editou", "RegraProximaAcao", regra.id, regra.ato_capturado)
+        db.session.commit()
+        flash("Regra atualizada.", "success")
+        return redirect(url_for("governanca.regras_proxima_acao_lista"))
+
+    return render_template("governanca/regra_proxima_acao_form.html", regra=regra)
+
+
+@governanca_bp.route("/regras-proxima-acao/<int:regra_id>/alternar-ativo", methods=["POST"])
+@login_required
+@apenas_admin
+def alternar_regra_proxima_acao(regra_id):
+    regra = db.get_or_404(RegraProximaAcao, regra_id)
+    regra.ativo = not regra.ativo
+    registrar_log(current_user, "ativou" if regra.ativo else "desativou", "RegraProximaAcao", regra.id, regra.ato_capturado)
+    db.session.commit()
+    flash(f"Regra {'ativada' if regra.ativo else 'desativada'}.", "info")
+    return redirect(url_for("governanca.regras_proxima_acao_lista"))
+
+
+@governanca_bp.route("/mapa-estado-tpu")
+@login_required
+@apenas_admin
+def mapa_estado_lista():
+    itens = MapaEstadoTPU.query.order_by(MapaEstadoTPU.ativo.desc(), MapaEstadoTPU.codigo_tpu).all()
+    triagem_pendente = Movimentacao.query.filter_by(triagem_pendente=True).count()
+    return render_template("governanca/mapa_estado_lista.html", itens=itens, triagem_pendente=triagem_pendente)
+
+
+@governanca_bp.route("/mapa-estado-tpu/novo", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def novo_mapa_estado():
+    if request.method == "POST":
+        codigo_tpu = request.form["codigo_tpu"].strip()
+        if MapaEstadoTPU.query.filter_by(codigo_tpu=codigo_tpu).first():
+            flash(f"Já existe um mapeamento cadastrado para o código TPU {codigo_tpu}.", "danger")
+            return redirect(url_for("governanca.novo_mapa_estado"))
+
+        item = MapaEstadoTPU(
+            codigo_tpu=codigo_tpu,
+            descricao_tpu=request.form.get("descricao_tpu") or None,
+            estado_negocio=request.form["estado_negocio"].strip(),
+            ativo=True,
+        )
+        db.session.add(item)
+        registrar_log(current_user, "criou", "MapaEstadoTPU", None, item.codigo_tpu)
+        db.session.commit()
+        flash("Mapeamento de estado cadastrado.", "success")
+        return redirect(url_for("governanca.mapa_estado_lista"))
+
+    return render_template("governanca/mapa_estado_form.html", item=None)
+
+
+@governanca_bp.route("/mapa-estado-tpu/<int:item_id>/editar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def editar_mapa_estado(item_id):
+    item = db.get_or_404(MapaEstadoTPU, item_id)
+    if request.method == "POST":
+        item.descricao_tpu = request.form.get("descricao_tpu") or None
+        item.estado_negocio = request.form["estado_negocio"].strip()
+        registrar_log(current_user, "editou", "MapaEstadoTPU", item.id, item.codigo_tpu)
+        db.session.commit()
+        flash("Mapeamento atualizado.", "success")
+        return redirect(url_for("governanca.mapa_estado_lista"))
+
+    return render_template("governanca/mapa_estado_form.html", item=item)
+
+
+@governanca_bp.route("/mapa-estado-tpu/<int:item_id>/alternar-ativo", methods=["POST"])
+@login_required
+@apenas_admin
+def alternar_mapa_estado(item_id):
+    item = db.get_or_404(MapaEstadoTPU, item_id)
+    item.ativo = not item.ativo
+    registrar_log(current_user, "ativou" if item.ativo else "desativou", "MapaEstadoTPU", item.id, item.codigo_tpu)
+    db.session.commit()
+    flash(f"Mapeamento {'ativado' if item.ativo else 'desativado'}.", "info")
+    return redirect(url_for("governanca.mapa_estado_lista"))

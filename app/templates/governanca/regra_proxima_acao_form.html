@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar regra" if regra else "Nova regra" }} de próxima ação — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}{{ "Editar regra" if regra else "Nova regra" }} de próxima ação{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 760px;">
+  <p class="small text-muted-doc">
+    Confira o prazo legal com atenção antes de salvar — um prazo errado aqui
+    passa a valer automaticamente para toda a carteira que casar com este
+    ato. Em caso de dúvida, deixe "Dias de prazo" em branco: a regra ainda
+    assim cria o lançamento e o alerta, só que com data provisória para
+    revisão manual em vez de calcular sozinha.
+  </p>
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label">Ato capturado (texto a procurar na movimentação) *</label>
+        <input type="text" name="ato_capturado" class="form-control" required
+               placeholder="Ex.: Citação para pagar ou embargar em execução fiscal"
+               value="{{ regra.ato_capturado if regra else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Quando a movimentação capturada não tiver código TPU reconhecido, o
+          sistema procura este texto (sem diferenciar maiúsculas/minúsculas)
+          dentro da descrição do ato para casar com esta regra.
+        </div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Código TPU (opcional)</label>
+        <input type="text" name="codigo_tpu" class="form-control" placeholder="Ex.: 246"
+               value="{{ regra.codigo_tpu if regra else '' }}">
+        <div class="small text-muted-doc mt-1">Se preenchido, tem prioridade sobre o texto acima.</div>
+      </div>
+      <div class="col-md-8">
+        <label class="form-label">Ação exigida *</label>
+        <input type="text" name="acao_exigida" class="form-control" required
+               placeholder="Ex.: Apresentar embargos à execução fiscal"
+               value="{{ regra.acao_exigida if regra else '' }}">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Dias de prazo</label>
+        <input type="number" min="1" name="prazo_base_dias" class="form-control"
+               value="{{ regra.prazo_base_dias if regra and regra.prazo_base_dias is not none else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Contagem</label>
+        <select name="unidade_prazo" class="form-select">
+          <option value="dias_uteis" {{ "selected" if not regra or regra.unidade_prazo == "dias_uteis" }}>Dias úteis (padrão CPC)</option>
+          <option value="dias_corridos" {{ "selected" if regra and regra.unidade_prazo == "dias_corridos" }}>Dias corridos</option>
+          <option value="data_evento" {{ "selected" if regra and regra.unidade_prazo == "data_evento" }}>Conforme despacho/evento (não calculável)</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Responsável sugerido</label>
+        <select name="responsavel_sugerido_papel" class="form-select">
+          <option value="" {{ "selected" if not regra or not regra.responsavel_sugerido_papel }}>— nenhum —</option>
+          <option value="advogado" {{ "selected" if regra and regra.responsavel_sugerido_papel == "advogado" }}>Advogado</option>
+          <option value="gestor" {{ "selected" if regra and regra.responsavel_sugerido_papel == "gestor" }}>Gestor</option>
+        </select>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Observação sobre o prazo (opcional)</label>
+        <input type="text" name="observacao_prazo" class="form-control"
+               placeholder="Ex.: conforme despacho, ou: data da audiência"
+               value="{{ regra.observacao_prazo if regra else '' }}">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if regra else "Cadastrar regra" }}</button>
+      <a href="{{ url_for('governanca.regras_proxima_acao_lista') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}
