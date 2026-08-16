@@ -9,11 +9,13 @@
     <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index', ano=ano_mes_anterior, mes=mes_anterior) }}">&larr; Mês anterior</a>
     <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index') }}">Hoje</a>
     <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index', ano=ano_mes_seguinte, mes=mes_seguinte) }}">Mês seguinte &rarr;</a>
+    <a class="btn btn-brass btn-sm" href="{{ url_for('agenda.novo_compromisso') }}">+ Novo compromisso</a>
   </div>
   <div class="d-flex gap-3 small text-muted-doc">
     <span><span class="agenda-dot agenda-dot-prazo"></span> {{ total_prazos }} prazo(s)</span>
     <span><span class="agenda-dot agenda-dot-audiencia"></span> {{ total_audiencias }} audiência(s)</span>
     <span><span class="agenda-dot agenda-dot-tarefa"></span> {{ total_tarefas }} tarefa(s)</span>
+    <span><span class="agenda-dot agenda-dot-compromisso"></span> {{ total_compromissos }} compromisso(s)</span>
   </div>
 </div>
 

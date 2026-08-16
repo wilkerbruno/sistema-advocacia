@@ -100,6 +100,21 @@ class Config:
     # https://datajud-wiki.cnj.jus.br/
     DATAJUD_API_KEY = os.environ.get("DATAJUD_API_KEY", "")
 
+    # Lembrete de compromisso da Agenda por WhatsApp (ver
+    # app/utils/whatsapp.py e whatsapp-bridge/) — automação NÃO-OFICIAL,
+    # decisão explícita (não é a API paga da Meta), ciente do risco de
+    # banimento do número usado. WHATSAPP_BRIDGE_URL aponta para o serviço
+    # separado (Node.js) que mantém a sessão do WhatsApp Web logada — ex:
+    # "http://whatsapp-bridge:3000" se os dois serviços estiverem no mesmo
+    # projeto do EasyPanel. WHATSAPP_BRIDGE_TOKEN é opcional (mas
+    # recomendado): um segredo compartilhado pra esse endpoint não aceitar
+    # chamada de qualquer um que descubra a URL interna. Sem
+    # WHATSAPP_BRIDGE_URL definida, o lembrete de compromisso continua
+    # saindo normalmente por notificação no sistema e e-mail — só o
+    # WhatsApp fica desativado, nunca falha silenciosamente.
+    WHATSAPP_BRIDGE_URL = os.environ.get("WHATSAPP_BRIDGE_URL", "")
+    WHATSAPP_BRIDGE_TOKEN = os.environ.get("WHATSAPP_BRIDGE_TOKEN", "")
+
     # Legado: chave da Anthropic (Claude), não é mais usada pelo Agente de IA
     # desde que ele passou a rodar no modelo local acima. Mantida só para
     # facilitar reverter, se um dia quiser voltar a usar uma API de ponta em

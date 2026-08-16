@@ -1,5 +1,117 @@
 # Status das pendências do briefing (atualizado em 16/08/2026)
 
+## -4. Autopreenchimento por CNJ/CEP e Agenda com lembrete (reunião) — implementado nesta rodada
+
+### Buscar dados do processo ao digitar o número CNJ
+Na tela "Governança > Cadastrar por CNJ", digitar o número e apertar
+**Enter** agora já consulta o DataJud e mostra uma pré-visualização
+(tribunal, classe, assunto, órgão julgador, data de ajuizamento, quantas
+movimentações existem) **antes** de cadastrar — sem gravar nada no banco
+ainda. Se o tribunal for identificado automaticamente (Justiça do
+Trabalho), o campo "Tribunal" já é preenchido sozinho; o campo "Área do
+direito" recebe uma sugestão (assunto/classe do DataJud) só se ainda
+estiver vazio. O cadastro de fato continua só acontecendo ao clicar em
+"Validar e cadastrar" (rota nova: `GET /governanca/processos/consultar-cnj`,
+só leitura).
+
+### Autopreenchimento de endereço por CEP
+No cadastro/edição de cliente, digitar o CEP e sair do campo (ou apertar
+Enter nele) busca automaticamente logradouro/bairro/cidade/UF via
+**ViaCEP** (`viacep.com.br` — gratuito, sem chave). A consulta passa pelo
+próprio backend (`GET /api/cep/<cep>`, ver `app/utils/cep.py`) em vez de
+ser feita direto do navegador, porque o ViaCEP não documenta oficialmente
+suporte a CORS — assim funciona de forma confiável em qualquer navegador.
+Esse é hoje o único campo de CEP do sistema (a Unidade não tem CEP
+cadastrado); se um dia um CEP for adicionado em outro formulário, o mesmo
+endpoint pode ser reaproveitado.
+
+### Agenda: agendar reunião/compromisso com lembrete
+Nova entidade `Compromisso` (`app/models/compromisso.py`) — evento livre
+da Agenda, sem precisar estar ligado a um processo. Em "Agenda > + Novo
+compromisso" dá pra definir: nome, local, data/hora do compromisso, um
+horário separado para o lembrete ("Notificar em" — precisa ser antes do
+horário do compromisso), e opcionalmente vincular um cliente.
+
+O lembrete dispara sozinho, sem precisar de nada manual: um novo job
+(`enviar_lembretes_compromissos.py`) já vem agendado dentro do próprio
+container via cron a cada 5 minutos (`docker/lembretes-compromissos.cron`,
+mesmo esquema já usado pela recaptura do DataJud — não depende de
+nenhuma configuração no painel do EasyPanel). Ele:
+- Sempre manda uma notificação dentro do sistema para o responsável pelo
+  compromisso (não depende de nenhuma credencial).
+- Também manda um e-mail para o responsável, **se** `SMTP_HOST`/
+  `SMTP_USER`/`SMTP_PASSWORD` estiverem configurados no `.env` (mesmas
+  variáveis já usadas por `enviar_relatorio_semanal.py` — se você já usa
+  o relatório semanal por e-mail, o lembrete de compromisso já sai por
+  e-mail também, de graça, sem configurar nada a mais).
+- Nunca manda o mesmo lembrete duas vezes, mesmo rodando várias vezes.
+
+**Como ativar:** rodar `python sincronizar_schema.py` no servidor depois
+do deploy, para criar a tabela `compromissos`. Nada mais — a Agenda já
+aparece com o botão "+ Novo compromisso" e o lembrete já roda sozinho.
+
+### WhatsApp do lembrete — implementado (automação não-oficial, escolha sua)
+Você optou pela automação não-oficial em vez da API paga da Meta (ver as
+3 opções na seção 2.2 abaixo) — ciente do risco real de o número usado
+ser banido pelo WhatsApp por comportamento automatizado, já que isso
+viola os Termos de Serviço da plataforma. Implementado como pediu, com
+esse risco documentado em vários lugares do código para nunca ficar
+escondido.
+
+**Como funciona:** o formulário de compromisso já tem a opção "Também
+enviar por WhatsApp" — mas o envio de verdade depende de um **serviço
+separado**, na pasta `whatsapp-bridge/` (Node.js + `whatsapp-web.js`), que
+mantém uma sessão comum de WhatsApp Web logada (a mesma coisa que abrir
+web.whatsapp.com no navegador e escanear o QR code, só que automatizado
+via Puppeteer/Chromium). O app Flask principal só chama esse serviço por
+HTTP quando precisa mandar uma mensagem — nenhuma lógica de WhatsApp roda
+dentro do container principal.
+
+**Por que um serviço separado, e não dentro do mesmo container:** manter
+uma sessão de WhatsApp Web exige um navegador Chromium rodando o tempo
+todo (não é uma chamada de API simples) — bem diferente do resto do
+sistema (Flask + MySQL), então isolar num serviço próprio evita inflar o
+container principal e deixa mais fácil reiniciar/depurar um sem afetar o
+outro.
+
+**Passo a passo para ativar (nenhum destes eu consigo fazer por você —
+depende do seu painel do EasyPanel e do celular físico do escritório):**
+1. No EasyPanel, crie um **segundo serviço** dentro do mesmo projeto,
+   apontando para a pasta `whatsapp-bridge/` deste repositório (tem
+   `Dockerfile` próprio).
+2. **Anexe um volume persistente** em `/data/sessao` desse serviço — sem
+   isso, todo redeploy derruba a sessão e pede escanear o QR code de
+   novo. É o ponto mais fácil de esquecer.
+3. Defina `BRIDGE_TOKEN` no `.env` desse serviço (qualquer string
+   aleatória) — é o segredo que impede qualquer um que descubra a URL
+   interna de mandar mensagem pela sua conta.
+4. Depois do deploy, abra a URL interna do serviço + `/qr` no navegador
+   (ex: `https://whatsapp-bridge-xxxx.easypanel.host/qr`) e escaneie com
+   o WhatsApp do **número escolhido para isso** — use um número dedicado,
+   nunca o WhatsApp pessoal de um advogado nem o número principal de
+   atendimento do escritório, justamente por causa do risco de banimento.
+5. No `.env` do app **principal** (não do bridge), defina
+   `WHATSAPP_BRIDGE_URL` (a URL interna do serviço, ex:
+   `http://whatsapp-bridge:3000` se os dois estiverem no mesmo projeto) e
+   `WHATSAPP_BRIDGE_TOKEN` (o mesmo valor do passo 3).
+6. Pronto — marque "Também enviar por WhatsApp" num compromisso vinculado
+   a um cliente com número cadastrado, e o lembrete sai pelos 3 canais
+   (sistema + e-mail + WhatsApp) na hora marcada.
+
+**Recomendações práticas pra reduzir (não eliminar) o risco de
+banimento**, documentadas também em `whatsapp-bridge/server.js`:
+- Número dedicado só pra isso, nunca o pessoal de ninguém.
+- Deixe o número "esquentar" alguns dias com uso normal (conversas reais)
+  antes de começar a automatizar.
+- Não mande volume alto de mensagens de uma vez — um lembrete de reunião
+  por compromisso já é um uso naturalmente baixo.
+
+Sem `WHATSAPP_BRIDGE_URL` configurada, nada disso quebra — o lembrete
+continua saindo normalmente por notificação no sistema e e-mail, só o
+WhatsApp fica desligado até você configurar.
+
+---
+
 ## -3. Captura automática de processos (PJe/TRT/TJ/etc) — parcialmente desbloqueado, de graça, via DataJud
 
 O item "integração com dados judiciais" (categoria 8 do concorrente),
@@ -297,8 +409,20 @@ Falta só você preencher `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD`/
 `SMTP_REMETENTE`/`RELATORIO_SEMANAL_DESTINATARIOS` no `.env` e colocar o
 script para rodar via cron (exemplo de crontab no topo do próprio script).
 Sem essas variáveis, o script gera o relatório e avisa que não vai enviar
-— nunca falha silenciosamente. WhatsApp via Evolution API continua
-bloqueado (precisa de instância/credencial sua).
+— nunca falha silenciosamente. O mesmo SMTP também já é reaproveitado
+pelo lembrete de compromisso da Agenda (ver seção -4 acima).
+
+**Atualizado:** WhatsApp para o lembrete de compromisso da Agenda foi
+implementado — você escolheu o caminho da **automação não-oficial** entre
+as três opções que apresentei (API oficial paga da Meta / automação
+não-oficial grátis mas arriscada / não usar por enquanto). Ver seção -4
+acima para os detalhes técnicos completos e o passo a passo de ativação
+(`whatsapp-bridge/`). Continua valendo o alerta: esse caminho viola os
+Termos de Serviço do WhatsApp e corre risco real de o número usado ser
+banido — se em algum momento quiser migrar para a API oficial da Meta
+(mais caro, mas sem esse risco), me avise que eu troco o canal sem mexer
+no resto do sistema (a chamada em `app/utils/whatsapp.py` fica isolada
+disso).
 
 ### 2.3 Interoperabilidade com o For Legal e com o Data Lake do escritório
 **Atualizado:** criei uma API de leitura autenticada por token

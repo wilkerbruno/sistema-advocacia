@@ -51,21 +51,23 @@
         <input type="email" name="email" class="form-control" value="{{ cliente.email if cliente else '' }}">
       </div>
 
-      <div class="col-md-8">
-        <label class="form-label">Endereço</label>
-        <input type="text" name="endereco" class="form-control" value="{{ cliente.endereco if cliente else '' }}">
-      </div>
       <div class="col-md-2">
+        <label class="form-label">CEP</label>
+        <input type="text" name="cep" id="cep" class="form-control" placeholder="00000-000"
+               value="{{ cliente.cep if cliente else '' }}" autocomplete="off">
+        <div id="cep-status" class="small text-muted-doc mt-1"></div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Endereço</label>
+        <input type="text" name="endereco" id="endereco" class="form-control" value="{{ cliente.endereco if cliente else '' }}">
+      </div>
+      <div class="col-md-3">
         <label class="form-label">Cidade</label>
-        <input type="text" name="cidade" class="form-control" value="{{ cliente.cidade if cliente else '' }}">
+        <input type="text" name="cidade" id="cidade" class="form-control" value="{{ cliente.cidade if cliente else '' }}">
       </div>
       <div class="col-md-1">
         <label class="form-label">UF</label>
-        <input type="text" name="estado" maxlength="2" class="form-control" value="{{ cliente.estado if cliente else '' }}">
-      </div>
-      <div class="col-md-1">
-        <label class="form-label">CEP</label>
-        <input type="text" name="cep" class="form-control" value="{{ cliente.cep if cliente else '' }}">
+        <input type="text" name="estado" id="estado" maxlength="2" class="form-control" value="{{ cliente.estado if cliente else '' }}">
       </div>
 
       <div class="col-12">
@@ -80,4 +82,59 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Busca automática de endereço por CEP (ViaCEP, via proxy do próprio
+// servidor em /api/cep/<cep> — ver app/utils/cep.py). Dispara ao sair do
+// campo (blur) ou ao apertar Enter nele; nos dois casos sem recarregar a
+// página nem submeter o formulário sozinho.
+(function () {
+  const campoCep = document.getElementById("cep");
+  const campoEndereco = document.getElementById("endereco");
+  const campoCidade = document.getElementById("cidade");
+  const campoEstado = document.getElementById("estado");
+  const status = document.getElementById("cep-status");
+  if (!campoCep) return;
+
+  let ultimoCepBuscado = null;
+
+  async function buscarCep() {
+    const digitos = campoCep.value.replace(/\D/g, "");
+    if (digitos.length !== 8) {
+      status.textContent = digitos.length ? "CEP incompleto (precisa ter 8 dígitos)." : "";
+      return;
+    }
+    if (digitos === ultimoCepBuscado) return; // evita repetir a mesma busca à toa
+
+    status.textContent = "Buscando endereço...";
+    try {
+      const resp = await fetch(`/api/cep/${digitos}`);
+      const dados = await resp.json();
+      if (!resp.ok) {
+        status.textContent = dados.erro || "Não foi possível buscar este CEP.";
+        return;
+      }
+      ultimoCepBuscado = digitos;
+      const partes = [dados.logradouro, dados.bairro].filter(Boolean);
+      if (partes.length) campoEndereco.value = partes.join(", ");
+      if (dados.cidade) campoCidade.value = dados.cidade;
+      if (dados.estado) campoEstado.value = dados.estado;
+      status.textContent = "Endereço preenchido automaticamente — confira o número/complemento.";
+      if (campoEndereco.value) campoEndereco.focus();
+    } catch (e) {
+      status.textContent = "Falha ao buscar o CEP (verifique sua conexão).";
+    }
+  }
+
+  campoCep.addEventListener("blur", buscarCep);
+  campoCep.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault(); // não submete o formulário, só dispara a busca
+      buscarCep();
+    }
+  });
+})();
+</script>
 {% endblock %}

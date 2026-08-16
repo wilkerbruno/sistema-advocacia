@@ -14,6 +14,7 @@ from .observabilidade import Feriado, LogCaptura
 from .licenca import Licenca, Pagamento
 from .apontamento import Apontamento
 from .agente_ia import ConversaAgenteIA, MensagemAgenteIA
+from .compromisso import Compromisso
 
 __all__ = [
     "Empresa",
@@ -43,4 +44,5 @@ __all__ = [
     "Apontamento",
     "ConversaAgenteIA",
     "MensagemAgenteIA",
+    "Compromisso",
 ]

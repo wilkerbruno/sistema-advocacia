@@ -381,8 +381,10 @@ textarea.form-control { min-height: 90px; }
 .agenda-event-prazo { background: #f7e6e6; color: var(--status-danger); border-left-color: var(--status-danger); }
 .agenda-event-audiencia { background: #fdf0dd; color: var(--status-warn); border-left-color: var(--status-warn); }
 .agenda-event-tarefa { background: #e6eaf2; color: var(--status-info); border-left-color: var(--status-info); }
+.agenda-event-compromisso { background: #e5efe8; color: var(--status-ok); border-left-color: var(--status-ok); }
 .agenda-event-mais { font-size: 0.64rem; color: var(--ink-500); }
 .agenda-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 3px; }
 .agenda-dot-prazo { background: var(--status-danger); }
 .agenda-dot-audiencia { background: var(--status-warn); }
 .agenda-dot-tarefa { background: var(--status-info); }
+.agenda-dot-compromisso { background: var(--status-ok); }

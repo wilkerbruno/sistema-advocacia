@@ -1,0 +1,15 @@
+{
+  "name": "juscontrol-whatsapp-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Serviço separado (Node.js) que mantém uma sessão de WhatsApp Web logada e expõe um endpoint HTTP interno para o JusControl (Flask) enviar lembretes de compromisso por WhatsApp. Automação NÃO-OFICIAL — ver PENDENCIAS.md do projeto principal para o motivo e os riscos dessa escolha.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.26.0"
+  }
+}

@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                    flash, Response, current_app)
+                    flash, Response, current_app, jsonify)
 from flask_login import login_required, current_user
 from sqlalchemy import func, or_
 
@@ -121,6 +121,49 @@ def novo_por_cnj():
 
     return render_template("governanca/novo_por_cnj.html", clientes=clientes, unidades=unidades,
                             tribunais_datajud=tribunais_datajud.TODOS)
+
+
+@governanca_bp.route("/processos/consultar-cnj")
+@login_required
+def consultar_cnj_preview():
+    """
+    Pré-visualização via AJAX dos dados de um processo no DataJud a partir
+    do número CNJ — chamada pelo JS de novo_por_cnj.html ao apertar Enter
+    no campo do número, ANTES de clicar em "Validar e cadastrar". NUNCA
+    grava nada no banco — é só uma consulta de leitura, para o usuário ver
+    classe/assunto/órgão julgador e confirmar que é o processo certo antes
+    de cadastrar de fato (o cadastro em si continua acontecendo só no POST
+    de novo_por_cnj(), que faz a mesma consulta de novo e persiste).
+    """
+    numero = request.args.get("numero_cnj", "")
+    resultado = validar_numero_cnj(numero)
+    if not resultado["valido"]:
+        return jsonify(valido=False, motivo=resultado["motivo"])
+
+    tribunal_hint = request.args.get("tribunal_datajud") or None
+
+    try:
+        conector = obter_conector("padrao")
+    except ConectorNaoConfiguradoError as e:
+        return jsonify(valido=True, encontrado=False, motivo=str(e))
+
+    try:
+        dados = conector.consultar_processo(resultado["partes"]["formatado"], tribunal_hint=tribunal_hint)
+    except TribunalNaoIdentificadoError as e:
+        return jsonify(valido=True, encontrado=False, motivo=str(e), precisa_tribunal=True)
+    except ConexaoDataJudError as e:
+        return jsonify(valido=True, encontrado=False, motivo=str(e))
+
+    return jsonify(
+        valido=True, encontrado=True,
+        tribunal_slug=dados["tribunal_slug"],
+        classe=dados["classe"],
+        assunto=dados["assunto"],
+        orgao_julgador=dados["orgao_julgador"],
+        data_ajuizamento=dados["data_ajuizamento"].strftime("%d/%m/%Y") if dados["data_ajuizamento"] else None,
+        valor_causa=str(dados["valor_causa"]) if dados["valor_causa"] is not None else None,
+        qtd_movimentacoes=len(dados["movimentacoes"]),
+    )
 
 
 # ---------- Importação em lote (CSV) ----------

@@ -17,14 +17,29 @@
         automaticamente</strong> — nunca fica um buraco silencioso na
         carteira.
       </p>
-      <form method="post">
+      <form method="post" id="form-novo-cnj">
         <div class="mb-3">
           <label class="form-label">Número CNJ</label>
-          <input type="text" name="numero_cnj" class="form-control" placeholder="0000000-00.0000.0.00.0000" required>
+          <input type="text" name="numero_cnj" id="numero_cnj" class="form-control"
+                 placeholder="0000000-00.0000.0.00.0000" required>
+          <div class="small text-muted-doc mt-1">
+            Digite o número e aperte <strong>Enter</strong> (sem precisar clicar em
+            "Validar e cadastrar") para já buscar e conferir os dados do processo no
+            DataJud antes de cadastrar.
+          </div>
+          <div id="cnj-preview-status" class="small mt-2"></div>
+          <div id="cnj-preview" class="card-doc p-2 mt-2" style="display:none; font-size: .85rem;">
+            <div><strong>Tribunal:</strong> <span id="cnj-preview-tribunal"></span></div>
+            <div><strong>Classe:</strong> <span id="cnj-preview-classe"></span></div>
+            <div><strong>Assunto:</strong> <span id="cnj-preview-assunto"></span></div>
+            <div><strong>Órgão julgador:</strong> <span id="cnj-preview-orgao"></span></div>
+            <div><strong>Data de ajuizamento:</strong> <span id="cnj-preview-data"></span></div>
+            <div><strong>Movimentações encontradas:</strong> <span id="cnj-preview-movs"></span></div>
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Tribunal (DataJud)</label>
-          <select name="tribunal_datajud" class="form-select">
+          <select name="tribunal_datajud" id="tribunal_datajud" class="form-select">
             <option value="">— (não sei / é da Justiça do Trabalho)</option>
             {% for slug, rotulo in tribunais_datajud %}
             <option value="{{ slug }}">{{ rotulo }}</option>
@@ -48,7 +63,7 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Área do direito</label>
-          <input type="text" name="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
+          <input type="text" name="area_direito" id="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
         </div>
         {% if unidades %}
         <div class="mb-3">
@@ -75,4 +90,80 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Pré-visualização dos dados do processo (DataJud) ao apertar Enter no
+// número CNJ, sem cadastrar nada ainda — chama GET /governanca/processos/
+// consultar-cnj (ver app/routes/governanca.py). O cadastro em si só
+// acontece de fato quando o usuário clica em "Validar e cadastrar" (POST
+// normal do formulário, que consulta o DataJud de novo e já persiste).
+(function () {
+  const campoNumero = document.getElementById("numero_cnj");
+  const campoTribunal = document.getElementById("tribunal_datajud");
+  const campoArea = document.getElementById("area_direito");
+  const status = document.getElementById("cnj-preview-status");
+  const box = document.getElementById("cnj-preview");
+  if (!campoNumero) return;
+
+  async function buscarPreview() {
+    const numero = campoNumero.value.trim();
+    if (!numero) return;
+
+    status.textContent = "Consultando DataJud...";
+    box.style.display = "none";
+
+    const params = new URLSearchParams({ numero_cnj: numero });
+    if (campoTribunal.value) params.set("tribunal_datajud", campoTribunal.value);
+
+    try {
+      const resp = await fetch(`{{ url_for('governanca.consultar_cnj_preview') }}?${params}`);
+      const dados = await resp.json();
+
+      if (!dados.valido) {
+        status.innerHTML = `<span class="text-danger">Número CNJ inválido: ${dados.motivo}</span>`;
+        return;
+      }
+      if (!dados.encontrado) {
+        status.innerHTML = `<span class="text-warning">Não foi possível buscar automaticamente agora: ${dados.motivo}` +
+          (dados.precisa_tribunal ? " Selecione o tribunal acima e aperte Enter de novo." : "") + `</span>` +
+          ` Você ainda pode clicar em "Validar e cadastrar" — o processo será cadastrado como não monitorável.`;
+        return;
+      }
+
+      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud — confira os dados abaixo antes de cadastrar.</span>`;
+      document.getElementById("cnj-preview-tribunal").textContent = (dados.tribunal_slug || "—").toUpperCase();
+      document.getElementById("cnj-preview-classe").textContent = dados.classe || "—";
+      document.getElementById("cnj-preview-assunto").textContent = dados.assunto || "—";
+      document.getElementById("cnj-preview-orgao").textContent = dados.orgao_julgador || "—";
+      document.getElementById("cnj-preview-data").textContent = dados.data_ajuizamento || "—";
+      document.getElementById("cnj-preview-movs").textContent = dados.qtd_movimentacoes;
+      box.style.display = "block";
+
+      // Se o tribunal foi identificado automaticamente (Justiça do Trabalho),
+      // reflete no <select> mesmo sem o usuário ter escolhido nada.
+      if (dados.tribunal_slug && !campoTribunal.value) {
+        const opcao = Array.from(campoTribunal.options).find(o => o.value === dados.tribunal_slug);
+        if (opcao) campoTribunal.value = dados.tribunal_slug;
+      }
+      // Sugestão de área do direito a partir do assunto/classe do DataJud —
+      // só preenche se o campo ainda estiver vazio, nunca sobrescreve o que
+      // o usuário já digitou.
+      if (campoArea && !campoArea.value && (dados.assunto || dados.classe)) {
+        campoArea.value = dados.assunto || dados.classe;
+      }
+    } catch (e) {
+      status.innerHTML = `<span class="text-danger">Falha ao consultar o DataJud (verifique sua conexão).</span>`;
+    }
+  }
+
+  campoNumero.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault(); // não submete/cadastra ainda, só busca a pré-visualização
+      buscarPreview();
+    }
+  });
+})();
+</script>
 {% endblock %}

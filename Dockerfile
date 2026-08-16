@@ -15,11 +15,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Agendamento da recaptura diária (ver comentário acima). Copiado antes do
-# resto do código-fonte de propósito, mesma lógica de cache do modelo de IA
-# abaixo — só invalida esta camada se este arquivo específico mudar.
+# Agendamento da recaptura diária e dos lembretes de compromisso da Agenda
+# (ver comentários nos próprios arquivos .cron). Copiados antes do resto do
+# código-fonte de propósito, mesma lógica de cache do modelo de IA abaixo —
+# só invalida esta camada se um destes arquivos específicos mudar.
 COPY docker/capturar-movimentacoes.cron /etc/cron.d/capturar-movimentacoes
-RUN chmod 0644 /etc/cron.d/capturar-movimentacoes
+COPY docker/lembretes-compromissos.cron /etc/cron.d/lembretes-compromissos
+RUN chmod 0644 /etc/cron.d/capturar-movimentacoes /etc/cron.d/lembretes-compromissos
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

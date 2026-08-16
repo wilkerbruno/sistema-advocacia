@@ -3,8 +3,23 @@ from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Notificacao, Cliente, Processo
 from app.utils.acesso import aplicar_escopo_unidade
+from app.utils.cep import consultar_cep, CepInvalidoError, CepNaoEncontradoError
 
 api_bp = Blueprint("api", __name__)
+
+
+@api_bp.route("/cep/<cep>")
+@login_required
+def cep(cep):
+    """Autofill de endereço a partir do CEP (ViaCEP) — usado no formulário
+    de cliente (app/templates/clientes/form.html). Ver app/utils/cep.py."""
+    try:
+        dados = consultar_cep(cep)
+    except CepInvalidoError as e:
+        return jsonify(erro=str(e)), 400
+    except CepNaoEncontradoError as e:
+        return jsonify(erro=str(e)), 404
+    return jsonify(dados)
 
 
 @api_bp.route("/notificacoes")

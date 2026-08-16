@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar compromisso" if compromisso else "Novo compromisso" }} — JusControl{% endblock %}
+{% block eyebrow %}Agenda{% endblock %}
+{% block cabecalho %}{{ "Editar compromisso" if compromisso else "Novo compromisso" }}{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 760px;">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Nome do compromisso *</label>
+        <input type="text" name="titulo" class="form-control" required placeholder="Ex.: Reunião com o cliente"
+               value="{{ compromisso.titulo if compromisso else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Local</label>
+        <input type="text" name="local" class="form-control" placeholder="Escritório, online..."
+               value="{{ compromisso.local if compromisso else '' }}">
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Data e hora do compromisso *</label>
+        <input type="datetime-local" name="data_hora" class="form-control" required
+               value="{{ compromisso.data_hora.strftime('%Y-%m-%dT%H:%M') if compromisso else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Notificar em (opcional)</label>
+        <input type="datetime-local" name="notificar_em" class="form-control"
+               value="{{ compromisso.notificar_em.strftime('%Y-%m-%dT%H:%M') if compromisso and compromisso.notificar_em else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Horário em que você quer ser avisado — precisa ser antes do horário do
+          compromisso. Deixe em branco para não receber lembrete. O aviso chega
+          como notificação dentro do sistema{% if smtp_configurado %} e por e-mail{% endif %}.
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label">Cliente (opcional)</label>
+        <select name="cliente_id" class="form-select">
+          <option value="">— nenhum —</option>
+          {% for c in clientes %}
+          <option value="{{ c.id }}" {{ "selected" if compromisso and compromisso.cliente_id == c.id }}>{{ c.nome }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted-doc mt-1">
+          Vincular um cliente permite futuramente enviar o lembrete também pelo
+          WhatsApp cadastrado dele (ver opção abaixo).
+        </div>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Responsável</label>
+        <select name="responsavel_id" class="form-select">
+          {% for u in responsaveis %}
+          <option value="{{ u.id }}"
+            {{ "selected" if (compromisso and compromisso.responsavel_id == u.id) or (not compromisso and u.id == current_user.id) }}>
+            {{ u.nome }}
+          </option>
+          {% endfor %}
+        </select>
+      </div>
+
+      {% if unidades %}
+      <div class="col-md-6">
+        <label class="form-label">Unidade</label>
+        <select name="unidade_id" class="form-select">
+          {% for u in unidades %}
+          <option value="{{ u.id }}" {{ "selected" if compromisso and compromisso.unidade_id == u.id }}>{{ u.codigo }} — {{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="col-12">
+        <label class="form-label">Descrição</label>
+        <textarea name="descricao" class="form-control">{{ compromisso.descricao if compromisso else '' }}</textarea>
+      </div>
+
+      <div class="col-12">
+        <div class="form-check">
+          <input type="checkbox" name="enviar_whatsapp" class="form-check-input" id="enviar_whatsapp"
+                 {{ "checked" if compromisso and compromisso.enviar_whatsapp }}>
+          <label class="form-check-label" for="enviar_whatsapp">
+            Também enviar o lembrete por WhatsApp para o número cadastrado do cliente
+          </label>
+        </div>
+        <div class="small text-muted-doc mt-1">
+          {% if whatsapp_configurado %}
+          Envio automático via WhatsApp Web (automação não-oficial — ver PENDENCIAS.md).
+          Precisa do cliente ter um número em "WhatsApp" no cadastro dele.
+          {% else %}
+          O envio por WhatsApp ainda não está ativado neste servidor (falta configurar o
+          serviço whatsapp-bridge — ver PENDENCIAS.md). Marcando aqui, a intenção fica
+          registrada e passa a valer assim que for ativado; enquanto isso, o lembrete
+          sai normalmente por notificação no sistema{% if smtp_configurado %} e e-mail{% endif %}.
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if compromisso else "Agendar compromisso" }}</button>
+      <a href="{{ url_for('agenda.index') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+
+  {% if compromisso and compromisso.status != "cancelado" %}
+  <form method="post" action="{{ url_for('agenda.cancelar_compromisso', compromisso_id=compromisso.id) }}"
+        onsubmit="return confirm('Cancelar este compromisso?');" class="mt-2">
+    <button type="submit" class="btn btn-outline-doc text-danger btn-sm">Cancelar compromisso</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

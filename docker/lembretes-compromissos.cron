@@ -1,0 +1,12 @@
+# Lembretes de compromisso da Agenda (ver enviar_lembretes_compromissos.py
+# e app/models/compromisso.py). Roda a cada 5 minutos — diferente da
+# recaptura diária do DataJud (capturar-movimentacoes.cron), aqui o
+# usuário escolhe um horário exato (`notificar_em`) e espera ser avisado
+# perto dele, então precisa de uma granularidade bem mais fina.
+#
+# A saída é redirecionada para o stdout/stderr do processo 1 do container
+# (/proc/1/fd/1 e /proc/1/fd/2), que é o gunicorn — assim o log do envio
+# de lembretes aparece junto com o log normal da aplicação no painel do
+# EasyPanel, em vez de sumir (comportamento padrão do cron dentro de
+# container: a saída vai pro "mail" do usuário, que não existe aqui).
+*/5 * * * * root cd /app && /usr/local/bin/python enviar_lembretes_compromissos.py >> /proc/1/fd/1 2>> /proc/1/fd/2
