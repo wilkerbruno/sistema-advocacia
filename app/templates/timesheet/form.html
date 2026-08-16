@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block titulo %}Apontar horas — JusControl{% endblock %}
+{% block eyebrow %}Operação{% endblock %}
+{% block cabecalho %}Apontar horas{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 640px;">
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-md-4">
+        <label class="form-label">Data</label>
+        <input type="date" name="data" class="form-control" value="{{ hoje }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Horas *</label>
+        <input type="text" name="horas" class="form-control" placeholder="ex: 1.5" required>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Faturável</label>
+        <select name="faturavel" class="form-select">
+          <option value="1" selected>Sim</option>
+          <option value="">Não</option>
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Processo (opcional)</label>
+        <select name="processo_id" class="form-select">
+          <option value="">— sem vínculo com processo —</option>
+          {% for p in processos %}
+          <option value="{{ p.id }}">{{ p.numero_processo or p.numero_interno }} — {{ p.cliente.nome if p.cliente else "" }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Descrição *</label>
+        <input type="text" name="descricao" class="form-control" required placeholder="O que foi feito nesse período">
+      </div>
+    </div>
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Registrar horas</button>
+      <a href="{{ url_for('timesheet.listar') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

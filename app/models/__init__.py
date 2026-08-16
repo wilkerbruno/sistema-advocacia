@@ -12,6 +12,8 @@ from .estado_processual import MapaEstadoTPU, HistoricoEstadoProcesso, RegraProx
 from .senha_processo import SenhaProcesso
 from .observabilidade import Feriado, LogCaptura
 from .licenca import Licenca, Pagamento
+from .apontamento import Apontamento
+from .agente_ia import ConversaAgenteIA, MensagemAgenteIA
 
 __all__ = [
     "Empresa",
@@ -38,4 +40,7 @@ __all__ = [
     "LogCaptura",
     "Licenca",
     "Pagamento",
+    "Apontamento",
+    "ConversaAgenteIA",
+    "MensagemAgenteIA",
 ]

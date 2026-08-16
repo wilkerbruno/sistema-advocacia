@@ -1,4 +1,63 @@
-# Status das pendências do briefing (atualizado em 14/08/2026)
+# Status das pendências do briefing (atualizado em 16/08/2026)
+
+## -1. Paridade com ForLegal — o que foi construído nesta rodada e o que continua bloqueado
+
+Levantamento pedido: cobrir, para as empresas clientes, a lista de 8 categorias
+de recursos de um concorrente (ERP jurídico, controladoria, automação,
+BI, jurimetria, IA jurídica, financeiro, integração com dados judiciais).
+Everything que dependia só de código foi implementado nesta rodada:
+
+- **Agenda integrada** (`/agenda`) — calendário mensal combinando prazos,
+  audiências e tarefas num só lugar (antes eram 3 listas separadas).
+- **BI de desfecho** — novos campos `desfecho`, `data_encerramento`,
+  `observacao_desfecho` em `Processo` (editáveis na tela de edição do
+  processo, seção "Risco, contingenciamento e desfecho"). Alimentam, em
+  `/governanca/metricas`, taxa de sucesso, contagem de ganhos/perdas/acordos
+  e tempo médio de duração de processos encerrados.
+- **Produtividade por advogado** (`/governanca/produtividade`) — ranking
+  individual de cumprimento de prazo, tarefas concluídas/atrasadas e horas
+  apontadas.
+- **Timesheet** (`/timesheet`) — apontamento de horas trabalhadas, com ou
+  sem vínculo a processo, marcação de faturável/não faturável. Novo model
+  `Apontamento`.
+- **Contingenciamento jurídico formal** (`/governanca/contingenciamento`) —
+  provisão real (valor da causa × percentual da classificação
+  provável/possível/remoto, com override manual por processo), não só a
+  soma bruta por `classificacao_risco` que já existia. A tela de edição do
+  processo agora também expõe `classificacao_risco`, que antes existia no
+  banco mas não tinha campo de formulário nenhum — gap do sistema original,
+  corrigido de passagem.
+- **Agentes de IA jurídica** (`/agente-ia`) — três personas (Operação,
+  Gestão, Negócios), cada uma com system prompt próprio e um "contexto atual
+  do escritório" (números reais do banco, no escopo do usuário logado)
+  injetado a cada mensagem, para a resposta ser embasada em dado real, não
+  inventado. Requer `ANTHROPIC_API_KEY` no `.env` — sem isso, o chat abre
+  normalmente mas responde que está indisponível, nunca finge uma resposta.
+
+**Continua bloqueado — não é falta de código, é contrato/credencial externa
+que ninguém consegue simular:**
+- Jurimetria/análise preditiva de verdade e captura automática de dados
+  judiciais (categorias 5 e 8 do concorrente) dependem de um provedor de
+  dados processuais contratado (Judit/Escavador/Digesto/Codilo) ou
+  credenciamento direto no CNJ — ver seção 2.1 mais abaixo, e
+  `app/utils/captura_conectores.py`. Uma "probabilidade de êxito" calculada
+  sem dado histórico real seria inventada — não foi construída.
+
+**Passo a passo pra ativar o que foi implementado nesta rodada:**
+1. `python sincronizar_schema.py` no servidor — ele introspecciona os models
+   automaticamente e cria só o que faltar (tabelas `apontamentos_horas`,
+   `conversas_agente_ia`, `mensagens_agente_ia`, e as colunas novas em
+   `processos`). Sempre pergunta antes de aplicar, nunca apaga dado.
+2. `pip install -r requirements.txt` — adicionou a dependência `anthropic`.
+3. Se for usar o agente de IA: gere uma chave em
+   https://console.anthropic.com/settings/keys e defina `ANTHROPIC_API_KEY`
+   (e opcionalmente `ANTHROPIC_MODEL`) no `.env` do servidor, depois reinicie
+   a aplicação.
+4. Classifique os processos ativos existentes em "Contingenciamento"
+   (provável/possível/remoto) — sem isso, `/governanca/contingenciamento`
+   fica com a provisão zerada mesmo tendo processos com valor de causa.
+
+---
 
 ## 0. Multi-tenant / SaaS (implementado nesta rodada, precisa de teste real)
 

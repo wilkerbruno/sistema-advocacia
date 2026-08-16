@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block titulo %}{{ persona.titulo }} — JusControl{% endblock %}
+{% block eyebrow %}Agente de IA{% endblock %}
+{% block cabecalho %}{{ persona.titulo }}{% endblock %}
+
+{% block conteudo %}
+<div class="mb-3 d-flex justify-content-between align-items-center">
+  <div class="small text-muted-doc">{{ persona.descricao }}</div>
+  <a href="{{ url_for('agente_ia.index') }}" class="btn btn-outline-doc btn-sm">&larr; Voltar</a>
+</div>
+
+{% if not configurado %}
+<div class="alert alert-warning py-2 px-3 small">
+  Agente de IA ainda não configurado neste sistema — defina <code>ANTHROPIC_API_KEY</code> no <code>.env</code> do servidor.
+</div>
+{% endif %}
+
+<div class="card-doc tab p-3 mb-3" style="max-height: 60vh; overflow-y: auto;">
+  {% if conversa.mensagens %}
+    {% for m in conversa.mensagens %}
+    <div class="mb-3 {% if m.papel == 'user' %}text-end{% endif %}">
+      <div class="small text-muted-doc mb-1">{{ "Você" if m.papel == "user" else persona.titulo }} · {{ m.criado_em|data_hora_br }}</div>
+      <div class="d-inline-block text-start" style="max-width: 80%; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap;
+                  background: {{ 'var(--brass-100)' if m.papel == 'user' else 'var(--paper-100)' }};">{{ m.conteudo }}</div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <p class="text-muted-doc small mb-0">Faça a primeira pergunta para este agente.</p>
+  {% endif %}
+</div>
+
+<form method="post" action="{{ url_for('agente_ia.enviar_mensagem', conversa_id=conversa.id) }}" class="d-flex gap-2">
+  <textarea name="mensagem" class="form-control" rows="2" placeholder="Escreva sua pergunta..." required></textarea>
+  <button type="submit" class="btn btn-brass">Enviar</button>
+</form>
+<p class="text-muted-doc small mt-2 mb-0">
+  As respostas usam dados reais do seu escritório no momento da pergunta, mas não substituem análise jurídica humana.
+</p>
+{% endblock %}

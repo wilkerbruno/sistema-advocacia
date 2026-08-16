@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titulo %}Agente de IA — JusControl{% endblock %}
+{% block eyebrow %}Operação{% endblock %}
+{% block cabecalho %}Agente de IA jurídica{% endblock %}
+
+{% block conteudo %}
+{% if not configurado %}
+<div class="alert alert-warning py-2 px-3 small">
+  Agente de IA ainda não configurado neste sistema — defina <code>ANTHROPIC_API_KEY</code> no <code>.env</code> do servidor para ativar. Você pode abrir uma conversa, mas as respostas virão como indisponíveis até a chave ser configurada.
+</div>
+{% endif %}
+
+<div class="row g-3 mb-4">
+  {% for chave, p in personas.items() %}
+  <div class="col-md-4">
+    <div class="card-doc tab p-3 h-100 d-flex flex-column">
+      <h4 class="mb-1" style="font-size:1rem;">{{ p.titulo }}</h4>
+      <div class="small text-muted-doc mb-2">Para {{ p.publico }}</div>
+      <p class="small mb-3 flex-grow-1">{{ p.descricao }}</p>
+      <form method="post" action="{{ url_for('agente_ia.nova_conversa') }}">
+        <input type="hidden" name="persona" value="{{ chave }}">
+        <button class="btn btn-brass btn-sm w-100">Nova conversa</button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+<div class="card-doc tab p-0">
+  <div class="p-3 pb-0 small text-muted-doc">Suas conversas</div>
+  {% if conversas %}
+  <table class="table-doc mb-0">
+    <thead><tr><th>Agente</th><th>Assunto</th><th>Última mensagem</th><th></th></tr></thead>
+    <tbody>
+      {% for c in conversas %}
+      <tr>
+        <td>{{ personas[c.persona].titulo }}</td>
+        <td><a class="linha-link" href="{{ url_for('agente_ia.conversa', conversa_id=c.id) }}">{{ c.titulo or "(sem mensagens ainda)" }}</a></td>
+        <td>{{ c.atualizado_em|data_hora_br }}</td>
+        <td>
+          <form method="post" action="{{ url_for('agente_ia.excluir_conversa', conversa_id=c.id) }}" onsubmit="return confirm('Excluir esta conversa?')">
+            <button class="btn btn-outline-doc btn-sm">Excluir</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhuma conversa ainda</div>
+    <p class="mb-0">Escolha um agente acima para começar.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

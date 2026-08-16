@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Produtividade — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Produtividade da equipe{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-0">
+  {% if linhas %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Usuário</th>
+        <th class="text-end">Prazos cumpridos</th>
+        <th class="text-end">Prazos perdidos</th>
+        <th class="text-end">Taxa individual</th>
+        <th class="text-end">Tarefas concluídas</th>
+        <th class="text-end">Tarefas atrasadas</th>
+        <th class="text-end">Horas apontadas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in linhas %}
+      <tr>
+        <td>{{ l.usuario.nome }} <span class="small text-muted-doc">({{ l.usuario.papel }})</span></td>
+        <td class="text-end">{{ l.cumpridos }}</td>
+        <td class="text-end">{{ l.perdidos }}</td>
+        <td class="text-end">
+          {% if l.taxa is not none %}
+          <span class="badge-status {% if l.taxa >= 80 %}badge-cumprido{% elif l.taxa >= 50 %}badge-pendente{% else %}badge-perdido{% endif %}">{{ "%.0f"|format(l.taxa) }}%</span>
+          {% else %}—{% endif %}
+        </td>
+        <td class="text-end">{{ l.tarefas_concluidas }}</td>
+        <td class="text-end">{% if l.tarefas_atrasadas > 0 %}<span class="text-danger fw-semibold">{{ l.tarefas_atrasadas }}</span>{% else %}0{% endif %}</td>
+        <td class="text-end">{{ "%.2f"|format(l.horas_total) }}h</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Sem atividade registrada ainda</div>
+    <p class="mb-0">O ranking aparece assim que houver prazos, tarefas ou horas apontadas por alguém da equipe.</p>
+  </div>
+  {% endif %}
+</div>
+<p class="text-muted-doc small mt-3 mb-0">
+  Taxa individual = prazos cumpridos ÷ (cumpridos + perdidos) daquele responsável. Usuários sem nenhuma atividade não aparecem na lista.
+</p>
+{% endblock %}

@@ -41,6 +41,9 @@ def create_app(config_class=Config):
     from app.routes.api_integracao import api_integracao_bp
     from app.routes.plataforma import plataforma_bp
     from app.routes.licenciamento import licenciamento_bp
+    from app.routes.agenda import agenda_bp
+    from app.routes.timesheet import timesheet_bp
+    from app.routes.agente_ia import agente_ia_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -54,6 +57,9 @@ def create_app(config_class=Config):
     app.register_blueprint(api_integracao_bp, url_prefix="/api/v1")
     app.register_blueprint(plataforma_bp, url_prefix="/plataforma")
     app.register_blueprint(licenciamento_bp)
+    app.register_blueprint(agenda_bp, url_prefix="/agenda")
+    app.register_blueprint(timesheet_bp, url_prefix="/timesheet")
+    app.register_blueprint(agente_ia_bp, url_prefix="/agente-ia")
 
     # ---------------------- Bloqueio por licença vencida ----------------------
     # Admin desenvolvedor e a empresa dona da plataforma nunca são bloqueados.

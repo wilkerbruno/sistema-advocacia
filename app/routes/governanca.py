@@ -14,6 +14,7 @@ import csv
 import hashlib
 import io
 from datetime import datetime, timedelta, date
+from decimal import Decimal
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
                     flash, Response, current_app)
@@ -450,6 +451,29 @@ def metricas():
     else:
         pct_captura_saudavel = None  # sem execuções de captura ainda — ver captura_conectores.py
 
+    # ---- BI: taxa de sucesso, ganhos/perdas, tempo médio de duração (paridade item 4) ----
+    processos_encerrados = processos_q.filter(Processo.status == "encerrado").all()
+    distribuicao_desfecho = {}
+    for p in processos_encerrados:
+        chave = p.desfecho or "sem_desfecho_registrado"
+        distribuicao_desfecho[chave] = distribuicao_desfecho.get(chave, 0) + 1
+
+    ganhos = distribuicao_desfecho.get("ganho", 0)
+    perdas = distribuicao_desfecho.get("perda", 0)
+    acordos = distribuicao_desfecho.get("acordo", 0)
+    total_com_desfecho_definido = sum(v for k, v in distribuicao_desfecho.items() if k != "sem_desfecho_registrado")
+    # Taxa de sucesso considera ganho + acordo como resultado favorável, sobre
+    # o total de processos com desfecho já registrado (nunca sobre a carteira
+    # inteira, que incluiria processos ainda em curso e distorceria o número).
+    taxa_sucesso = ((ganhos + acordos) / total_com_desfecho_definido * 100) if total_com_desfecho_definido else None
+
+    duracoes = [
+        (p.data_encerramento - p.data_distribuicao).days
+        for p in processos_encerrados
+        if p.data_encerramento and p.data_distribuicao
+    ]
+    tempo_medio_duracao_dias = sum(duracoes) / len(duracoes) if duracoes else None
+
     return render_template(
         "governanca/metricas.html",
         taxa_cumprimento=taxa_cumprimento, cumpridos=cumpridos, perdidos=perdidos,
@@ -459,6 +483,109 @@ def metricas():
         idade_media_dias=idade_media_dias, total_carteira=total_carteira,
         cobertura_pct=cobertura_pct, monitoraveis_automatico=monitoraveis_automatico,
         pct_captura_saudavel=pct_captura_saudavel,
+        taxa_sucesso=taxa_sucesso, ganhos=ganhos, perdas=perdas, acordos=acordos,
+        total_processos_encerrados=len(processos_encerrados),
+        total_com_desfecho_definido=total_com_desfecho_definido,
+        tempo_medio_duracao_dias=tempo_medio_duracao_dias,
+    )
+
+
+# ---------- Produtividade por advogado (item 2 do briefing de paridade) ----------
+
+@governanca_bp.route("/produtividade")
+@login_required
+def produtividade():
+    """
+    Ranking de produtividade individual — item 2 ("controle de
+    produtividade") do briefing de paridade. Cada linha soma o que está
+    sob responsabilidade daquele usuário: prazos, tarefas e horas
+    apontadas (quando o timesheet estiver em uso).
+    """
+    from app.models import Usuario, Tarefa, Apontamento
+
+    if current_user.is_admin_desenvolvedor:
+        usuarios_q = Usuario.query.filter_by(ativo=True)
+    elif current_user.is_admin:
+        usuarios_q = Usuario.query.join(Unidade).filter(
+            Unidade.empresa_id == current_user.empresa_id_atual, Usuario.ativo.is_(True)
+        )
+    else:
+        usuarios_q = Usuario.query.filter_by(unidade_id=current_user.unidade_id, ativo=True)
+
+    hoje = date.today()
+    linhas = []
+    for u in usuarios_q.order_by(Usuario.nome).all():
+        prazos_usuario = Prazo.query.filter(Prazo.responsavel_id == u.id, Prazo.deletado_em.is_(None))
+        cumpridos = prazos_usuario.filter(Prazo.status == "cumprido").count()
+        perdidos = prazos_usuario.filter(Prazo.status == "perdido").count()
+        finalizados = cumpridos + perdidos
+        taxa = (cumpridos / finalizados * 100) if finalizados else None
+
+        tarefas_concluidas = Tarefa.query.filter(
+            Tarefa.responsavel_id == u.id, Tarefa.status == "concluida"
+        ).count()
+        tarefas_atrasadas = Tarefa.query.filter(
+            Tarefa.responsavel_id == u.id, Tarefa.status.in_(["pendente", "em_andamento"]),
+            Tarefa.data_vencimento.isnot(None), Tarefa.data_vencimento < hoje,
+        ).count()
+
+        horas_total = db.session.query(func.coalesce(func.sum(Apontamento.horas), 0)).filter(
+            Apontamento.usuario_id == u.id
+        ).scalar()
+
+        if finalizados == 0 and tarefas_concluidas == 0 and tarefas_atrasadas == 0 and not horas_total:
+            continue  # não polui o ranking com usuário sem nenhuma atividade registrada
+
+        linhas.append(dict(
+            usuario=u, cumpridos=cumpridos, perdidos=perdidos, taxa=taxa,
+            tarefas_concluidas=tarefas_concluidas, tarefas_atrasadas=tarefas_atrasadas,
+            horas_total=horas_total,
+        ))
+
+    linhas.sort(key=lambda l: (l["taxa"] if l["taxa"] is not None else -1), reverse=True)
+
+    return render_template("governanca/produtividade.html", linhas=linhas)
+
+
+# ---------- Contingenciamento jurídico formal (item 7 do briefing de paridade) ----------
+
+@governanca_bp.route("/contingenciamento")
+@login_required
+def contingenciamento():
+    """
+    Provisão de contingência: valor da causa × percentual da classificação
+    (provável=100%, possível=50%, remoto=0%, ou percentual manual por
+    processo) — não apenas soma bruta por categoria de risco operacional,
+    que é o que `classificacao_risco` já fazia no painel de governança.
+    """
+    processos_q = aplicar_escopo_unidade(Processo.query, Processo).filter(Processo.status == "ativo")
+
+    totais_por_classificacao = {"provavel": Decimal("0"), "possivel": Decimal("0"), "remoto": Decimal("0"), "sem_classificacao": Decimal("0")}
+    contagem_por_classificacao = {"provavel": 0, "possivel": 0, "remoto": 0, "sem_classificacao": 0}
+    exposicao_total = Decimal("0")
+    provisao_total = Decimal("0")
+    processos_classificados = []
+
+    for p in processos_q.all():
+        if p.valor_causa is None:
+            continue
+        exposicao_total += p.valor_causa
+        chave = p.classificacao_contingencia or "sem_classificacao"
+        contagem_por_classificacao[chave] = contagem_por_classificacao.get(chave, 0) + 1
+        provisionado = p.valor_provisionado or Decimal("0")
+        totais_por_classificacao[chave] = totais_por_classificacao.get(chave, Decimal("0")) + provisionado
+        provisao_total += provisionado
+        if p.classificacao_contingencia:
+            processos_classificados.append(p)
+
+    processos_classificados.sort(key=lambda p: p.valor_provisionado or Decimal("0"), reverse=True)
+
+    return render_template(
+        "governanca/contingenciamento.html",
+        linhas=processos_classificados[:30],
+        totais_por_classificacao=totais_por_classificacao,
+        contagem_por_classificacao=contagem_por_classificacao,
+        exposicao_total=exposicao_total, provisao_total=provisao_total,
     )
 
 

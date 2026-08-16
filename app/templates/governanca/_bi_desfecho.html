@@ -1,0 +1,32 @@
+{# Bloco de BI: taxa de sucesso, ganhos/perdas/acordos, tempo médio de duração.
+   Incluído em governanca/metricas.html — separado em partial porque também é
+   referenciado a partir de outros pontos do BI no futuro sem duplicar código. #}
+<div class="row g-3 mb-3">
+  <div class="col-md-4">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Taxa de sucesso</div>
+      <div class="fs-3">{{ "%.1f"|format(taxa_sucesso) ~ "%" if taxa_sucesso is not none else "—" }}</div>
+      <div class="small text-muted-doc">
+        {% if total_com_desfecho_definido %}
+          ganho + acordo sobre {{ total_com_desfecho_definido }} processo(s) com desfecho registrado
+        {% else %}
+          nenhum processo encerrado com desfecho registrado ainda
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Ganhos / perdas / acordos</div>
+      <div class="fs-3">{{ ganhos }} / {{ perdas }} / {{ acordos }}</div>
+      <div class="small text-muted-doc">de {{ total_processos_encerrados }} processo(s) encerrado(s) no total</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc">Tempo médio de duração (encerrados)</div>
+      <div class="fs-3">{{ "%.0f"|format(tempo_medio_duracao_dias) ~ " dias" if tempo_medio_duracao_dias is not none else "—" }}</div>
+      <div class="small text-muted-doc">distribuição → protocolo até a data de encerramento</div>
+    </div>
+  </div>
+</div>

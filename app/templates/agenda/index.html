@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block titulo %}Agenda — JusControl{% endblock %}
+{% block eyebrow %}Operação{% endblock %}
+{% block cabecalho %}Agenda — {{ nome_mes }} de {{ ano }}{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+  <div class="d-flex gap-2">
+    <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index', ano=ano_mes_anterior, mes=mes_anterior) }}">&larr; Mês anterior</a>
+    <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index') }}">Hoje</a>
+    <a class="btn btn-outline-doc btn-sm" href="{{ url_for('agenda.index', ano=ano_mes_seguinte, mes=mes_seguinte) }}">Mês seguinte &rarr;</a>
+  </div>
+  <div class="d-flex gap-3 small text-muted-doc">
+    <span><span class="agenda-dot agenda-dot-prazo"></span> {{ total_prazos }} prazo(s)</span>
+    <span><span class="agenda-dot agenda-dot-audiencia"></span> {{ total_audiencias }} audiência(s)</span>
+    <span><span class="agenda-dot agenda-dot-tarefa"></span> {{ total_tarefas }} tarefa(s)</span>
+  </div>
+</div>
+
+<div class="card-doc tab p-0">
+  <div class="agenda-grid agenda-header">
+    {% for nome in dias_semana %}
+    <div class="agenda-weekday">{{ nome }}</div>
+    {% endfor %}
+  </div>
+  {% for semana in semanas %}
+  <div class="agenda-grid">
+    {% for dia in semana %}
+    <div class="agenda-day {% if dia.month != mes %}agenda-day-fora{% endif %} {% if dia == hoje %}agenda-day-hoje{% endif %}">
+      <div class="agenda-day-numero">{{ dia.day }}</div>
+      <div class="agenda-day-eventos">
+        {% for ev in eventos_por_dia.get(dia, [])[:4] %}
+        <a href="{{ ev.url }}" class="agenda-event agenda-event-{{ ev.tipo }}" title="{{ ev.titulo }}">{{ ev.titulo }}</a>
+        {% endfor %}
+        {% if eventos_por_dia.get(dia, [])|length > 4 %}
+        <div class="agenda-event-mais">+{{ eventos_por_dia.get(dia)|length - 4 }} mais</div>
+        {% endif %}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+
+<p class="text-muted-doc small mt-3 mb-0">
+  Prazos vencidos e não cumpridos aparecem em vermelho. Clique em qualquer item para abrir o processo (ou a lista de tarefas).
+</p>
+{% endblock %}

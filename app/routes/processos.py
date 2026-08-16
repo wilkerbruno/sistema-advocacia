@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime, date
+from decimal import Decimal
 from flask import (Blueprint, render_template, request, redirect, url_for,
                     flash, current_app, send_from_directory, abort)
 from flask_login import login_required, current_user
@@ -153,6 +154,27 @@ def editar(processo_id):
         processo.responsavel_id = request.form.get("responsavel_id") or processo.responsavel_id
         if current_user.is_admin and request.form.get("unidade_id"):
             processo.unidade_id = int(request.form["unidade_id"])
+
+        # Risco / contingenciamento / desfecho (BI e paridade — só chega aqui
+        # quando o processo já existe, o form de criação não expõe esses campos)
+        processo.classificacao_risco = request.form.get("classificacao_risco") or None
+        classificacao_contingencia = request.form.get("classificacao_contingencia") or None
+        if classificacao_contingencia and classificacao_contingencia not in Processo.CLASSIFICACOES_CONTINGENCIA:
+            classificacao_contingencia = None
+        processo.classificacao_contingencia = classificacao_contingencia
+        percentual = request.form.get("percentual_provisionamento")
+        processo.percentual_provisionamento = Decimal(percentual.replace(",", ".")) if percentual else None
+
+        desfecho = request.form.get("desfecho") or None
+        if desfecho and desfecho not in Processo.DESFECHOS:
+            desfecho = None
+        processo.desfecho = desfecho
+        processo.data_encerramento = _parse_data(request.form.get("data_encerramento"))
+        processo.observacao_desfecho = request.form.get("observacao_desfecho") or None
+        # marcação honesta: se o usuário encerrou o processo mas esqueceu a data,
+        # assume hoje em vez de deixar a métrica de duração sem dado
+        if processo.status == "encerrado" and processo.desfecho and not processo.data_encerramento:
+            processo.data_encerramento = date.today()
 
         registrar_log(current_user, "editou", "Processo", processo.id, processo.numero_processo)
         db.session.commit()

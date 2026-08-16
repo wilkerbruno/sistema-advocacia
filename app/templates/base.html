@@ -38,6 +38,15 @@
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('tarefas.') }}" href="{{ url_for('tarefas.listar') }}">
         <span class="tab-index">04</span> Tarefas
       </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'agenda.index' }}" href="{{ url_for('agenda.index') }}">
+        <span class="tab-index">AG</span> Agenda
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('timesheet.') }}" href="{{ url_for('timesheet.listar') }}">
+        <span class="tab-index">TS</span> Horas (timesheet)
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_ia.') }}" href="{{ url_for('agente_ia.index') }}">
+        <span class="tab-index">IA</span> Agente de IA
+      </a>
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('financeiro.') }}" href="{{ url_for('financeiro.listar') }}">
         <span class="tab-index">05</span> Financeiro
       </a>
@@ -60,6 +69,12 @@
       </a>
       <a class="nav-item {{ 'active' if request.endpoint == 'governanca.relatorio_semanal_preview' }}" href="{{ url_for('governanca.relatorio_semanal_preview') }}">
         <span class="tab-index">G6</span> Relatório semanal (preview)
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.produtividade' }}" href="{{ url_for('governanca.produtividade') }}">
+        <span class="tab-index">G7</span> Produtividade da equipe
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.contingenciamento' }}" href="{{ url_for('governanca.contingenciamento') }}">
+        <span class="tab-index">G8</span> Contingenciamento
       </a>
 
       {% if current_user.is_authenticated and current_user.pode_gerenciar_usuarios() %}

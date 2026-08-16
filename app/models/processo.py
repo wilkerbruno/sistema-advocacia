@@ -1,4 +1,5 @@
 from datetime import datetime
+from decimal import Decimal
 from app.extensions import db
 
 
@@ -8,6 +9,19 @@ class Processo(db.Model):
     STATUS = ("ativo", "suspenso", "arquivado", "encerrado")
     STATUS_COMERCIAL = ("contencioso_ativo", "suspenso", "encerrado")
     FORMAS_ACOMPANHAMENTO = ("automatico", "senha_processo", "manual", "nao_monitoravel")
+
+    # Desfecho (BI/paridade item 4: taxa de sucesso, ganhos e perdas).
+    # Só faz sentido preencher quando status == "encerrado"; um processo
+    # ativo não tem desfecho ainda. "parcial" cobre acordo/ganho parcial,
+    # que na prática jurídica não é nem vitória nem derrota total.
+    DESFECHOS = ("ganho", "perda", "acordo", "parcial", "extinto_sem_resolucao")
+
+    # Contingenciamento jurídico formal (seção 7 do briefing de paridade),
+    # nos termos usuais de provisão contábil de contingência: provável,
+    # possível ou remoto. Distinto de `classificacao_risco` (baixo/médio/alto),
+    # que é uma leitura operacional e não segue a convenção de provisionamento.
+    CLASSIFICACOES_CONTINGENCIA = ("provavel", "possivel", "remoto")
+    PERCENTUAL_PADRAO_CONTINGENCIA = {"provavel": Decimal("100"), "possivel": Decimal("50"), "remoto": Decimal("0")}
 
     id = db.Column(db.Integer, primary_key=True)
     numero_processo = db.Column(db.String(40), index=True)  # nº CNJ, quando houver
@@ -39,6 +53,15 @@ class Processo(db.Model):
     classificacao_risco = db.Column(db.String(20))  # baixo, medio, alto — preenchido por humano
     ultima_captura_em = db.Column(db.DateTime)  # última vez que a rotina de captura rodou com sucesso
     ultima_movimentacao_em = db.Column(db.DateTime)  # usado para "parado há N dias" (painel, seção 8)
+
+    # BI: desfecho e duração (preenchidos quando o processo é encerrado)
+    desfecho = db.Column(db.String(30))  # ver DESFECHOS — só relevante quando status == "encerrado"
+    data_encerramento = db.Column(db.Date)
+    observacao_desfecho = db.Column(db.String(255))
+
+    # Contingenciamento jurídico formal (provisão contábil)
+    classificacao_contingencia = db.Column(db.String(20))  # ver CLASSIFICACOES_CONTINGENCIA
+    percentual_provisionamento = db.Column(db.Numeric(5, 2))  # override manual do % padrão da classificação
 
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     atualizado_em = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -77,6 +100,27 @@ class Processo(db.Model):
                                          order_by="HistoricoEstadoProcesso.data_evento")
     senha_processo = db.relationship("SenhaProcesso", back_populates="processo",
                                       uselist=False, cascade="all, delete-orphan")
+
+    @property
+    def percentual_provisionamento_efetivo(self):
+        """Percentual usado no cálculo da provisão: o valor definido manualmente
+        pelo usuário, ou o padrão da classificação (provável=100%, possível=50%,
+        remoto=0%) quando não houver override."""
+        if self.percentual_provisionamento is not None:
+            return self.percentual_provisionamento
+        if self.classificacao_contingencia in self.PERCENTUAL_PADRAO_CONTINGENCIA:
+            return self.PERCENTUAL_PADRAO_CONTINGENCIA[self.classificacao_contingencia]
+        return None
+
+    @property
+    def valor_provisionado(self):
+        """Valor de provisão de contingência: valor da causa × percentual
+        efetivo da classificação. None quando falta valor da causa ou
+        classificação (não entra nos totais até ser classificado)."""
+        percentual = self.percentual_provisionamento_efetivo
+        if percentual is None or self.valor_causa is None:
+            return None
+        return self.valor_causa * (percentual / Decimal("100"))
 
     def __repr__(self):
         return f"<Processo {self.numero_processo or self.numero_interno}>"

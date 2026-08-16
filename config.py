@@ -76,3 +76,9 @@ class Config:
     PRECO_PADRAO_MENSAL = os.environ.get("PRECO_PADRAO_MENSAL", "199.90")
     PRECO_PADRAO_TRIMESTRAL = os.environ.get("PRECO_PADRAO_TRIMESTRAL", "539.90")
     PRECO_PADRAO_ANUAL = os.environ.get("PRECO_PADRAO_ANUAL", "1999.90")
+
+    # Agentes de IA jurídica (Operação/Gestão/Negócios). Sem ANTHROPIC_API_KEY
+    # definida, o agente responde de forma honesta que está indisponível —
+    # nunca inventa resposta nem trava a tela do usuário.
+    ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+    ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")

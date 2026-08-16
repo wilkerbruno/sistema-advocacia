@@ -119,6 +119,60 @@
       </div>
     </div>
 
+    {% if processo %}
+    <hr class="divider-doc">
+    <h4 class="mb-3" style="font-size:0.95rem;">Risco, contingenciamento e desfecho</h4>
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Classificação de risco</label>
+        <select name="classificacao_risco" class="form-select">
+          <option value="">—</option>
+          {% for r in ["baixo","medio","alto"] %}
+          <option value="{{ r }}" {{ "selected" if processo.classificacao_risco == r }}>{{ r|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Contingenciamento (provisão)</label>
+        <select name="classificacao_contingencia" class="form-select">
+          <option value="">—</option>
+          {% for c in ["provavel","possivel","remoto"] %}
+          <option value="{{ c }}" {{ "selected" if processo.classificacao_contingencia == c }}>{{ c|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">% provisão (opcional, sobrescreve o padrão)</label>
+        <input type="number" step="0.01" min="0" max="100" name="percentual_provisionamento" class="form-control"
+               placeholder="padrão: 100/50/0%" value="{{ processo.percentual_provisionamento if processo.percentual_provisionamento is not none else '' }}">
+      </div>
+      <div class="col-md-3 d-flex align-items-end">
+        <div class="text-muted-doc small">
+          Provisão calculada: <strong>{{ processo.valor_provisionado|moeda if processo.valor_provisionado is not none else "—" }}</strong>
+        </div>
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Desfecho</label>
+        <select name="desfecho" class="form-select">
+          <option value="">— (ainda em curso)</option>
+          {% for d in ["ganho","perda","acordo","parcial","extinto_sem_resolucao"] %}
+          <option value="{{ d }}" {{ "selected" if processo.desfecho == d }}>{{ d.replace("_"," ")|capitalize }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted-doc mt-1">Só entra nas métricas de taxa de sucesso quando o status estiver "Encerrado".</div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Data de encerramento</label>
+        <input type="date" name="data_encerramento" class="form-control" value="{{ processo.data_encerramento if processo.data_encerramento else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Observação sobre o desfecho</label>
+        <input type="text" name="observacao_desfecho" class="form-control" value="{{ processo.observacao_desfecho or '' }}">
+      </div>
+    </div>
+    {% endif %}
+
     <div class="d-flex gap-2 mt-4">
       <button type="submit" class="btn btn-brass">Salvar processo</button>
       <a href="{{ url_for('processos.listar') }}" class="btn btn-outline-doc">Cancelar</a>

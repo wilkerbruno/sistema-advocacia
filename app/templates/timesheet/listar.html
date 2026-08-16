@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block titulo %}Timesheet — JusControl{% endblock %}
+{% block eyebrow %}Operação{% endblock %}
+{% block cabecalho %}Horas (timesheet){% endblock %}
+
+{% block conteudo %}
+<div class="kpi-grid mb-4">
+  <div class="kpi-card">
+    <div class="kpi-label">Total de horas</div>
+    <div class="kpi-value">{{ "%.2f"|format(total_horas) }}h</div>
+    <div class="kpi-sub">no filtro atual</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Horas faturáveis</div>
+    <div class="kpi-value">{{ "%.2f"|format(total_faturavel) }}h</div>
+    <div class="kpi-sub">{{ "%.1f"|format(total_faturavel / total_horas * 100) ~ "%" if total_horas else "—" }} do total</div>
+  </div>
+</div>
+
+<form method="get" class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <input type="date" name="data_inicio" class="form-control" style="width:170px;" value="{{ data_inicio or '' }}">
+  <input type="date" name="data_fim" class="form-control" style="width:170px;" value="{{ data_fim or '' }}">
+  {% if current_user.is_admin %}
+  <div class="form-check d-flex align-items-center gap-1">
+    <input class="form-check-input" type="checkbox" name="minhas" value="1" {{ "checked" if somente_minhas }} id="minhas">
+    <label class="form-check-label small" for="minhas">Somente meus apontamentos</label>
+  </div>
+  {% endif %}
+  <button class="btn btn-outline-doc btn-sm">Filtrar</button>
+  <a href="{{ url_for('timesheet.novo') }}" class="btn btn-brass ms-auto">+ Apontar horas</a>
+</form>
+
+<div class="card-doc tab p-0">
+  {% if apontamentos %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Data</th>
+        {% if current_user.is_admin %}<th>Usuário</th>{% endif %}
+        <th>Descrição</th>
+        <th>Processo</th>
+        <th>Horas</th>
+        <th>Faturável</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for a in apontamentos %}
+      <tr>
+        <td>{{ a.data|data_br }}</td>
+        {% if current_user.is_admin %}<td>{{ a.usuario.nome }}</td>{% endif %}
+        <td>{{ a.descricao }}</td>
+        <td>{% if a.processo %}<a class="linha-link" href="{{ url_for('processos.detalhe', processo_id=a.processo_id) }}">{{ a.processo.numero_processo or a.processo.numero_interno }}</a>{% else %}—{% endif %}</td>
+        <td>{{ "%.2f"|format(a.horas) }}h</td>
+        <td>{% if a.faturavel %}<span class="badge-status badge-cumprido">sim</span>{% else %}<span class="badge-status badge-normal">não</span>{% endif %}</td>
+        <td>
+          {% if a.usuario_id == current_user.id or current_user.is_admin %}
+          <form method="post" action="{{ url_for('timesheet.excluir', apontamento_id=a.id) }}" onsubmit="return confirm('Excluir este apontamento?')">
+            <button class="btn btn-outline-doc btn-sm">Excluir</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum apontamento encontrado</div>
+    <p class="mb-0">Registre as horas trabalhadas no dia a dia dos processos.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
