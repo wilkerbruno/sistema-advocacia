@@ -1,6 +1,9 @@
-.env
 __pycache__/
 *.pyc
+.env
 uploads/
-*.db
-.claude/
+
+# Pesos do modelo de IA local (~1,1 GB) — baixados pelo script
+# baixar_modelo_ia_local.py (roda sozinho durante o build da imagem Docker),
+# nunca devem ir pro repositório git.
+app/ia_local/modelos/

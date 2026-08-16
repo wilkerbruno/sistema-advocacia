@@ -1,5 +1,54 @@
 # Status das pendências do briefing (atualizado em 16/08/2026)
 
+## -2. Agente de IA passou a rodar num modelo local (até 2B parâmetros), não mais Claude
+
+A pedido explícito: o Agente de IA jurídica (`/agente-ia`) trocou a API da
+Anthropic (Claude) por um modelo pequeno rodando **dentro do próprio
+servidor** — Qwen2.5-1.5B-Instruct, quantizado em GGUF (~1,1 GB), via
+`llama-cpp-python`. Sem chave de API, sem custo por mensagem, sem dado do
+escritório saindo do servidor.
+
+**Trade-off que foi avisado antes de implementar, e o cliente escolheu
+mesmo assim — registrado aqui pra não virar surpresa depois:** um modelo
+de até 2B parâmetros é bem mais fraco que uma API de ponta como a do
+Claude. Ele alucina mais — principalmente em português e em raciocínio
+jurídico mais elaborado — e é mais lento por rodar em CPU. Os system
+prompts (`app/routes/agente_ia.py`) seguem instruindo o modelo a nunca
+inventar número fora do contexto real injetado e a sinalizar quando é só
+sugestão a validar, mas a revisão humana das respostas importa ainda mais
+aqui do que já importava com o Claude. As telas do agente também foram
+atualizadas com esse aviso.
+
+**Peso em RAM — o ponto mais importante pra operação:** o modelo fica
+carregado em memória por processo do gunicorn (carregamento tardio, só na
+primeira mensagem que aquele worker atender). Por isso o `Dockerfile`
+também mudou de `-w 4` para `-w 2` workers — com 4, o pior caso somaria
+~4-6 GB de RAM só de modelo; com 2, fica em ~2-3 GB. Se o servidor tiver
+bastante RAM sobrando (8 GB+), pode voltar pra 4 workers; se aparecer erro
+de memória (worker killed) mesmo com 2, reduza pra 1 no `CMD` do
+`Dockerfile`. Vale acompanhar o consumo de RAM nos primeiros dias de uso
+real do agente.
+
+**Como ativar:**
+1. Nenhuma configuração de chave é necessária — é local por padrão.
+2. O download dos pesos do modelo (~1,1 GB) roda sozinho durante o build
+   da imagem Docker (`baixar_modelo_ia_local.py`, chamado pelo
+   `Dockerfile`). Se o build falhar exatamente nessa etapa (ex: rede do
+   servidor bloqueando `huggingface.co`), rode o script manualmente no
+   console do servidor depois do deploy: `python baixar_modelo_ia_local.py`.
+3. Depois do primeiro deploy, abra uma conversa de teste em `/agente-ia`
+   pra confirmar que a resposta vem normal (não como "Agente indisponível").
+   A primeira mensagem de cada worker demora um pouco mais (carregando o
+   modelo em memória); as próximas são mais rápidas.
+
+**Reversível:** a chave `ANTHROPIC_API_KEY`/`ANTHROPIC_MODEL` continua
+existindo em `config.py`/`.env.example` (não usada por padrão) — pra voltar
+a usar Claude, é só restaurar a versão anterior de `_chamar_llm()` em
+`app/routes/agente_ia.py` (ver histórico do git) e reinstalar `anthropic`
+no `requirements.txt`.
+
+---
+
 ## -1. Paridade com ForLegal — o que foi construído nesta rodada e o que continua bloqueado
 
 Levantamento pedido: cobrir, para as empresas clientes, a lista de 8 categorias
@@ -31,8 +80,9 @@ Everything que dependia só de código foi implementado nesta rodada:
   Gestão, Negócios), cada uma com system prompt próprio e um "contexto atual
   do escritório" (números reais do banco, no escopo do usuário logado)
   injetado a cada mensagem, para a resposta ser embasada em dado real, não
-  inventado. Requer `ANTHROPIC_API_KEY` no `.env` — sem isso, o chat abre
-  normalmente mas responde que está indisponível, nunca finge uma resposta.
+  inventado. Motor atualizado depois: passou a rodar um modelo local de até
+  2B parâmetros em vez do Claude — ver seção -2 acima para os detalhes e
+  trade-offs dessa mudança.
 
 **Continua bloqueado — não é falta de código, é contrato/credencial externa
 que ninguém consegue simular:**
@@ -48,12 +98,9 @@ que ninguém consegue simular:**
    automaticamente e cria só o que faltar (tabelas `apontamentos_horas`,
    `conversas_agente_ia`, `mensagens_agente_ia`, e as colunas novas em
    `processos`). Sempre pergunta antes de aplicar, nunca apaga dado.
-2. `pip install -r requirements.txt` — adicionou a dependência `anthropic`.
-3. Se for usar o agente de IA: gere uma chave em
-   https://console.anthropic.com/settings/keys e defina `ANTHROPIC_API_KEY`
-   (e opcionalmente `ANTHROPIC_MODEL`) no `.env` do servidor, depois reinicie
-   a aplicação.
-4. Classifique os processos ativos existentes em "Contingenciamento"
+2. `pip install -r requirements.txt` — o agente de IA agora usa
+   `llama-cpp-python` (ver seção -2 acima para o restante da ativação).
+3. Classifique os processos ativos existentes em "Contingenciamento"
    (provável/possível/remoto) — sem isso, `/governanca/contingenciamento`
    fica com a provisão zerada mesmo tendo processos com valor de causa.
 

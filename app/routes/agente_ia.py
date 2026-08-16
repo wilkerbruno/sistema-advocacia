@@ -9,9 +9,11 @@ Isso é o que separa isso de um chatbot genérico: as respostas são
 embasadas em números reais do momento da pergunta (prazos vencendo,
 processos parados, receita pendente etc.), não em nada inventado.
 
-Requer ANTHROPIC_API_KEY configurada no .env do servidor. Sem isso, o
-agente responde de forma honesta que está indisponível — nunca finge uma
-resposta nem trava a tela.
+Motor: modelo de IA local (até 2B parâmetros, ver app/utils/ia_local.py),
+rodando dentro do próprio servidor — sem chave de API, sem custo por
+mensagem, sem dado saindo do servidor. Sem o arquivo de pesos baixado
+(ver baixar_modelo_ia_local.py), o agente responde de forma honesta que
+está indisponível — nunca finge uma resposta nem trava a tela.
 """
 from datetime import datetime, date, timedelta
 
@@ -23,10 +25,15 @@ from app.extensions import db
 from app.models import ConversaAgenteIA, MensagemAgenteIA, Processo, Prazo, Tarefa, Cliente, Lancamento
 from app.utils.acesso import aplicar_escopo_unidade
 from app.utils.notificacoes import registrar_log
+from app.utils import ia_local
 
 agente_ia_bp = Blueprint("agente_ia", __name__)
 
-MAX_MENSAGENS_HISTORICO = 20  # limite de contexto enviado à API por mensagem (custo/latência)
+# Limite de mensagens do histórico enviadas a cada chamada. Menor que o
+# usado com API grande de propósito: o modelo local roda com uma janela de
+# contexto menor (ver IA_LOCAL_CONTEXT_SIZE) e é mais lento por token, então
+# um histórico grande deixaria a resposta lenta ou estouraria o contexto.
+MAX_MENSAGENS_HISTORICO = 12
 
 PERSONA_CONFIG = {
     "operacao": {
@@ -178,24 +185,6 @@ _CONTEXTO_POR_PERSONA = {
 # ---------------------- Chamada ao modelo ----------------------
 
 def _chamar_llm(persona, mensagens_historico, contexto_dados):
-    try:
-        import anthropic
-    except ImportError as e:
-        raise AgenteIndisponivelError(
-            "Biblioteca 'anthropic' não instalada no servidor — rode "
-            "'pip install -r requirements.txt' e reinicie a aplicação."
-        ) from e
-
-    api_key = current_app.config.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise AgenteIndisponivelError(
-            "Agente de IA não configurado — defina ANTHROPIC_API_KEY no .env do servidor "
-            "(gere em https://console.anthropic.com/settings/keys)."
-        )
-
-    cliente = anthropic.Anthropic(api_key=api_key)
-    modelo = current_app.config.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
-
     system = (
         PERSONA_CONFIG[persona]["system"]
         + "\n\nContexto atual do escritório (dados reais, consultados no momento desta mensagem — "
@@ -208,10 +197,10 @@ def _chamar_llm(persona, mensagens_historico, contexto_dados):
         for m in mensagens_historico[-MAX_MENSAGENS_HISTORICO:]
     ]
 
-    resposta = cliente.messages.create(
-        model=modelo, max_tokens=1500, system=system, messages=mensagens_api,
-    )
-    return "".join(bloco.text for bloco in resposta.content if getattr(bloco, "type", None) == "text").strip()
+    try:
+        return ia_local.gerar_resposta(system, mensagens_api)
+    except ia_local.ModeloIndisponivelError as e:
+        raise AgenteIndisponivelError(str(e)) from e
 
 
 # ---------------------- Rotas ----------------------
@@ -221,7 +210,7 @@ def _chamar_llm(persona, mensagens_historico, contexto_dados):
 def index():
     conversas = ConversaAgenteIA.query.filter_by(usuario_id=current_user.id) \
         .order_by(ConversaAgenteIA.atualizado_em.desc()).all()
-    configurado = bool(current_app.config.get("ANTHROPIC_API_KEY"))
+    configurado = ia_local.modelo_disponivel()
     return render_template("agente_ia/index.html", conversas=conversas,
                             personas=PERSONA_CONFIG, configurado=configurado)
 
@@ -249,7 +238,7 @@ def conversa(conversa_id):
     conversa = db.get_or_404(ConversaAgenteIA, conversa_id)
     if conversa.usuario_id != current_user.id and not current_user.is_admin:
         abort(403)
-    configurado = bool(current_app.config.get("ANTHROPIC_API_KEY"))
+    configurado = ia_local.modelo_disponivel()
     return render_template("agente_ia/conversa.html", conversa=conversa,
                             persona=PERSONA_CONFIG[conversa.persona], configurado=configurado)
 

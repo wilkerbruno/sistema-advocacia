@@ -11,7 +11,7 @@
 
 {% if not configurado %}
 <div class="alert alert-warning py-2 px-3 small">
-  Agente de IA ainda não configurado neste sistema — defina <code>ANTHROPIC_API_KEY</code> no <code>.env</code> do servidor.
+  Modelo de IA local ainda não está pronto neste servidor — rode <code>python baixar_modelo_ia_local.py</code> no servidor para baixar os pesos.
 </div>
 {% endif %}
 
@@ -35,5 +35,6 @@
 </form>
 <p class="text-muted-doc small mt-2 mb-0">
   As respostas usam dados reais do seu escritório no momento da pergunta, mas não substituem análise jurídica humana.
+  Este agente roda um modelo de IA leve local (não é o mesmo porte de um modelo de ponta) — revise sempre antes de confiar na resposta.
 </p>
 {% endblock %}
