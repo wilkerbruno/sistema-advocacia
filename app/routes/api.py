@@ -25,8 +25,12 @@ def cep(cep):
 @api_bp.route("/notificacoes")
 @login_required
 def notificacoes():
-    itens = Notificacao.query.filter_by(usuario_id=current_user.id) \
-        .order_by(Notificacao.criado_em.desc()).limit(15).all()
+    # Só as NÃO lidas — o menu "Avisos" é uma caixa de entrada de itens
+    # pendentes, não um histórico. "Fechar" uma notificação (botão × no
+    # menu, ver base.html) chama marcar-lida logo abaixo, e a partir daí
+    # ela some sozinha da lista (nunca mais aparece de novo).
+    itens = Notificacao.query.filter_by(usuario_id=current_user.id, lida=False) \
+        .order_by(Notificacao.criado_em.desc()).limit(30).all()
     return jsonify([
         dict(id=n.id, titulo=n.titulo, mensagem=n.mensagem, tipo=n.tipo,
              link=n.link, lida=n.lida, criado_em=n.criado_em.strftime("%d/%m %H:%M"))

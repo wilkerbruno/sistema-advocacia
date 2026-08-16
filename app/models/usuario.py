@@ -25,6 +25,11 @@ class Usuario(db.Model, UserMixin):
     papel = db.Column(db.String(20), nullable=False, default="funcionario")
     oab = db.Column(db.String(30))  # nº OAB, quando aplicável (advogado)
     telefone = db.Column(db.String(30))
+    # Número de WhatsApp do próprio usuário (diferente do WhatsApp do
+    # Cliente, em app/models/cliente.py) — usado, por exemplo, se um dia
+    # o lembrete de compromisso da Agenda passar a avisar o responsável
+    # pelo WhatsApp além do cliente (ver app/utils/whatsapp.py).
+    whatsapp = db.Column(db.String(30))
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     ultimo_login = db.Column(db.DateTime)

@@ -56,6 +56,11 @@
         <label class="form-label">Telefone</label>
         <input type="text" name="telefone" class="form-control" value="{{ usuario.telefone if usuario else '' }}">
       </div>
+      <div class="col-md-4">
+        <label class="form-label">WhatsApp</label>
+        <input type="text" name="whatsapp" class="form-control" placeholder="(00) 00000-0000"
+               value="{{ usuario.whatsapp if usuario else '' }}">
+      </div>
 
       <div class="col-md-6">
         <label class="form-label">{{ "Nova senha (deixe em branco para manter)" if usuario else "Senha *" }}</label>

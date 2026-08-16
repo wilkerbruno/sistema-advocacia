@@ -169,9 +169,10 @@
 <script>
 // Lista de notificações do menu "Avisos" — antes só mostrava a contagem
 // ("Você tem N notificação(ões) não lida(s)."), sem dar pra ver do que se
-// tratava cada uma. Busca em GET /api/notificacoes (já existia, só não
-// era consumida por nenhuma tela) e marca como lida ao clicar (POST
-// /api/notificacoes/<id>/marcar-lida, idem).
+// tratava cada uma. Busca em GET /api/notificacoes (só as não lidas — ver
+// app/routes/api.py) e cada item tem um botão × pra "fechar" (marca como
+// lida via POST /api/notificacoes/<id>/marcar-lida e some da lista — como
+// só aparecem as não lidas, não volta a aparecer depois).
 (function () {
   const botao = document.getElementById("btn-avisos");
   const lista = document.getElementById("lista-avisos");
@@ -184,14 +185,19 @@
     return div.innerHTML;
   }
 
-  function atualizarBadge(qtdNaoLidas) {
+  function atualizarBadge(qtd) {
     if (!badge) return;
-    if (qtdNaoLidas > 0) {
-      badge.textContent = qtdNaoLidas;
+    if (qtd > 0) {
+      badge.textContent = qtd;
       badge.style.display = "";
     } else {
       badge.style.display = "none";
     }
+  }
+
+  function marcarComoVazio() {
+    lista.innerHTML = '<div class="px-2 small text-muted-doc">Nenhuma notificação nova.</div>';
+    atualizarBadge(0);
   }
 
   async function carregarNotificacoes() {
@@ -201,20 +207,25 @@
       const itens = await resp.json();
 
       if (!itens.length) {
-        lista.innerHTML = '<div class="px-2 small text-muted-doc">Nenhuma notificação ainda.</div>';
+        marcarComoVazio();
         return;
       }
 
       lista.innerHTML = itens.map(function (n) {
-        const naoLida = !n.lida;
+        const href = n.link ? escaparHtml(n.link) : "#";
         return `
-          <a href="${n.link ? escaparHtml(n.link) : "#"}" data-id="${n.id}" data-tem-link="${n.link ? "1" : "0"}"
-             class="d-block px-2 py-2 small text-decoration-none border-bottom item-aviso"
-             style="color: inherit; ${naoLida ? "background: var(--brass-100, #f6f1e6);" : ""}">
-            <div class="${naoLida ? "fw-semibold" : ""}">${escaparHtml(n.titulo)}</div>
-            ${n.mensagem ? `<div class="text-muted-doc" style="white-space: normal;">${escaparHtml(n.mensagem)}</div>` : ""}
-            <div class="text-muted-doc" style="font-size: .7rem;">${escaparHtml(n.criado_em)}</div>
-          </a>`;
+          <div class="d-flex align-items-start border-bottom item-aviso-linha" data-id="${n.id}">
+            <a href="${href}" data-id="${n.id}" data-tem-link="${n.link ? "1" : "0"}"
+               class="d-block px-2 py-2 small text-decoration-none item-aviso flex-grow-1"
+               style="color: inherit; background: var(--brass-100, #f6f1e6); min-width: 0;">
+              <div class="fw-semibold">${escaparHtml(n.titulo)}</div>
+              ${n.mensagem ? `<div class="text-muted-doc" style="white-space: normal;">${escaparHtml(n.mensagem)}</div>` : ""}
+              <div class="text-muted-doc" style="font-size: .7rem;">${escaparHtml(n.criado_em)}</div>
+            </a>
+            <button type="button" class="btn btn-sm btn-link text-muted-doc btn-fechar-aviso px-2"
+                    data-id="${n.id}" title="Fechar" aria-label="Fechar notificação"
+                    style="text-decoration: none; font-size: 1rem; line-height: 1;">&times;</button>
+          </div>`;
       }).join("");
 
       lista.querySelectorAll(".item-aviso").forEach(function (el) {
@@ -224,7 +235,26 @@
         });
       });
 
-      atualizarBadge(itens.filter(function (n) { return !n.lida; }).length);
+      lista.querySelectorAll(".btn-fechar-aviso").forEach(function (btn) {
+        btn.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          ev.stopPropagation();
+          btn.disabled = true;
+          fetch(`/api/notificacoes/${btn.dataset.id}/marcar-lida`, { method: "POST" }).catch(function () {});
+
+          const linha = btn.closest(".item-aviso-linha");
+          if (linha) linha.remove();
+
+          const restantes = lista.querySelectorAll(".item-aviso-linha").length;
+          if (restantes === 0) {
+            marcarComoVazio();
+          } else {
+            atualizarBadge(restantes);
+          }
+        });
+      });
+
+      atualizarBadge(itens.length);
     } catch (e) {
       lista.innerHTML = '<div class="px-2 small text-danger">Falha ao carregar notificações.</div>';
     }
