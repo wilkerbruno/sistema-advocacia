@@ -12,11 +12,17 @@
     usuários acessam pela internet — nesse caso a coluna vai aparecer como
     "—" quase sempre. Não é uma falha do sistema: nenhum servidor na
     internet consegue descobrir o MAC de quem acessa de fora da própria
-    rede local, é uma limitação do próprio protocolo de rede.
+    rede local, é uma limitação do próprio protocolo de rede. Por isso,
+    pra rastrear acesso de verdade pela internet, use IP e Dispositivo
+    abaixo — esses dois sempre chegam ao servidor, mesmo fora da rede
+    local. "Dispositivo" é um identificador salvo num cookie no primeiro
+    acesso de cada navegador: continua igual mesmo se o IP mudar (ex: uso
+    pelo celular fora do wi-fi), então serve pra ver todo o histórico de
+    ações de um mesmo navegador/aparelho ao longo do tempo.
   </p>
 </div>
 <form method="get" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
-  <div class="col-md-4">
+  <div class="col-md-3">
     <label class="form-label small mb-1">Usuário</label>
     <select name="usuario_id" class="form-select form-select-sm">
       <option value="">Todos</option>
@@ -25,23 +31,34 @@
       {% endfor %}
     </select>
   </div>
-  <div class="col-md-3">
+  <div class="col-md-2">
     <label class="form-label small mb-1">De</label>
     <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ filtro_data_inicio or '' }}">
   </div>
-  <div class="col-md-3">
+  <div class="col-md-2">
     <label class="form-label small mb-1">Até</label>
     <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ filtro_data_fim or '' }}">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label small mb-1">IP</label>
+    <input type="text" name="ip" class="form-control form-control-sm" placeholder="ex: 200.1" value="{{ filtro_ip or '' }}">
   </div>
   <div class="col-md-2">
     <button class="btn btn-brass btn-sm w-100">Filtrar</button>
   </div>
 </form>
 
+{% if filtro_dispositivo %}
+<div class="alert alert-info py-2 px-3 small d-flex justify-content-between align-items-center">
+  <span>Mostrando só o histórico do dispositivo <code>{{ filtro_dispositivo }}</code>.</span>
+  <a href="{{ url_for('admin.auditoria', usuario_id=filtro_usuario_id, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, ip=filtro_ip) }}">Limpar este filtro</a>
+</div>
+{% endif %}
+
 <div class="card-doc tab p-0">
   {% if logs.items %}
   <table class="table-doc mb-0">
-    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>MAC</th></tr></thead>
+    <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>Dispositivo</th><th>MAC</th></tr></thead>
     <tbody>
       {% for l in logs.items %}
       <tr>
@@ -51,6 +68,12 @@
         <td>{{ l.entidade }} {% if l.entidade_id %}#{{ l.entidade_id }}{% endif %}</td>
         <td class="text-muted-doc">{{ l.detalhes or "—" }}</td>
         <td class="text-muted-doc">{{ l.ip or "—" }}</td>
+        <td class="text-muted-doc">
+          {{ resumir_user_agent(l.user_agent) or "—" }}
+          {% if l.dispositivo_id %}
+          <br><a class="small" href="{{ url_for('admin.auditoria', dispositivo_id=l.dispositivo_id) }}" title="Ver todo o histórico deste dispositivo">{{ l.dispositivo_id[:8] }}…</a>
+          {% endif %}
+        </td>
         <td class="text-muted-doc" title="{{ '' if l.mac_address else 'Não resolvível: dispositivo fora da rede local do servidor' }}">{{ l.mac_address or "—" }}</td>
       </tr>
       {% endfor %}
@@ -66,7 +89,7 @@
   <ul class="pagination pagination-sm">
     {% for p in range(1, logs.pages + 1) %}
     <li class="page-item {{ 'active' if p == logs.page }}">
-      <a class="page-link" href="{{ url_for('admin.auditoria', pagina=p, usuario_id=filtro_usuario_id, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim) }}">{{ p }}</a>
+      <a class="page-link" href="{{ url_for('admin.auditoria', pagina=p, usuario_id=filtro_usuario_id, data_inicio=filtro_data_inicio, data_fim=filtro_data_fim, ip=filtro_ip, dispositivo_id=filtro_dispositivo) }}">{{ p }}</a>
     </li>
     {% endfor %}
   </ul>

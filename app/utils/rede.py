@@ -21,6 +21,14 @@ segmento L2) do servidor.
   computador do usuário (ex: um agente instalado na máquina, ou script
   local) e ele mesmo enviar isso para o sistema — o que é uma mudança de
   abordagem bem maior, não um ajuste de configuração.
+
+Por isso a auditoria também passou a registrar, junto com o MAC (mantido
+como informação best-effort), dois dados que funcionam de verdade pela
+internet: o User-Agent (via `resumir_user_agent` abaixo) e um
+`dispositivo_id` — um identificador aleatório salvo em cookie de 1ª parte
+no primeiro acesso de cada navegador (ver `app/__init__.py`), que permite
+correlacionar as ações do mesmo dispositivo/navegador ao longo do tempo
+mesmo quando o IP muda.
 """
 import re
 import subprocess
@@ -59,3 +67,48 @@ def obter_mac_por_ip(ip: str) -> str | None:
             continue
 
     return None
+
+
+def resumir_user_agent(user_agent: str) -> str | None:
+    """
+    Resumo legível de navegador/SO a partir do cabeçalho User-Agent — ao
+    contrário do MAC, isso SEMPRE chega ao servidor, mesmo com o cliente
+    acessando pela internet (é o próprio navegador que informa, não depende
+    de rede local nem de proxy). Não é impressão digital de dispositivo,
+    é só leitura amigável pra tabela de auditoria; combine com
+    `dispositivo_id` (cookie de 1ª parte) pra correlacionar ações do mesmo
+    navegador ao longo do tempo, mesmo com o IP variando.
+    """
+    if not user_agent:
+        return None
+    ua = user_agent
+
+    if "Edg/" in ua:
+        navegador = "Edge"
+    elif "OPR/" in ua or "Opera" in ua:
+        navegador = "Opera"
+    elif "Firefox/" in ua:
+        navegador = "Firefox"
+    elif "Chrome/" in ua and "Chromium" not in ua:
+        navegador = "Chrome"
+    elif "Safari/" in ua and "Chrome/" not in ua:
+        navegador = "Safari"
+    else:
+        navegador = "navegador não identificado"
+
+    if "Windows" in ua:
+        sistema = "Windows"
+    elif "iPhone" in ua:
+        sistema = "iPhone"
+    elif "iPad" in ua:
+        sistema = "iPad"
+    elif "Mac OS X" in ua:
+        sistema = "macOS"
+    elif "Android" in ua:
+        sistema = "Android"
+    elif "Linux" in ua:
+        sistema = "Linux"
+    else:
+        sistema = "SO não identificado"
+
+    return f"{navegador} / {sistema}"

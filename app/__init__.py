@@ -1,8 +1,12 @@
 import os
+import uuid
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
 from app.extensions import db, login_manager
+
+NOME_COOKIE_DISPOSITIVO = "jc_device_id"
+DURACAO_COOKIE_DISPOSITIVO = 60 * 60 * 24 * 730  # ~2 anos
 
 
 def create_app(config_class=Config):
@@ -27,6 +31,31 @@ def create_app(config_class=Config):
     @login_manager.user_loader
     def load_user(user_id):
         return db.session.get(Usuario, int(user_id))
+
+    # ---------------------- Identificador de dispositivo (auditoria) ----------------------
+    # O MAC address só é descobrível na rede local (ver app/utils/rede.py) —
+    # inútil pra usuário acessando pela internet. Isso aqui funciona sempre:
+    # cookie de 1ª parte, aleatório, gerado no primeiro acesso de cada
+    # navegador, guardado em app.utils.notificacoes.registrar_log() junto
+    # com o log de auditoria. Registrado ANTES do bloqueio de licença, pra
+    # já existir mesmo em ações que acontecem antes de qualquer verificação
+    # (ex: tentativa de login).
+    @app.before_request
+    def preparar_dispositivo_id():
+        from flask import g, request as req
+        dispositivo_id = req.cookies.get(NOME_COOKIE_DISPOSITIVO)
+        g.dispositivo_novo = not dispositivo_id
+        g.dispositivo_id = dispositivo_id or uuid.uuid4().hex
+
+    @app.after_request
+    def persistir_dispositivo_id(response):
+        from flask import g
+        if getattr(g, "dispositivo_novo", False):
+            response.set_cookie(
+                NOME_COOKIE_DISPOSITIVO, g.dispositivo_id,
+                max_age=DURACAO_COOKIE_DISPOSITIVO, httponly=True, samesite="Lax",
+            )
+        return response
 
     # Blueprints
     from app.routes.auth import auth_bp

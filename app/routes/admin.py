@@ -6,6 +6,7 @@ from app.extensions import db
 from app.models import Unidade, Usuario, Processo, Cliente, Lancamento, LogAtividade, Empresa
 from app.utils.acesso import apenas_admin, login_papel_requerido, checar_acesso_unidade_ou_403
 from app.utils.notificacoes import registrar_log
+from app.utils.rede import resumir_user_agent
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -245,6 +246,8 @@ def auditoria():
     usuario_id = request.args.get("usuario_id", type=int)
     data_inicio = request.args.get("data_inicio")
     data_fim = request.args.get("data_fim")
+    ip_filtro = request.args.get("ip", "").strip()
+    dispositivo_filtro = request.args.get("dispositivo_id", "").strip()
 
     query = LogAtividade.query
     if not current_user.is_admin_desenvolvedor:
@@ -258,11 +261,18 @@ def auditoria():
         query = query.filter(LogAtividade.criado_em >= datetime.strptime(data_inicio, "%Y-%m-%d"))
     if data_fim:
         query = query.filter(LogAtividade.criado_em < datetime.strptime(data_fim, "%Y-%m-%d") + timedelta(days=1))
+    if ip_filtro:
+        query = query.filter(LogAtividade.ip.ilike(f"%{ip_filtro}%"))
+    if dispositivo_filtro:
+        query = query.filter(LogAtividade.dispositivo_id == dispositivo_filtro)
 
     logs = query.order_by(LogAtividade.criado_em.desc()).paginate(page=pagina, per_page=50)
     if current_user.is_admin_desenvolvedor:
         usuarios = Usuario.query.order_by(Usuario.nome).all()
     else:
         usuarios = Usuario.query.join(Unidade).filter(Unidade.empresa_id == current_user.empresa_id_atual).order_by(Usuario.nome).all()
-    return render_template("admin/auditoria.html", logs=logs, usuarios=usuarios,
-                            filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim)
+    return render_template(
+        "admin/auditoria.html", logs=logs, usuarios=usuarios,
+        filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim,
+        filtro_ip=ip_filtro, filtro_dispositivo=dispositivo_filtro, resumir_user_agent=resumir_user_agent,
+    )

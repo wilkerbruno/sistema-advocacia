@@ -17,4 +17,6 @@ class LogAtividade(db.Model):
     detalhes = db.Column(db.String(500))
     ip = db.Column(db.String(45))
     mac_address = db.Column(db.String(20))  # best-effort via tabela ARP — só resolve em rede local, ver app/utils/rede.py
+    user_agent = db.Column(db.String(255))  # navegador/SO informado pelo próprio cliente — sempre disponível, mesmo pela internet
+    dispositivo_id = db.Column(db.String(36), index=True)  # cookie de 1ª parte, gerado no 1º acesso — correlaciona ações do mesmo navegador/dispositivo ao longo do tempo, mesmo com IP variando
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
