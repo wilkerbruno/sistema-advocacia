@@ -69,9 +69,26 @@ def enviar_lembretes():
                 if smtp_configurado() and c.responsavel and c.responsavel.email:
                     enviar_email(c.responsavel.email, titulo, mensagem)
 
-                if c.enviar_whatsapp and whatsapp_configurado() and c.cliente and c.cliente.whatsapp:
-                    if enviar_whatsapp(c.cliente.whatsapp, mensagem):
-                        c.whatsapp_enviado_em = agora
+                # Diagnóstico explícito de cada motivo de não enviar por
+                # WhatsApp — sem isso, um envio pulado ficava silencioso e
+                # indistinguível de "funcionou mas o cliente não recebeu".
+                if c.enviar_whatsapp:
+                    if not whatsapp_configurado():
+                        print(f"  WHATSAPP PULADO compromisso #{c.id}: WHATSAPP_BRIDGE_URL não configurada "
+                              f"no .env do app principal (ver PENDENCIAS.md, seção -4).")
+                    elif not c.cliente:
+                        print(f"  WHATSAPP PULADO compromisso #{c.id}: nenhum cliente vinculado ao compromisso.")
+                    elif not c.cliente.whatsapp:
+                        print(f"  WHATSAPP PULADO compromisso #{c.id}: cliente '{c.cliente.nome}' não tem "
+                              f"número de WhatsApp cadastrado.")
+                    else:
+                        if enviar_whatsapp(c.cliente.whatsapp, mensagem):
+                            c.whatsapp_enviado_em = agora
+                            print(f"  WHATSAPP OK compromisso #{c.id}: enviado para {c.cliente.nome}.")
+                        else:
+                            print(f"  WHATSAPP FALHOU compromisso #{c.id}: o bridge respondeu com erro "
+                                  f"(confira se o serviço whatsapp-bridge está no ar e com o WhatsApp "
+                                  f"conectado — abra a rota /qr dele para checar o status).")
 
                 c.notificacao_enviada_em = agora
                 db.session.commit()

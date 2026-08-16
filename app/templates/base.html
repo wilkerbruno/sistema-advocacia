@@ -132,19 +132,17 @@
       <div class="d-flex align-items-center gap-3">
         {% if current_user.is_authenticated %}
         <div class="dropdown">
-          <button class="btn btn-outline-doc position-relative" type="button" data-bs-toggle="dropdown">
+          <button class="btn btn-outline-doc position-relative" type="button" id="btn-avisos" data-bs-toggle="dropdown">
             Avisos
             {% if qtd_notificacoes and qtd_notificacoes > 0 %}
-            <span class="badge rounded-pill" style="background: var(--status-danger); position:absolute; top:-6px; right:-6px; font-size: .62rem;">{{ qtd_notificacoes }}</span>
+            <span class="badge rounded-pill" id="badge-avisos" style="background: var(--status-danger); position:absolute; top:-6px; right:-6px; font-size: .62rem;">{{ qtd_notificacoes }}</span>
             {% endif %}
           </button>
-          <div class="dropdown-menu dropdown-menu-end p-2" style="width: 320px;">
+          <div class="dropdown-menu dropdown-menu-end p-2" style="width: 340px; max-height: 420px; overflow-y: auto;">
             <div class="text-muted-doc small px-2 pb-2">Últimas notificações</div>
-            {% if qtd_notificacoes and qtd_notificacoes > 0 %}
-              <div class="px-2 small">Você tem {{ qtd_notificacoes }} notificação(ões) não lida(s).</div>
-            {% else %}
-              <div class="px-2 small text-muted-doc">Nenhuma notificação nova.</div>
-            {% endif %}
+            <div id="lista-avisos">
+              <div class="px-2 small text-muted-doc">Carregando...</div>
+            </div>
           </div>
         </div>
         {% endif %}
@@ -166,6 +164,77 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+{% if current_user.is_authenticated %}
+<script>
+// Lista de notificações do menu "Avisos" — antes só mostrava a contagem
+// ("Você tem N notificação(ões) não lida(s)."), sem dar pra ver do que se
+// tratava cada uma. Busca em GET /api/notificacoes (já existia, só não
+// era consumida por nenhuma tela) e marca como lida ao clicar (POST
+// /api/notificacoes/<id>/marcar-lida, idem).
+(function () {
+  const botao = document.getElementById("btn-avisos");
+  const lista = document.getElementById("lista-avisos");
+  const badge = document.getElementById("badge-avisos");
+  if (!botao || !lista) return;
+
+  function escaparHtml(texto) {
+    const div = document.createElement("div");
+    div.textContent = texto == null ? "" : String(texto);
+    return div.innerHTML;
+  }
+
+  function atualizarBadge(qtdNaoLidas) {
+    if (!badge) return;
+    if (qtdNaoLidas > 0) {
+      badge.textContent = qtdNaoLidas;
+      badge.style.display = "";
+    } else {
+      badge.style.display = "none";
+    }
+  }
+
+  async function carregarNotificacoes() {
+    lista.innerHTML = '<div class="px-2 small text-muted-doc">Carregando...</div>';
+    try {
+      const resp = await fetch("{{ url_for('api.notificacoes') }}");
+      const itens = await resp.json();
+
+      if (!itens.length) {
+        lista.innerHTML = '<div class="px-2 small text-muted-doc">Nenhuma notificação ainda.</div>';
+        return;
+      }
+
+      lista.innerHTML = itens.map(function (n) {
+        const naoLida = !n.lida;
+        return `
+          <a href="${n.link ? escaparHtml(n.link) : "#"}" data-id="${n.id}" data-tem-link="${n.link ? "1" : "0"}"
+             class="d-block px-2 py-2 small text-decoration-none border-bottom item-aviso"
+             style="color: inherit; ${naoLida ? "background: var(--brass-100, #f6f1e6);" : ""}">
+            <div class="${naoLida ? "fw-semibold" : ""}">${escaparHtml(n.titulo)}</div>
+            ${n.mensagem ? `<div class="text-muted-doc" style="white-space: normal;">${escaparHtml(n.mensagem)}</div>` : ""}
+            <div class="text-muted-doc" style="font-size: .7rem;">${escaparHtml(n.criado_em)}</div>
+          </a>`;
+      }).join("");
+
+      lista.querySelectorAll(".item-aviso").forEach(function (el) {
+        el.addEventListener("click", function (ev) {
+          if (el.dataset.temLink !== "1") ev.preventDefault();
+          fetch(`/api/notificacoes/${el.dataset.id}/marcar-lida`, { method: "POST" }).catch(function () {});
+        });
+      });
+
+      atualizarBadge(itens.filter(function (n) { return !n.lida; }).length);
+    } catch (e) {
+      lista.innerHTML = '<div class="px-2 small text-danger">Falha ao carregar notificações.</div>';
+    }
+  }
+
+  botao.addEventListener("show.bs.dropdown", carregarNotificacoes);
+})();
+</script>
+{% endif %}
+
 {% block scripts_extra %}{% endblock %}
 </body>
 </html>
