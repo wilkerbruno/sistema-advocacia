@@ -7,10 +7,11 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao
+from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao, AnaliseProcessoIA
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
-from app.utils import tribunais_datajud
+from app.utils import tribunais_datajud, ia_local
+from app.utils.analise_processo_ia import gerar_analise
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -122,8 +123,11 @@ def detalhe(processo_id):
     checar_acesso_unidade_ou_403(processo.unidade_id)
     from app.models import RegraProximaAcao
     regras_ativas = RegraProximaAcao.query.filter_by(ativo=True).order_by(RegraProximaAcao.ato_capturado).all()
+    analises_ia = AnaliseProcessoIA.query.filter_by(processo_id=processo.id) \
+        .order_by(AnaliseProcessoIA.criado_em.desc()).all()
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
-                            regras_ativas=regras_ativas)
+                            regras_ativas=regras_ativas, analises_ia=analises_ia,
+                            ia_configurada=ia_local.modelo_disponivel())
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -414,4 +418,61 @@ def excluir_documento(documento_id):
     registrar_log(current_user, "excluiu_documento", "Processo", processo_id, doc.nome_original)
     db.session.commit()
     flash("Documento removido.", "info")
+    return redirect(url_for("processos.detalhe", processo_id=processo_id))
+
+
+# ---------- Análise com Agente de IA (resumo dos autos / rascunho de petição) ----------
+# Ver app/utils/analise_processo_ia.py para o motor (mesmo modelo local
+# gratuito do Agente de IA de portfólio) e app/models/agente_ia.py::
+# AnaliseProcessoIA para o histórico persistido. Sempre lembrar: é rascunho
+# para revisão humana, nunca texto pronto para uso sem conferência.
+
+@processos_bp.route("/<int:processo_id>/analise-ia", methods=["POST"])
+@login_required
+def gerar_analise_ia(processo_id):
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_unidade_ou_403(processo.unidade_id)
+
+    tipo = request.form.get("tipo")
+    instrucao = request.form.get("instrucao", "").strip()
+
+    if not ia_local.modelo_disponivel():
+        flash("Agente de IA local indisponível neste servidor (modelo não baixado/configurado — "
+              "ver PENDENCIAS.md).", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    try:
+        resultado, truncado = gerar_analise(processo, tipo, instrucao)
+    except ValueError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+    except ia_local.ModeloIndisponivelError as e:
+        flash(f"Agente de IA indisponível: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+    except Exception as e:  # nunca deixa a tela do processo travada por erro do modelo local
+        flash(f"Não foi possível gerar a análise agora: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    analise = AnaliseProcessoIA(
+        processo_id=processo.id, solicitado_por_id=current_user.id, tipo=tipo,
+        instrucao=instrucao or None, resultado=resultado, digest_truncado=truncado,
+    )
+    db.session.add(analise)
+    registrar_log(current_user, "gerou_analise_ia", "Processo", processo.id, tipo)
+    db.session.commit()
+    flash("Análise gerada — revise com atenção antes de usar; é sempre um rascunho para conferência humana.",
+          "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@processos_bp.route("/analises-ia/<int:analise_id>/excluir", methods=["POST"])
+@login_required
+def excluir_analise_ia(analise_id):
+    analise = db.get_or_404(AnaliseProcessoIA, analise_id)
+    checar_acesso_unidade_ou_403(analise.processo.unidade_id)
+    processo_id = analise.processo_id
+    db.session.delete(analise)
+    registrar_log(current_user, "excluiu_analise_ia", "Processo", processo_id, analise.tipo)
+    db.session.commit()
+    flash("Análise removida.", "info")
     return redirect(url_for("processos.detalhe", processo_id=processo_id))

@@ -52,3 +52,44 @@ class MensagemAgenteIA(db.Model):
 
     def __repr__(self):
         return f"<MensagemAgenteIA {self.id} {self.papel}>"
+
+
+class AnaliseProcessoIA(db.Model):
+    """
+    Resumo dos autos ou rascunho de petição gerado pelo Agente de IA para UM
+    processo específico — distinto das conversas de portfólio das personas
+    Operação/Gestão/Negócios (que enxergam a carteira inteira, não um
+    processo). Lê o histórico real do processo (andamentos, movimentações,
+    publicações, decisões, prazos — ver app/utils/analise_processo_ia.py)
+    e gera o texto pedido usando o mesmo motor local gratuito (ver
+    app/utils/ia_local.py).
+
+    Persistido para dar histórico/auditoria de cada geração — nunca é
+    considerado texto final: `resultado` é sempre um rascunho para revisão
+    humana antes de qualquer uso real (resumir para decisão, ou protocolar
+    petição).
+    """
+    __tablename__ = "analises_processo_ia"
+
+    TIPOS = ("resumo", "rascunho_peticao")
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    processo_id = db.Column(db.Integer, db.ForeignKey("processos.id"), nullable=False)
+    processo = db.relationship("Processo")
+
+    solicitado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    solicitado_por = db.relationship("Usuario")
+
+    tipo = db.Column(db.String(20), nullable=False)  # ver TIPOS
+    instrucao = db.Column(db.Text)  # pedido de quem solicitou (obrigatório para rascunho_peticao)
+    resultado = db.Column(db.Text, nullable=False)
+    # True quando o histórico do processo teve que ser cortado para caber na
+    # janela de contexto do modelo local — sinaliza que o resumo/rascunho
+    # pode não cobrir movimentações/decisões mais antigas.
+    digest_truncado = db.Column(db.Boolean, default=False)
+
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<AnaliseProcessoIA {self.id} processo={self.processo_id} tipo={self.tipo}>"

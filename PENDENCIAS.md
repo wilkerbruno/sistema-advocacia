@@ -1,5 +1,58 @@
 # Status das pendências do briefing (atualizado em 16/08/2026)
 
+## -5. Regras de próxima ação, mapa de estado (TPU) e Análise com IA por processo — implementado nesta rodada
+
+### Regras de próxima ação e mapa de código TPU → estado (telas novas, só admin)
+O motor que gera prazo automaticamente a partir de um ato capturado
+(`app/utils/prazos_engine.py`) e o que traduz movimentação em estado de
+negócio (`app/utils/estado_processual_engine.py`) já existiam no código,
+mas não havia nenhuma tela para cadastrar as regras que eles usam — sem
+regra cadastrada, todo ato caía sempre no caminho genérico ("análise
+necessária", prazo provisório de 5 dias). Agora existem, no menu
+Governança (visível só para admin): "Regras de próxima ação" e "Mapa de
+estado (TPU)" — CRUD completo (criar, editar, ativar/desativar; nunca
+exclusão física, seguindo o mesmo padrão de governança do resto do
+sistema). De propósito **nenhum prazo legal vem pré-cadastrado** — cadastrar
+um prazo errado é grave (risco real de perda de prazo), então cabe ao
+advogado responsável validar e digitar o prazo de cada tipo de ato
+conforme a legislação e o rito aplicável (ex.: prazos de execução fiscal,
+CPC etc.).
+
+### Análise de processo com Agente de IA (resumo dos autos / rascunho de petição)
+Nova aba "Análise IA" na tela de cada processo. Duas opções:
+- **Resumo dos autos**: lê os dados reais do processo (movimentações,
+  decisões, andamentos, prazos pendentes) e devolve um resumo objetivo da
+  situação atual.
+- **Rascunho de petição**: você descreve o que a peça precisa fazer (ex.:
+  "contestação alegando decadência") e o agente gera um rascunho inicial
+  em formato de petição, usando os dados reais do processo como base.
+
+Roda no mesmo modelo de IA local gratuito que já era usado no Agente de IA
+de portfólio (decisão sua, ver pergunta que te fiz antes de implementar) —
+sem custo por uso, sem dado saindo do servidor, mas com qualidade limitada
+por ser um modelo pequeno (até 2B parâmetros). Por isso:
+- O sistema NUNCA deixa o rascunho passar por pronto: toda resposta vem
+  com aviso para revisão humana, e o próprio modelo é instruído a escrever
+  `[REVISAR: ...]` em vez de inventar lei, jurisprudência ou fato que não
+  esteja nos dados reais do processo.
+- Cada análise gerada fica salva no histórico do processo (para auditoria
+  e consulta posterior), com quem pediu e quando.
+- Histórico muito longo do processo é cortado para caber na janela de
+  contexto do modelo local — quando isso acontece, aparece um aviso
+  "histórico truncado" na análise.
+- **Protocolo automático no PJe não foi implementado** — não existe API
+  pública unificada de peticionamento eletrônico entre os tribunais
+  (autenticação normalmente exige certificado digital ICP-Brasil), e
+  automatizar isso via robô de navegador seria frágil e arriscado (um erro
+  aqui não é uma mensagem que não chega, é uma petição errada ou duplicada
+  no processo do cliente). O rascunho sempre precisa ser revisado e
+  protocolado manualmente por um advogado.
+- Se um dia quiser trocar o modelo local pela API paga da Anthropic
+  (Claude) para essa função específica, por qualidade de redação jurídica
+  mais alta, o sistema já tem o caminho pronto no código
+  (`ANTHROPIC_API_KEY` em config.py) — só não ativei porque tem custo por
+  uso e você pediu para usar o modelo gratuito.
+
 ## -4. Autopreenchimento por CNJ/CEP e Agenda com lembrete (reunião) — implementado nesta rodada
 
 ### Buscar dados do processo ao digitar o número CNJ

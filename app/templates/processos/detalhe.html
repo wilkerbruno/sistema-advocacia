@@ -53,6 +53,7 @@
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#documentos" type="button">Documentos</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#governanca-mov" type="button">Governança {% if processo.movimentacoes|selectattr('triagem_pendente')|list|length %}<span class="badge-status badge-pendente">{{ processo.movimentacoes|selectattr('triagem_pendente')|list|length }} em triagem</span>{% endif %}</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cofre" type="button">Cofre de senha</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#analise-ia" type="button">Análise IA</button></li>
     </ul>
 
     <div class="tab-content">
@@ -317,6 +318,64 @@
             <div class="col-md-3"><button class="btn btn-brass btn-sm w-100">{{ "Atualizar" if processo.senha_processo else "Cadastrar no cofre" }}</button></div>
           </form>
         </div>
+      </div>
+
+      <!-- ANÁLISE COM AGENTE DE IA -->
+      <div class="tab-pane fade" id="analise-ia">
+        {% if not ia_configurada %}
+        <div class="alert alert-warning py-2 px-3 small">
+          Agente de IA local indisponível neste servidor (modelo não baixado/configurado — ver PENDENCIAS.md).
+        </div>
+        {% endif %}
+
+        <div class="card-doc tab p-3 mb-3">
+          <p class="small text-muted-doc mb-3">
+            Lê os dados reais deste processo (movimentações, decisões, andamentos, prazos) já
+            cadastrados no sistema e gera um resumo ou um rascunho inicial de petição. Roda no
+            modelo de IA local gratuito do escritório — sem custo por uso, sem dado saindo do
+            servidor, mas com qualidade limitada: <strong>é sempre rascunho para revisão humana,
+            nunca texto pronto para protocolar sem conferência de um advogado.</strong>
+          </p>
+          <form method="post" action="{{ url_for('processos.gerar_analise_ia', processo_id=processo.id) }}">
+            <div class="row g-2 align-items-start">
+              <div class="col-md-4">
+                <select name="tipo" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)');">
+                  <option value="resumo">Resumo dos autos</option>
+                  <option value="rascunho_peticao">Rascunho de petição</option>
+                </select>
+              </div>
+              <div class="col-md-8">
+                <label id="instrucao-ia-label" class="form-label small mb-1">Alguma instrução específica? (opcional)</label>
+                <textarea id="instrucao-ia" name="instrucao" class="form-control form-control-sm" rows="2"
+                          placeholder="Ex.: contestação alegando decadência do crédito de CFEM"></textarea>
+              </div>
+            </div>
+            <button type="submit" class="btn btn-brass btn-sm mt-2" {{ "disabled" if not ia_configurada }}>Gerar análise</button>
+          </form>
+        </div>
+
+        {% if analises_ia %}
+        {% for a in analises_ia %}
+        <div class="card-doc tab p-3 mb-3">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div class="small text-muted-doc">
+              {{ "Rascunho de petição" if a.tipo == "rascunho_peticao" else "Resumo dos autos" }}
+              — {{ a.solicitado_por.nome if a.solicitado_por else "—" }} em {{ a.criado_em|data_hora_br }}
+              {% if a.digest_truncado %}<span class="badge-status badge-pendente ms-1">histórico truncado</span>{% endif %}
+            </div>
+            <form method="post" action="{{ url_for('processos.excluir_analise_ia', analise_id=a.id) }}"
+                  onsubmit="return confirm('Excluir esta análise?');">
+              <button type="submit" class="btn btn-outline-doc btn-sm text-danger">Excluir</button>
+            </form>
+          </div>
+          {% if a.instrucao %}<p class="small mb-2"><strong>Pedido:</strong> {{ a.instrucao }}</p>{% endif %}
+          <div class="alert alert-warning py-1 px-2 small mb-2">Rascunho gerado por IA — revise, corrija e valide juridicamente antes de usar.</div>
+          <pre class="small mb-0" style="white-space: pre-wrap; font-family: inherit;">{{ a.resultado }}</pre>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted-doc small">Nenhuma análise gerada ainda para este processo.</p>
+        {% endif %}
       </div>
     </div>
   </div>

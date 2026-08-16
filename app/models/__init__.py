@@ -13,7 +13,7 @@ from .senha_processo import SenhaProcesso
 from .observabilidade import Feriado, LogCaptura
 from .licenca import Licenca, Pagamento
 from .apontamento import Apontamento
-from .agente_ia import ConversaAgenteIA, MensagemAgenteIA
+from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA
 from .compromisso import Compromisso
 
 __all__ = [
@@ -44,5 +44,6 @@ __all__ = [
     "Apontamento",
     "ConversaAgenteIA",
     "MensagemAgenteIA",
+    "AnaliseProcessoIA",
     "Compromisso",
 ]
