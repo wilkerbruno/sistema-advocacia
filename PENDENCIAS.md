@@ -49,11 +49,15 @@ este conector não faz:**
   preenche os dados iniciais do processo e já registra as movimentações
   capturadas.
 - `capturar_movimentacoes.py` — script de recaptura periódica pra todos os
-  processos monitoráveis, **precisa ser agendado** (cron) — não roda
-  sozinho. No EasyPanel: criar um serviço "Cron Job" apontando pra
-  `python capturar_movimentacoes.py`, sugestão 1x por dia (não há ganho em
-  rodar com mais frequência, dado que o próprio DataJud já tem defasagem
-  de horas a dias).
+  processos monitoráveis. **Já vem agendado sozinho**: o `Dockerfile` agora
+  instala um `cron` dentro do próprio container (`docker/entrypoint.sh` +
+  `docker/capturar-movimentacoes.cron`) que roda esse script todo dia às 3h
+  da manhã — não depende de nenhuma configuração extra no painel do
+  EasyPanel (o EasyPanel não tem um recurso de "Cron Job" dedicado pra isso
+  documentado oficialmente; resolvi rodando o cron dentro da própria
+  imagem). O resultado de cada execução aparece no log normal da aplicação
+  no EasyPanel (junto com o log do gunicorn) e em "Governança > BI/Métricas"
+  (indicador de saúde da captura, baseado em `LogCaptura`).
 
 **Como ativar:**
 1. Cadastro gratuito em https://datajud-wiki.cnj.jus.br/, gerar a chave de
@@ -61,8 +65,10 @@ este conector não faz:**
 2. `python sincronizar_schema.py` — cria a coluna nova `tribunal_datajud`.
 3. Testar com um processo real (de preferência um TRT, que não exige
    escolher o tribunal manualmente) em "Governança > Cadastrar por CNJ".
-4. Configurar o Cron Job do `capturar_movimentacoes.py` pra manter os
-   processos já cadastrados atualizados ao longo do tempo.
+4. Nada mais a configurar — a recaptura diária já roda sozinha depois do
+   deploy (ver acima). Se quiser forçar uma recaptura na hora em vez de
+   esperar o horário agendado, rode `python capturar_movimentacoes.py` no
+   console do servidor.
 
 ⚠️ Os nomes exatos dos campos da resposta da API (`movimentos`, `codigo`,
 `nome`, `dataHora`...) seguem a documentação pública do DataJud, mas não

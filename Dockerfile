@@ -5,12 +5,23 @@ WORKDIR /app
 # g++ e cmake: necessários pra compilar o llama-cpp-python (motor do modelo
 # de IA local do Agente de IA, ver app/utils/ia_local.py) caso não exista um
 # wheel pré-compilado pra esta combinação exata de SO/Python/arquitetura.
+# cron: roda a recaptura diária de movimentações via DataJud dentro do
+# próprio container (ver docker/capturar-movimentacoes.cron e PENDENCIAS.md,
+# seção -3) — não depende de nenhum recurso externo de agendamento.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    default-libmysqlclient-dev pkg-config gcc g++ cmake \
+    default-libmysqlclient-dev pkg-config gcc g++ cmake cron \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+
+# Agendamento da recaptura diária (ver comentário acima). Copiado antes do
+# resto do código-fonte de propósito, mesma lógica de cache do modelo de IA
+# abaixo — só invalida esta camada se este arquivo específico mudar.
+COPY docker/capturar-movimentacoes.cron /etc/cron.d/capturar-movimentacoes
+RUN chmod 0644 /etc/cron.d/capturar-movimentacoes
+COPY docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Baixa os pesos do modelo de IA local (~1,1 GB) ANTES de copiar o resto do
 # código-fonte, de propósito: assim esta camada do Docker fica em cache e só
@@ -34,4 +45,5 @@ EXPOSE 5000
 # 2 workers o pior caso fica em ~2-3 GB. Se o plano do servidor tiver bastante
 # RAM sobrando (8 GB+), pode voltar pra "-w", "4"; se aparecer erro de
 # memória (worker killed / OOM) mesmo com 2, reduza para "-w", "1".
+ENTRYPOINT ["/entrypoint.sh"]
 CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "--timeout", "120", "run:app"]

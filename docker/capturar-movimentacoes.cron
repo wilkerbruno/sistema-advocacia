@@ -1,0 +1,11 @@
+# Recaptura diária de movimentações via DataJud (ver capturar_movimentacoes.py
+# e PENDENCIAS.md, seção -3). Roda às 3h da manhã (horário do servidor) —
+# não há ganho real em rodar com mais frequência, já que o próprio DataJud
+# tem defasagem de horas a dias na indexação dos tribunais.
+#
+# A saída é redirecionada para o stdout/stderr do processo 1 do container
+# (/proc/1/fd/1 e /proc/1/fd/2), que é o gunicorn — assim o resultado da
+# captura aparece junto com o log normal da aplicação no painel do
+# EasyPanel, em vez de sumir (comportamento padrão do cron dentro de
+# container: a saída vai pro "mail" do usuário, que não existe aqui).
+0 3 * * * root cd /app && /usr/local/bin/python capturar_movimentacoes.py >> /proc/1/fd/1 2>> /proc/1/fd/2
