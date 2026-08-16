@@ -60,6 +60,20 @@
         <label class="form-label">Vara / Tribunal</label>
         <input type="text" name="vara" class="form-control" value="{{ processo.vara if processo else '' }}">
       </div>
+      <div class="col-md-3">
+        <label class="form-label">Tribunal (DataJud)</label>
+        <select name="tribunal_datajud" class="form-select">
+          <option value="">— (opcional)</option>
+          {% for slug, rotulo in tribunais_datajud %}
+          <option value="{{ slug }}" {{ "selected" if processo and processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted-doc mt-1">
+          Só é preciso escolher para processos que não sejam da Justiça do Trabalho
+          (esses identificam o TRT automaticamente pelo próprio número). Necessário
+          para a captura automática de movimentações via DataJud.
+        </div>
+      </div>
 
       <div class="col-md-3">
         <label class="form-label">Polo do cliente</label>

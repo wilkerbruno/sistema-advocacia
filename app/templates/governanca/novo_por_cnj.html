@@ -9,15 +9,33 @@
     <div class="card-doc tab p-4">
       <p class="small text-muted-doc mb-3">
         Digite ou cole o número CNJ (20 dígitos). O sistema valida o dígito
-        verificador (módulo 97) antes de cadastrar — se ainda não houver
-        provedor de captura configurado, o processo é cadastrado mesmo assim,
-        mas marcado como <strong>não monitorável automaticamente</strong>,
-        para nunca ficar um buraco silencioso na carteira.
+        verificador (módulo 97) e busca o processo no DataJud (base pública
+        gratuita do CNJ) antes de cadastrar. Se a captura falhar por
+        qualquer motivo (chave não configurada, tribunal não identificado,
+        processo em segredo de justiça, etc.), o processo é cadastrado
+        mesmo assim, mas marcado como <strong>não monitorável
+        automaticamente</strong> — nunca fica um buraco silencioso na
+        carteira.
       </p>
       <form method="post">
         <div class="mb-3">
           <label class="form-label">Número CNJ</label>
           <input type="text" name="numero_cnj" class="form-control" placeholder="0000000-00.0000.0.00.0000" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Tribunal (DataJud)</label>
+          <select name="tribunal_datajud" class="form-select">
+            <option value="">— (não sei / é da Justiça do Trabalho)</option>
+            {% for slug, rotulo in tribunais_datajud %}
+            <option value="{{ slug }}">{{ rotulo }}</option>
+            {% endfor %}
+          </select>
+          <div class="small text-muted-doc mt-1">
+            Para processos da Justiça do Trabalho (TRT) o sistema identifica o
+            tribunal sozinho pelo próprio número — não precisa escolher aqui.
+            Para os demais (Estadual, Federal...), escolha o tribunal correto
+            para a captura automática funcionar.
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Cliente</label>

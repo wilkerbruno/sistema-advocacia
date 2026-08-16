@@ -1,29 +1,21 @@
 """
 Interface de conectores de captura automática (seções 5.0/5.2 do briefing).
 
-⚠️ BLOQUEADO — depende de decisão e credenciais fora do código.
+Status: o conector "padrão" (`obter_conector("padrao")`) já está LIGADO —
+usa o DataJud, a API pública e gratuita do CNJ (ver
+app/utils/conector_datajud.py para o que ela cobre e o que não cobre).
+Não depende de contrato pago; depende só de `DATAJUD_API_KEY` configurada
+no `.env` (cadastro individual gratuito em https://datajud-wiki.cnj.jus.br/).
 
-Este módulo define o "encaixe" (interface) que qualquer conector de
-captura precisa implementar, para que a ingestão automática (seção 5.0)
-possa ser ligada assim que:
+Um provedor pago (Judit, Escavador, Digesto ou Codilo — recomendação
+original do briefing, seção 5.2) continua sendo a única forma de cobrir o
+que o DataJud não cobre: busca de processos por nome/CPF sem já ter o
+número, inteiro teor de documentos, e monitoramento de publicação por OAB.
+Se um desses for contratado no futuro, basta implementar uma nova
+subclasse de `ConectorCaptura` (ex: `ConectorJudit`) e registrá-la aqui.
 
-  1. O cliente/você escolher um provedor (Judit, Escavador, Digesto ou
-     Codilo — recomendação do próprio briefing, seção 5.2) ou decidir por
-     scraping direto de DJE/e-SAJ/PJe.
-  2. Uma chave de API (ou credencial de scraping) for obtida junto a esse
-     provedor e configurada em variável de ambiente.
-  3. O ambiente de produção tiver rede de saída liberada para o domínio
-     do provedor (este sandbox de geração de código só acessa uma lista
-     restrita de domínios — PyPI, GitHub, npm etc. — e não alcança APIs de
-     dados processuais; a integração real só pode ser testada a partir do
-     servidor onde o sistema for hospedado).
-
-Sem isso, não há como escrever nem testar a chamada real: cada provedor
-tem contrato de API, autenticação e formato de resposta próprios que só
-existem na documentação da conta contratada.
-
-Nenhuma classe abaixo faz requisição de rede — são apenas o contrato que
-uma implementação futura deve seguir.
+Nenhuma classe/função abaixo faz requisição de rede diretamente — só a
+implementação concreta (ConectorDataJud) faz.
 """
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -75,14 +67,27 @@ class ConectorNaoConfiguradoError(Exception):
 
 def obter_conector(nome_fonte: str) -> ConectorCaptura:
     """
-    Fábrica de conectores. Hoje sempre levanta ConectorNaoConfiguradoError —
-    nenhum provedor foi contratado/configurado ainda. Quando um provedor for
-    escolhido, implemente uma subclasse de ConectorCaptura (ex:
-    ConectorJudit, ConectorEscavador) e registre aqui.
+    Fábrica de conectores. "padrao" usa o DataJud (gratuito, ver
+    app/utils/conector_datajud.py) quando DATAJUD_API_KEY está configurada;
+    sem a chave, levanta ConectorNaoConfiguradoError como antes — nunca
+    finge que a captura está funcionando.
     """
+    if nome_fonte == "padrao":
+        from flask import current_app
+        from app.utils.conector_datajud import ConectorDataJud
+
+        if current_app.config.get("DATAJUD_API_KEY"):
+            return ConectorDataJud()
+
+        raise ConectorNaoConfiguradoError(
+            "DATAJUD_API_KEY não configurada — cadastre-se de graça em "
+            "https://datajud-wiki.cnj.jus.br/, gere uma chave de API e "
+            "defina DATAJUD_API_KEY no .env do servidor. Para cobrir o que "
+            "o DataJud não cobre (busca por nome/CPF sem número, inteiro "
+            "teor, publicação por OAB), seria necessário um provedor pago "
+            "(Judit, Escavador, Digesto ou Codilo)."
+        )
+
     raise ConectorNaoConfiguradoError(
-        f"Nenhum conector de captura configurado para '{nome_fonte}'. "
-        "É necessário escolher um provedor de dados processuais (Judit, "
-        "Escavador, Digesto ou Codilo — seção 5.2 do briefing), contratar a "
-        "API, e implementar a subclasse correspondente de ConectorCaptura."
+        f"Nenhum conector de captura configurado para '{nome_fonte}'."
     )

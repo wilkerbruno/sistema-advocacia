@@ -10,6 +10,7 @@ from app.extensions import db
 from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
+from app.utils import tribunais_datajud
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -77,6 +78,7 @@ def novo():
             comarca=request.form.get("comarca"),
             vara=request.form.get("vara"),
             tribunal=request.form.get("tribunal"),
+            tribunal_datajud=request.form.get("tribunal_datajud") or None,
             polo_cliente=request.form.get("polo_cliente"),
             parte_contraria=request.form.get("parte_contraria"),
             advogado_contrario=request.form.get("advogado_contrario"),
@@ -109,7 +111,8 @@ def novo():
     ).all() if minha_unidade_id else usuarios_do_escopo()
 
     return render_template("processos/form.html", processo=None, unidades=unidades,
-                            clientes=clientes, responsaveis=responsaveis)
+                            clientes=clientes, responsaveis=responsaveis,
+                            tribunais_datajud=tribunais_datajud.TODOS)
 
 
 @processos_bp.route("/<int:processo_id>")
@@ -142,6 +145,7 @@ def editar(processo_id):
         processo.comarca = request.form.get("comarca")
         processo.vara = request.form.get("vara")
         processo.tribunal = request.form.get("tribunal")
+        processo.tribunal_datajud = request.form.get("tribunal_datajud") or None
         processo.status = request.form.get("status", processo.status)
         processo.polo_cliente = request.form.get("polo_cliente")
         processo.parte_contraria = request.form.get("parte_contraria")
@@ -182,7 +186,8 @@ def editar(processo_id):
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     return render_template("processos/form.html", processo=processo, unidades=unidades,
-                            clientes=clientes, responsaveis=responsaveis)
+                            clientes=clientes, responsaveis=responsaveis,
+                            tribunais_datajud=tribunais_datajud.TODOS)
 
 
 # ---------- Andamentos (linha do tempo) ----------

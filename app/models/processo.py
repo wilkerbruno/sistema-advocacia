@@ -36,6 +36,12 @@ class Processo(db.Model):
     comarca = db.Column(db.String(100))
     vara = db.Column(db.String(100))
     tribunal = db.Column(db.String(60))
+    # Slug do tribunal na API pública do DataJud (ver app/utils/tribunais_datajud.py
+    # e app/utils/conector_datajud.py), ex: "trt2", "tjsp". Para processos da
+    # Justiça do Trabalho isso é derivado automaticamente do próprio número CNJ;
+    # para os demais segmentos (Estadual, Federal...) precisa ser escolhido aqui
+    # manualmente para a captura automática funcionar — nunca é um chute do sistema.
+    tribunal_datajud = db.Column(db.String(20))
     status = db.Column(db.String(20), default="ativo", nullable=False)
     status_comercial = db.Column(db.String(30), default="contencioso_ativo")  # seção 4
     polo_cliente = db.Column(db.String(20))  # Autor / Réu / Interessado

@@ -1,5 +1,79 @@
 # Status das pendências do briefing (atualizado em 16/08/2026)
 
+## -3. Captura automática de processos (PJe/TRT/TJ/etc) — parcialmente desbloqueado, de graça, via DataJud
+
+O item "integração com dados judiciais" (categoria 8 do concorrente),
+antes marcado como bloqueado por depender de provedor pago, tem uma parte
+real que **é gratuita**: o **DataJud**, a base pública oficial do CNJ
+(Resolução CNJ 331/2020) — diferente de Judit/Escavador/Digesto/Codilo,
+não é um provedor comercial, é o próprio CNJ. Qualquer pessoa se cadastra
+de graça em https://datajud-wiki.cnj.jus.br/ (sem precisar de OAB/CNPJ) e
+gera uma chave de API própria.
+
+**Importante — o que ficou de fato coberto e o que continua exigindo um
+provedor pago, pra não vender pro cliente final do escritório algo que
+este conector não faz:**
+
+- **Cobre de graça:** acompanhar o andamento de um processo cujo número
+  CNJ você já tem — carga inicial (classe, assunto, órgão julgador, data
+  de ajuizamento) e captura de movimentações, alimentando a mesma máquina
+  de estados e motor de próxima ação que já existiam (`app/utils/estado_processual_engine.py`,
+  `app/utils/prazos_engine.py`). Cobre nacionalmente todos os 91
+  tribunais — todo TJ estadual, todo TRT, todo TRF, tribunais superiores.
+  Para processos da Justiça do Trabalho, o tribunal (TRT) é identificado
+  automaticamente pelo próprio número do processo; para os demais
+  segmentos, é escolhido manualmente uma vez no cadastro do processo
+  (campo "Tribunal (DataJud)").
+- **Continua exigindo provedor pago (Judit/Escavador/Digesto/Codilo):**
+  "buscar todos os processos de uma pessoa/empresa pelo nome ou CPF/CNPJ"
+  sem já ter o número — o DataJud não indexa CPF/CNPJ (LGPD) e busca por
+  nome de parte não é confiável o bastante pra automatizar. Também não dá
+  pra baixar o inteiro teor de petições/decisões (só metadado + texto
+  curto de cada movimentação), nem monitorar publicação no Diário de
+  Justiça Eletrônico por OAB.
+- Defasagem: dados do DataJud não são em tempo real — a atualização de
+  cada tribunal pra base nacional varia de horas a dias, segundo o
+  próprio CNJ.
+
+**O que foi implementado:**
+- `app/utils/conector_datajud.py` — implementação real de `ConectorCaptura`
+  (o "encaixe" que já existia em `app/utils/captura_conectores.py`, antes
+  sempre bloqueado). `obter_conector("padrao")` agora devolve esse
+  conector quando `DATAJUD_API_KEY` está configurada.
+- `app/utils/tribunais_datajud.py` — catálogo de tribunais suportados
+  (trt1–24, todos os TJs estaduais, trf1–6, tribunais superiores).
+- Novo campo `Processo.tribunal_datajud`, exposto nos formulários de novo
+  processo, edição de processo e cadastro por CNJ.
+- `app/routes/governanca.py` (`novo_por_cnj`) agora usa de fato o retorno
+  da captura (antes só testava sucesso/falha e descartava o resultado) —
+  preenche os dados iniciais do processo e já registra as movimentações
+  capturadas.
+- `capturar_movimentacoes.py` — script de recaptura periódica pra todos os
+  processos monitoráveis, **precisa ser agendado** (cron) — não roda
+  sozinho. No EasyPanel: criar um serviço "Cron Job" apontando pra
+  `python capturar_movimentacoes.py`, sugestão 1x por dia (não há ganho em
+  rodar com mais frequência, dado que o próprio DataJud já tem defasagem
+  de horas a dias).
+
+**Como ativar:**
+1. Cadastro gratuito em https://datajud-wiki.cnj.jus.br/, gerar a chave de
+   API, definir `DATAJUD_API_KEY` no `.env` do servidor.
+2. `python sincronizar_schema.py` — cria a coluna nova `tribunal_datajud`.
+3. Testar com um processo real (de preferência um TRT, que não exige
+   escolher o tribunal manualmente) em "Governança > Cadastrar por CNJ".
+4. Configurar o Cron Job do `capturar_movimentacoes.py` pra manter os
+   processos já cadastrados atualizados ao longo do tempo.
+
+⚠️ Os nomes exatos dos campos da resposta da API (`movimentos`, `codigo`,
+`nome`, `dataHora`...) seguem a documentação pública do DataJud, mas não
+puderam ser testados contra uma chamada real (o ambiente onde este código
+foi gerado tem rede de saída restrita e não alcança `datajud.cnj.jus.br`).
+Teste com um processo real e, se algum campo vier consistentemente vazio
+(diferente de "processo não encontrado"), me avise com um exemplo do JSON
+de resposta pra eu ajustar o mapeamento.
+
+---
+
 ## -2. Agente de IA passou a rodar num modelo local (até 2B parâmetros), não mais Claude
 
 A pedido explícito: o Agente de IA jurídica (`/agente-ia`) trocou a API da
@@ -84,12 +158,17 @@ Everything que dependia só de código foi implementado nesta rodada:
   2B parâmetros em vez do Claude — ver seção -2 acima para os detalhes e
   trade-offs dessa mudança.
 
+**Atualizado depois — categoria 8 (captura de dados judiciais) parcialmente
+desbloqueada de graça:** ver seção -3 acima. Acompanhamento automático de
+processo pelo número (todos os tribunais do país) agora funciona via
+DataJud (API pública do CNJ), sem custo.
+
 **Continua bloqueado — não é falta de código, é contrato/credencial externa
 que ninguém consegue simular:**
-- Jurimetria/análise preditiva de verdade e captura automática de dados
-  judiciais (categorias 5 e 8 do concorrente) dependem de um provedor de
-  dados processuais contratado (Judit/Escavador/Digesto/Codilo) ou
-  credenciamento direto no CNJ — ver seção 2.1 mais abaixo, e
+- Jurimetria/análise preditiva de verdade (categoria 5) e busca de
+  processos por nome/CPF sem já ter o número (parte da categoria 8)
+  continuam dependendo de um provedor de dados processuais contratado
+  (Judit/Escavador/Digesto/Codilo) — ver seção -3 acima e
   `app/utils/captura_conectores.py`. Uma "probabilidade de êxito" calculada
   sem dado histórico real seria inventada — não foi construída.
 

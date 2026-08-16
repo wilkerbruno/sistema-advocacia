@@ -92,6 +92,14 @@ class Config:
     IA_LOCAL_MAX_TOKENS_RESPOSTA = int(os.environ.get("IA_LOCAL_MAX_TOKENS_RESPOSTA", "700"))
     IA_LOCAL_THREADS = int(os.environ["IA_LOCAL_THREADS"]) if os.environ.get("IA_LOCAL_THREADS") else None
 
+    # Captura automática de movimentações via DataJud (API pública e
+    # gratuita do CNJ) — ver app/utils/conector_datajud.py. Sem isso
+    # definido, o cadastro por CNJ (/governanca/processos/novo-por-cnj)
+    # continua funcionando, mas todo processo é marcado honestamente como
+    # "não monitorável automaticamente". Cadastro gratuito da chave em
+    # https://datajud-wiki.cnj.jus.br/
+    DATAJUD_API_KEY = os.environ.get("DATAJUD_API_KEY", "")
+
     # Legado: chave da Anthropic (Claude), não é mais usada pelo Agente de IA
     # desde que ele passou a rodar no modelo local acima. Mantida só para
     # facilitar reverter, se um dia quiser voltar a usar uma API de ponta em

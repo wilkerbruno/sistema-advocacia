@@ -30,8 +30,11 @@ from app.utils.notificacoes import registrar_log, notificar
 from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
+from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
+from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
+from app.utils import tribunais_datajud
 
 governanca_bp = Blueprint("governanca", __name__)
 
@@ -54,14 +57,23 @@ def novo_por_cnj():
         unidade_id = unidade_id_para_novo_registro()
         checar_acesso_unidade_ou_403(unidade_id)
         partes = resultado["partes"]
+        tribunal_hint = request.form.get("tribunal_datajud") or None
 
-        # Tenta a ingestão automática real. Hoje sempre falha (nenhum
-        # provedor configurado) — ver app/utils/captura_conectores.py.
+        # Tenta a ingestão automática real via DataJud (gratuito, ver
+        # app/utils/conector_datajud.py) — cai para "não monitorável" de
+        # forma honesta se a chave não estiver configurada, se o tribunal
+        # não puder ser identificado, ou se o processo ainda não estiver
+        # indexado (segredo de justiça, ou defasagem do próprio DataJud).
+        dados_capturados = None
         try:
             conector = obter_conector("padrao")
-            conector.consultar_processo(partes["formatado"])
+            dados_capturados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
             forma_acompanhamento, monitoravel, motivo = "automatico", True, None
         except ConectorNaoConfiguradoError as e:
+            forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
+        except TribunalNaoIdentificadoError as e:
+            forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
+        except ConexaoDataJudError as e:
             forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
 
         processo = Processo(
@@ -74,10 +86,27 @@ def novo_por_cnj():
             forma_acompanhamento=forma_acompanhamento,
             monitoravel=monitoravel,
             motivo_nao_monitoravel=motivo,
+            tribunal_datajud=(dados_capturados["tribunal_slug"] if dados_capturados else tribunal_hint),
             segredo_justica=bool(request.form.get("segredo_justica")),
         )
         db.session.add(processo)
         db.session.flush()
+
+        qtd_movimentacoes_novas = 0
+        if dados_capturados:
+            aplicar_carga_inicial(processo, dados_capturados)
+            qtd_movimentacoes_novas = registrar_movimentacoes_capturadas(
+                processo, dados_capturados["movimentacoes"]
+            )
+            db.session.add(LogCaptura(
+                fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
+                status="sucesso", mensagem=f"{qtd_movimentacoes_novas} movimentação(ões) capturada(s).",
+            ))
+        elif motivo:
+            db.session.add(LogCaptura(
+                fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
+                status="falha", mensagem=motivo[:500],
+            ))
 
         registrar_log(current_user, "cadastro_por_cnj", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
@@ -86,10 +115,12 @@ def novo_por_cnj():
             flash(f"Processo {processo.numero_processo} cadastrado, mas marcado como NÃO monitorável "
                   f"automaticamente: {motivo}", "warning")
         else:
-            flash(f"Processo {processo.numero_processo} cadastrado e em monitoramento automático.", "success")
+            flash(f"Processo {processo.numero_processo} cadastrado e em monitoramento automático "
+                  f"({qtd_movimentacoes_novas} movimentação(ões) já capturada(s) do DataJud).", "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
-    return render_template("governanca/novo_por_cnj.html", clientes=clientes, unidades=unidades)
+    return render_template("governanca/novo_por_cnj.html", clientes=clientes, unidades=unidades,
+                            tribunais_datajud=tribunais_datajud.TODOS)
 
 
 # ---------- Importação em lote (CSV) ----------
