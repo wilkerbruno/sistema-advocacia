@@ -384,6 +384,63 @@ def marcar_nao_monitoravel(processo_id):
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
 
+@governanca_bp.route("/processos/<int:processo_id>/tentar-captura", methods=["POST"])
+@login_required
+def tentar_captura(processo_id):
+    """
+    Tenta (de novo) a captura automática via DataJud pra um processo que
+    já está cadastrado — usada quando a primeira tentativa (no cadastro
+    por CNJ) falhou por falta de tribunal selecionado, chave do DataJud
+    configurada depois do cadastro, ou qualquer outro motivo temporário.
+    Reaproveita o mesmo pipeline do cadastro inicial (aplicar_carga_inicial
+    + registrar_movimentacoes_capturadas), que só preenche campo vazio e
+    deduplica movimentação por hash — seguro rodar de novo quantas vezes
+    precisar, nunca duplica nem sobrescreve o que já foi preenchido à mão.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_unidade_ou_403(processo.unidade_id)
+
+    tribunal_hint = request.form.get("tribunal_datajud") or processo.tribunal_datajud
+    if not processo.numero_processo:
+        flash("Este processo não tem número CNJ cadastrado — não dá pra buscar no DataJud.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    empresa = processo.unidade.empresa if processo.unidade else None
+
+    try:
+        conector = obter_conector("padrao", empresa=empresa)
+        dados_capturados = conector.consultar_processo(processo.numero_processo, tribunal_hint=tribunal_hint)
+    except ConectorNaoConfiguradoError as e:
+        flash(f"Captura não configurada: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+    except TribunalNaoIdentificadoError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+    except ConexaoDataJudError as e:
+        db.session.add(LogCaptura(fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
+                                   status="falha", mensagem=str(e)[:500]))
+        db.session.commit()
+        flash(f"Não foi possível buscar o processo no DataJud agora: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    processo.tribunal_datajud = dados_capturados["tribunal_slug"]
+    aplicar_carga_inicial(processo, dados_capturados)
+    novas = registrar_movimentacoes_capturadas(processo, dados_capturados["movimentacoes"])
+    processo.monitoravel = True
+    processo.forma_acompanhamento = "automatico"
+    processo.motivo_nao_monitoravel = None
+
+    db.session.add(LogCaptura(
+        fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
+        status="sucesso", mensagem=f"{novas} movimentação(ões) capturada(s) (nova tentativa manual).",
+    ))
+    registrar_log(current_user, "tentou_captura_datajud", "Processo", processo.id, processo.numero_processo)
+    db.session.commit()
+    flash(f"Processo encontrado no DataJud — {novas} movimentação(ões) capturada(s). "
+          f"Agora está em monitoramento automático.", "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
 # ---------- Fila de intimações (seção 7.2) ----------
 
 @governanca_bp.route("/fila-intimacoes")

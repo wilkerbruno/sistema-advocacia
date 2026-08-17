@@ -45,6 +45,19 @@ de saída restrita nesse ambiente de geração). Teste com um processo real
 depois do deploy — se algum campo vier vazio de forma consistente
 (diferente de "processo não encontrado"), me avise com um exemplo do JSON
 de resposta pra eu ajustar o mapeamento.
+
+🔎 Identificação do tribunal quando não é Justiça do Trabalho (rodada de
+17/08/2026): em vez de exigir que o `tribunal_datajud` seja escolhido
+manualmente (ou tentar "adivinhar" via alguma tabela/IA — arriscado,
+ver app/utils/tribunais_datajud.py), `consultar_processo` agora tenta
+CADA tribunal candidato do segmento (ex: os 27 TJs, para Estadual) contra
+a API pública de verdade até achar o processo — sem chute, só perguntando
+pra fonte oficial. A API pública documenta limite de 120 requisições por
+minuto (ambíguo se é por IP ou geral — ver
+https://www.tabnews.com.br/lukexp/4b2885d9-cbae-49ce-8647-b15e7847976d),
+folgado mesmo no pior caso (27 chamadas sequenciais). `tribunal_hint`
+continua existindo e, quando informado, pula direto pra 1 chamada só —
+mais rápido, mas não é mais obrigatório.
 """
 import hashlib
 from datetime import datetime
@@ -54,15 +67,17 @@ from flask import current_app
 
 from app.utils.captura_conectores import ConectorCaptura, MovimentacaoCapturada
 from app.utils.cnj import validar_numero_cnj, somente_digitos
-from app.utils.tribunais_datajud import slug_valido
+from app.utils.tribunais_datajud import slug_valido, candidatos_do_segmento
 
 BASE_URL = "https://api-publica.datajud.cnj.jus.br"
 
 
 class TribunalNaoIdentificadoError(Exception):
-    """Não dá pra saber com segurança em qual tribunal consultar (processo
-    fora da Justiça do Trabalho e sem `tribunal_datajud` escolhido
-    manualmente no cadastro do processo)."""
+    """Não dá pra saber em qual tribunal consultar: o segmento de Justiça
+    do processo (Eleitoral, Militar Estadual...) ainda não tem nenhum
+    tribunal cadastrado no catálogo (app/utils/tribunais_datajud.py), então
+    nem a busca automática por tentativa (ver `candidatos_do_segmento`) tem
+    o que testar."""
 
 
 class FuncionalidadeNaoDisponivelError(Exception):
@@ -70,35 +85,9 @@ class FuncionalidadeNaoDisponivelError(Exception):
 
 
 class ConexaoDataJudError(Exception):
-    """Erro de rede/HTTP/dado não encontrado na chamada real ao DataJud."""
-
-
-def _slug_do_tribunal(numero_cnj: str, tribunal_hint: str | None) -> str:
-    """
-    Deriva o slug do tribunal (ex: "trt2") a partir do número CNJ quando
-    possível — Justiça do Trabalho, onde o número da região do TRT está
-    direto no número do processo, sem ambiguidade nenhuma (ver
-    app/utils/cnj.py) — ou usa o `tribunal_hint` escolhido manualmente
-    pelo usuário (Processo.tribunal_datajud) para os demais segmentos
-    (Estadual, Federal, etc.), onde não há como derivar com segurança só
-    pelo número.
-    """
-    resultado = validar_numero_cnj(numero_cnj)
-    if not resultado["valido"]:
-        raise ValueError(f"Número CNJ inválido: {resultado['motivo']}")
-
-    partes = resultado["partes"]
-    if partes["segmento_codigo"] == "5":  # Justiça do Trabalho — automático, sem ambiguidade
-        return f"trt{int(partes['tribunal_codigo'])}"
-
-    if tribunal_hint and slug_valido(tribunal_hint):
-        return tribunal_hint
-
-    raise TribunalNaoIdentificadoError(
-        f"Não foi possível identificar automaticamente o tribunal deste processo "
-        f"(segmento: {partes['segmento_nome']}). Abra o processo e selecione o "
-        "tribunal no campo \"Tribunal (DataJud)\" para habilitar a captura automática."
-    )
+    """Erro de rede/HTTP, ou processo não encontrado (em um tribunal
+    específico, ou em nenhum dos tribunais candidatos tentados
+    automaticamente) na chamada real ao DataJud."""
 
 
 def _parse_data(valor):
@@ -147,24 +136,20 @@ class ConectorDataJud(ConectorCaptura):
             )
         return resposta.json()
 
-    def consultar_processo(self, numero_cnj: str, tribunal_hint: str | None = None) -> dict:
+    def _buscar_no_tribunal(self, slug: str, numero_cnj: str, digitos: str) -> dict | None:
         """
-        tribunal_hint: slug de app/utils/tribunais_datajud.py (ex: "tjsp"),
-        obrigatório para tudo que não for Justiça do Trabalho. Parâmetro
-        extra em relação ao contrato base (ConectorCaptura), opcional para
-        manter compatibilidade com quem só passa o número.
+        Consulta UM tribunal específico. Devolve o dict de dados (ver
+        `consultar_processo`) se achou o processo lá, ou `None` se aquele
+        tribunal simplesmente não tem esse processo (resposta 200 com lista
+        de resultados vazia — não é erro, só "não é aqui"). Erros de
+        verdade (rede, 401, 5xx...) continuam subindo como
+        `ConexaoDataJudError` — quem chama decide se aborta ou tenta o
+        próximo tribunal candidato.
         """
-        slug = _slug_do_tribunal(numero_cnj, tribunal_hint)
-        digitos = somente_digitos(numero_cnj)
         payload = self._consultar(slug, digitos)
-
         hits = payload.get("hits", {}).get("hits", [])
         if not hits:
-            raise ConexaoDataJudError(
-                f"Processo não encontrado no DataJud em '{slug}' — pode ser defasagem de "
-                "indexação (leva de horas a dias) ou o processo estar em segredo de "
-                "justiça (não indexado publicamente)."
-            )
+            return None
         origem = hits[0].get("_source", {})
 
         movimentacoes = []
@@ -189,6 +174,81 @@ class ConectorDataJud(ConectorCaptura):
             "valor_causa": origem.get("valorCausa"),
             "movimentacoes": movimentacoes,
         }
+
+    def consultar_processo(self, numero_cnj: str, tribunal_hint: str | None = None) -> dict:
+        """
+        tribunal_hint: slug de app/utils/tribunais_datajud.py (ex: "tjsp"),
+        opcional — quando informado (e válido), consulta direto só nesse
+        tribunal (1 chamada, mais rápido). Quando ausente:
+
+          - Justiça do Trabalho (segmento "5"): o número do TRT já está
+            embutido no próprio número do processo, sem ambiguidade — usa
+            direto, sem tentar mais de um tribunal.
+          - Demais segmentos com candidatos cadastrados (Estadual, Federal,
+            STF, STJ, Justiça Militar da União — ver
+            `tribunais_datajud.candidatos_do_segmento`): tenta CADA
+            tribunal candidato de verdade contra a API pública do DataJud,
+            na ordem do catálogo, até achar o processo. Isso evita ter que
+            adivinhar (ou pedir pra escolher manualmente) qual dos ~27
+            tribunais estaduais é o certo — o "chute" vira uma pergunta
+            real pra fonte oficial. Só continua para o próximo candidato
+            quando a resposta for "não encontrado aqui" (200, sem
+            resultado); qualquer erro de verdade (chave inválida, rede
+            fora do ar, resposta inesperada) interrompe na hora, sem gastar
+            as tentativas restantes.
+          - Segmentos sem candidato cadastrado (Eleitoral, Militar
+            Estadual): levanta `TribunalNaoIdentificadoError` — não tem
+            tribunal nenhum no catálogo pra sequer tentar.
+        """
+        resultado = validar_numero_cnj(numero_cnj)
+        if not resultado["valido"]:
+            raise ValueError(f"Número CNJ inválido: {resultado['motivo']}")
+        partes = resultado["partes"]
+        digitos = somente_digitos(numero_cnj)
+
+        if partes["segmento_codigo"] == "5":  # Justiça do Trabalho — sem ambiguidade
+            slug = f"trt{int(partes['tribunal_codigo'])}"
+            dados = self._buscar_no_tribunal(slug, numero_cnj, digitos)
+            if dados is None:
+                raise ConexaoDataJudError(
+                    f"Processo não encontrado no DataJud em '{slug}' — pode ser defasagem de "
+                    "indexação (leva de horas a dias) ou o processo estar em segredo de "
+                    "justiça (não indexado publicamente)."
+                )
+            return dados
+
+        if tribunal_hint and slug_valido(tribunal_hint):
+            dados = self._buscar_no_tribunal(tribunal_hint, numero_cnj, digitos)
+            if dados is None:
+                raise ConexaoDataJudError(
+                    f"Processo não encontrado no DataJud em '{tribunal_hint}' — pode ser "
+                    "defasagem de indexação (leva de horas a dias), o processo estar em "
+                    "segredo de justiça (não indexado publicamente), ou o tribunal escolhido "
+                    "não ser o correto para este processo."
+                )
+            return dados
+
+        candidatos = candidatos_do_segmento(partes["segmento_codigo"])
+        if not candidatos:
+            raise TribunalNaoIdentificadoError(
+                f"Não foi possível identificar automaticamente o tribunal deste processo "
+                f"(segmento: {partes['segmento_nome']}) — esse segmento ainda não tem "
+                "nenhum tribunal cadastrado para busca automática. Abra o processo e "
+                "selecione o tribunal no campo \"Tribunal (DataJud)\" para habilitar a "
+                "captura automática, se souber qual é."
+            )
+
+        for slug in candidatos:
+            dados = self._buscar_no_tribunal(slug, numero_cnj, digitos)
+            if dados is not None:
+                return dados
+
+        raise ConexaoDataJudError(
+            f"Processo não encontrado no DataJud em nenhum dos {len(candidatos)} tribunais de "
+            f"{partes['segmento_nome']} testados automaticamente — pode ser defasagem de "
+            "indexação (leva de horas a dias) ou o processo estar em segredo de justiça "
+            "(não indexado publicamente)."
+        )
 
     def monitorar_publicacoes_por_oab(self, numero_oab: str, uf: str):
         raise FuncionalidadeNaoDisponivelError(

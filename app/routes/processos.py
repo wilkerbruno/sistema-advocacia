@@ -127,7 +127,8 @@ def detalhe(processo_id):
         .order_by(AnaliseProcessoIA.criado_em.desc()).all()
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
-                            ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None))
+                            ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
+                            tribunais_datajud=tribunais_datajud.TODOS)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])

@@ -1,5 +1,108 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -9. Captura automática do DataJud não rodava sozinha em processo Estadual/Federal, e não tinha como tentar de novo — corrigido nesta rodada (+ achado importante sobre o número do processo #1)
+
+**O problema relatado:** ao cadastrar o processo `0025567-55.2002.8.12.0001` pela
+tela "Cadastrar por CNJ" e apertar Enter, nada preenchia sozinho — continuava
+precisando digitar tudo manualmente.
+
+**Causa nº 1 (já corrigida): tribunal não identificado.** Esse processo é da
+Justiça Estadual (o "8" logo depois do ano, no número CNJ, é o código do
+segmento de justiça). O sistema só conseguia descobrir o tribunal sozinho, a
+partir do próprio número, para processos da Justiça do Trabalho (TRT) — para
+Estadual/Federal/Superiores era preciso escolher manualmente no campo
+"Tribunal (DataJud)" antes de apertar Enter, e esse aviso era só um texto
+pequeno, fácil de passar batido.
+
+**Corrigido nesta rodada:** em vez de exigir a escolha manual (ou tentar
+adivinhar por uma tabela de código-de-tribunal, que é arriscado — ver
+`app/utils/tribunais_datajud.py`), o sistema agora **testa automaticamente
+cada tribunal candidato do segmento contra a API real do DataJud** até achar
+o processo — para Estadual são até 27 tentativas (uma por TJ), bem dentro do
+limite de 120 requisições/minuto que a própria API pública documenta. Escolher
+o tribunal manualmente continua funcionando e deixa a busca mais rápida (1
+chamada só), mas não é mais obrigatório — nem no cadastro por CNJ nem no botão
+"Tentar captura automática" (ver abaixo). Segmentos sem nenhum tribunal
+cadastrado ainda no catálogo (Eleitoral, Justiça Militar Estadual) continuam
+precisando de seleção manual — mas para esses hoje não existe nem opção
+correta pra escolher no campo, então a mensagem de erro já avisa disso.
+
+**Causa nº 2 (achado nesta rodada, ainda pendente de confirmar com você): o
+número do processo #1 tem o dígito verificador inválido.** Testei o número
+exatamente como está cadastrado — `0025567-55.2002.8.12.0001` — pela fórmula
+oficial de validação do CNJ (módulo 97, a mesma que qualquer sistema usa pra
+conferir se um número de processo é válido) e ele **não passa**: o dígito
+verificador certo pra esse sequencial/ano/tribunal/origem seria `47`, não
+`55`. Ou seja, mesmo com o tribunal certo identificado (o que a correção acima
+já resolve), a busca automática nunca vai encontrar esse processo especificamente,
+porque o número em si está com um dígito trocado — não é algo que a busca por
+tribunal resolva.
+
+Isso não é bug do sistema: o campo "Nº do processo" no cadastro manual
+("Novo processo") nunca validou o dígito verificador de propósito (processos
+antigos/legados às vezes têm numeração fora do padrão atual, e bloquear
+cadastro por causa disso seria pior do que aceitar). Já a tela "Cadastrar por
+CNJ" valida sim — o que sugere que o processo #1 foi cadastrado pelo formulário
+manual, não por ali. **Recomendo conferir o número desse processo direto no
+site do TJMS ou no processo físico/PJe** — se todos os outros dígitos
+estiverem certos, o valor correto provavelmente é `0025567-47.2002.8.12.0001`
+(troca só os 2 dígitos depois do sequencial); aí é só corrigir no cadastro
+("Editar" no processo) e tentar a captura automática de novo.
+
+**O que também foi corrigido nesta rodada (independente do achado acima):**
+antes, se a primeira tentativa de captura falhasse (tribunal não escolhido,
+chave do DataJud configurada só depois, erro temporário de rede, etc.), não
+existia nenhuma forma de tentar de novo pra um processo que já tinha sido
+cadastrado — o processo ficava "não monitorável" para sempre, a não ser que
+fosse excluído e recadastrado do zero. Agora, na tela de detalhe de qualquer
+processo marcado como "não monitorável" que já tenha um número de processo
+cadastrado, aparece um botão **"Tentar captura automática"**, com um campo
+opcional pra escolher o tribunal (pré-preenchido se já tiver um salvo). Ele
+reaproveita exatamente o mesmo motor de busca e de gravação usado no cadastro
+por CNJ (`aplicar_carga_inicial` + `registrar_movimentacoes_capturadas`) — que
+só preenche campo que ainda está vazio e nunca duplica movimentação repetida —
+então pode ser clicado quantas vezes for preciso, sem risco de sobrescrever
+algo digitado à mão ou duplicar andamento. Se der certo, o processo passa a
+"monitoramento automático" e entra na rotina periódica normalmente; se der
+errado, mostra o motivo (processo não encontrado no DataJud, DataJud fora do
+ar, número com dígito inválido, etc.) e fica registrado em Log de Captura
+(mesma aba "Governança" que já existia).
+
+**Sobre a pergunta "o Agente de IA consegue buscar isso sozinho?": não.** O
+Agente de IA do sistema (local ou Claude via chave própria, em "Minhas
+Integrações") não tem acesso à internet nem a nenhuma ferramenta de busca
+conectada — ele só analisa texto que já está no banco (resumo de andamentos,
+rascunho de petição). Ele não consulta o DataJud nem nenhuma API externa, e
+usar um modelo de IA pra "adivinhar" o tribunal certo a partir do número seria
+exatamente o tipo de risco que a solução acima evita (chute com confiança,
+buscando o processo errado sem avisar) — por isso a busca automática por
+tribunal foi resolvida testando a API real (determinístico, sem IA, sem
+chute), não conectando o Agente de IA a essa tarefa.
+
+Arquivos alterados: `app/utils/tribunais_datajud.py` (lista de tribunais
+candidatos por segmento), `app/utils/conector_datajud.py` (busca por
+tentativa em vez de exigir tribunal), `app/routes/governanca.py` (rota nova
+`governanca.tentar_captura`), `app/routes/processos.py` (passa a lista de
+tribunais pro template de detalhe), `app/templates/processos/detalhe.html`
+(botão novo) e `app/templates/governanca/novo_por_cnj.html` (texto de ajuda
+atualizado). Testado no sandbox local (Flask test_client + respostas do
+DataJud simuladas no nível HTTP) cobrindo: busca automática que acha o
+processo testando vários tribunais até acertar (e para assim que acha, sem
+gastar as tentativas restantes), erro real (ex.: chave inválida) interrompendo
+na 1ª tentativa sem tentar os demais, esgotar todos os candidatos sem achar,
+Justiça do Trabalho continuando direta (sem tentativa múltipla), segmento sem
+tribunal no catálogo (Eleitoral) recusando sem nenhuma chamada de rede, e
+tribunal escolhido manualmente pulando direto pra 1 chamada só — além dos
+mesmos testes de ponta a ponta da rodada anterior (botão "Tentar captura
+automática", preenchimento de campos vazios, log de captura, processo sem
+número de CNJ).
+
+**Se o botão "Tentar captura automática" continuar sem funcionar mesmo depois
+de corrigir o número**, o próximo suspeito é a variável `DATAJUD_API_KEY` não
+estar configurada no servidor (ou a chave própria da empresa, se estiver
+usando BYOK, em "Minhas Integrações") — vale conferir isso no ambiente do
+EasyPanel.
+
 ## -8. Lembretes de compromisso: mensagem completa, WhatsApp pro responsável, e-mail pro cliente, e cada empresa com o PRÓPRIO número de WhatsApp — implementado nesta rodada
 
 Três pedidos em sequência, todos em `enviar_lembretes_compromissos.py` e

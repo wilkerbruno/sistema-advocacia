@@ -58,3 +58,31 @@ SLUGS_VALIDOS = {slug for slug, _ in TODOS}
 
 def slug_valido(slug):
     return bool(slug) and slug in SLUGS_VALIDOS
+
+
+# Candidatos por segmento de Justiça (código "J" do número CNJ — ver
+# app/utils/cnj.py) — usado por app/utils/conector_datajud.py para BUSCA
+# AUTOMÁTICA quando o usuário não escolhe (ou não sabe) o tribunal: em vez
+# de adivinhar qual dos tribunais do segmento é o certo (o que exigiria a
+# tabela de códigos TR que este projeto deliberadamente não tenta decifrar
+# — ver o docstring do módulo), o conector testa CADA candidato de verdade
+# contra a API pública do DataJud, na ordem abaixo, até achar o processo.
+# É pouco tráfego (no máximo 27 chamadas, para Estadual) contra um limite
+# documentado de 120 requisições/minuto da própria API — folgado mesmo no
+# pior caso. Segmentos sem lista aqui (Eleitoral="6", Militar Estadual="9",
+# "2"=CNJ) não têm tribunal cadastrado no catálogo acima ainda — para esses
+# a busca automática continua impossível (ver TribunalNaoIdentificadoError).
+CANDIDATOS_POR_SEGMENTO = {
+    "8": [slug for slug, _ in TJ],    # Justiça Estadual — até 27 tentativas
+    "4": [slug for slug, _ in TRF],   # Justiça Federal — até 6 tentativas
+    "1": ["stf"],                     # STF
+    "3": ["stj"],                     # STJ
+    "7": ["stm"],                     # Justiça Militar da União
+}
+
+
+def candidatos_do_segmento(segmento_codigo):
+    """Lista de slugs a tentar, na ordem, para um segmento sem tribunal
+    escolhido manualmente. Lista vazia = segmento sem cobertura no catálogo
+    (busca automática não é possível, precisa mesmo de outra fonte)."""
+    return CANDIDATOS_POR_SEGMENTO.get(segmento_codigo, [])

@@ -41,6 +41,24 @@
         <input type="text" name="motivo" class="form-control form-control-sm mb-1" placeholder="Atualizar motivo (opcional)">
         <button class="btn btn-outline-doc btn-sm w-100">Atualizar marcação</button>
       </form>
+      {% if processo.numero_processo %}
+      <form method="post" action="{{ url_for('governanca.tentar_captura', processo_id=processo.id) }}" class="mt-2">
+        <label class="form-label small mb-1">Tribunal (DataJud)</label>
+        <select name="tribunal_datajud" class="form-select form-select-sm mb-1">
+          <option value="">— (não sei / é da Justiça do Trabalho)</option>
+          {% for slug, rotulo in tribunais_datajud %}
+          <option value="{{ slug }}" {{ "selected" if processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted-doc mb-1">
+          Opcional: deixando em branco, o sistema tenta descobrir o tribunal
+          sozinho (testa os tribunais possíveis até achar o processo — pode
+          demorar alguns segundos a mais). Escolher aqui deixa a busca mais
+          rápida.
+        </div>
+        <button class="btn btn-brass btn-sm w-100">Tentar captura automática</button>
+      </form>
+      {% endif %}
       {% endif %}
     </div>
   </div>
