@@ -14,20 +14,29 @@ compromisso cujo `notificar_em` já passou e ainda não foi notificado
 depois de notificar, então nunca dispara duas vezes o mesmo lembrete
 mesmo que o job rode várias vezes seguidas.
 
-Canais:
+Canais (todos usam exatamente a mesma mensagem — nome, descrição completa
+e data/hora — pra ninguém receber uma versão incompleta):
   - Notificação dentro do sistema (sempre, para o usuário responsável —
     não depende de nenhuma credencial externa).
-  - E-mail para o responsável, SE SMTP estiver configurado (ver
-    app/utils/email.py e config.py). Sem SMTP configurado, só a
-    notificação in-app é enviada mesmo assim — nunca falha o lembrete
-    inteiro por falta de e-mail.
-  - WhatsApp, SE o compromisso tiver `enviar_whatsapp=True`, estiver
-    vinculado a um cliente com número cadastrado, E `WHATSAPP_BRIDGE_URL`
-    estiver configurada (ver app/utils/whatsapp.py, whatsapp-bridge/ e
-    PENDENCIAS.md — automação NÃO-OFICIAL, decisão explícita do dono do
-    sistema, ciente do risco de banimento do número usado). Sem isso
-    configurado, o envio por WhatsApp simplesmente não acontece — o
-    lembrete continua saindo normalmente pelos outros canais.
+  - E-mail, SE SMTP estiver configurado (ver app/utils/email.py e
+    config.py): para o responsável (interno) sempre, E TAMBÉM para o
+    cliente, se ele estiver vinculado ao compromisso e tiver e-mail
+    cadastrado. Sem SMTP configurado, só a notificação in-app é enviada
+    mesmo assim — nunca falha o lembrete inteiro por falta de e-mail.
+  - WhatsApp, SE `WHATSAPP_BRIDGE_URL` estiver configurada (ver
+    app/utils/whatsapp.py, WAHA e PENDENCIAS.md — automação NÃO-OFICIAL,
+    decisão explícita do dono do sistema, ciente do risco de banimento do
+    número usado):
+      - Para o RESPONSÁVEL (o usuário do escritório que está enviando o
+        lembrete), sempre que ele tiver um número cadastrado no próprio
+        perfil (Usuario.whatsapp) — independente de cliente ou de
+        `enviar_whatsapp`, pra ele também nunca esquecer o próprio
+        compromisso.
+      - Para o CLIENTE, SE o compromisso tiver `enviar_whatsapp=True` e
+        estiver vinculado a um cliente com número cadastrado.
+    Sem `WHATSAPP_BRIDGE_URL` configurada, o envio por WhatsApp
+    simplesmente não acontece pra ninguém — o lembrete continua saindo
+    normalmente pelos outros canais.
 
 Uso:
     python enviar_lembretes_compromissos.py
@@ -74,12 +83,34 @@ def enviar_lembretes():
                 notificar(c.responsavel_id, titulo, mensagem=mensagem, tipo="compromisso",
                           link=f"/agenda/compromissos/{c.id}/editar")
 
-                if smtp_configurado() and c.responsavel and c.responsavel.email:
-                    enviar_email(c.responsavel.email, titulo, mensagem)
+                # E-mail: pro responsável (interno) sempre que houver SMTP
+                # configurado, e também pro cliente — a pedido explícito,
+                # pra o cliente também receber o lembrete completo por
+                # e-mail, não só quem está na equipe.
+                if smtp_configurado():
+                    if c.responsavel and c.responsavel.email:
+                        enviar_email(c.responsavel.email, titulo, mensagem)
+                    if c.cliente and c.cliente.email:
+                        enviar_email(c.cliente.email, titulo, mensagem)
+
+                # WhatsApp do RESPONSÁVEL — a pedido explícito, pra quem
+                # está enviando o lembrete também não esquecer do próprio
+                # compromisso. Usa o número cadastrado no perfil dele
+                # (Usuario.whatsapp, cadastro em Equipe > editar usuário),
+                # NÃO o número do cliente, e independe de `enviar_whatsapp`
+                # (que é sobre avisar o cliente, não sobre o responsável).
+                if whatsapp_configurado() and c.responsavel and c.responsavel.whatsapp:
+                    if enviar_whatsapp(c.responsavel.whatsapp, mensagem):
+                        print(f"  WHATSAPP OK (responsável) compromisso #{c.id}: enviado para {c.responsavel.nome}.")
+                    else:
+                        print(f"  WHATSAPP FALHOU (responsável) compromisso #{c.id}: o WAHA recusou o envio "
+                              f"pro número do responsável (veja o código HTTP no aviso 'WARNING in whatsapp' "
+                              f"logo acima).")
 
                 # Diagnóstico explícito de cada motivo de não enviar por
-                # WhatsApp — sem isso, um envio pulado ficava silencioso e
-                # indistinguível de "funcionou mas o cliente não recebeu".
+                # WhatsApp pro CLIENTE — sem isso, um envio pulado ficava
+                # silencioso e indistinguível de "funcionou mas o cliente
+                # não recebeu".
                 if c.enviar_whatsapp:
                     if not whatsapp_configurado():
                         print(f"  WHATSAPP PULADO compromisso #{c.id}: WHATSAPP_BRIDGE_URL não configurada "
