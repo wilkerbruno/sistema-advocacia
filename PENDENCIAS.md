@@ -1,5 +1,68 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -12. Mais campos autopreenchidos a partir do DataJud (Tipo de ação, Instância, Comarca) — implementado nesta rodada
+
+**O que foi pedido:** depois da busca automática já funcionando (pendências
+nº -9 a -11), ainda sobravam vários campos vazios no cadastro — Tipo de
+ação, Fase, Instância, Comarca, Parte contrária, Advogado da parte
+contrária, Valor da causa, Data de distribuição — e a pergunta foi se dava
+pra preencher mais alguns automaticamente também.
+
+**O que passou a ser preenchido sozinho nesta rodada** (tanto na
+pré-visualização ao apertar Enter quanto ao salvar de fato):
+- **Tipo de ação** — a partir da "classe" que o DataJud devolve (ex.:
+  "Execução Fiscal", "Procedimento Comum Cível"). O mesmo valor também
+  continua sendo guardado à parte em `classe_processual` (campo interno já
+  existente, sem campo próprio no formulário, usado em relatórios).
+- **Instância** — a partir do campo "grau" que o DataJud devolve (G1/G2/G3),
+  traduzido pra "1º grau"/"2º grau"/"3º grau". Nem todo processo tem esse
+  campo preenchido pelo tribunal; quando não tem, fica em branco pra
+  preencher à mão (não inventa).
+- **Comarca** — o DataJud não devolve o nome da comarca diretamente, mas às
+  vezes devolve o código IBGE do município dentro do órgão julgador; quando
+  isso acontece, o sistema consulta a API pública e gratuita do IBGE (sem
+  chave, sem custo) pra descobrir o nome da cidade (ex.: "Campo Grande -
+  MS") e preencher sozinho. Se o tribunal não mandar esse código, ou a
+  consulta ao IBGE falhar por qualquer motivo, o campo simplesmente fica em
+  branco — nunca trava o resto do cadastro por causa disso.
+
+**O que CONTINUA precisando ser preenchido à mão, e por quê** (a tela agora
+mostra um aviso pequeno embaixo de cada um explicando):
+- **Fase** (Conhecimento, Execução...) — o DataJud não tem esse conceito na
+  resposta; dava pra tentar adivinhar a partir do texto da última
+  movimentação, mas isso seria chute, não dado — preferi não inventar.
+- **Parte contrária** e **Advogado da parte contrária** — a API pública do
+  DataJud não expõe nome de partes nem de advogados (dado protegido por
+  LGPD, nem chega a vir na resposta) — isso é o tipo de busca que só um
+  provedor pago (Judit/Escavador/Digesto/Codilo) ofereceria, e mesmo assim
+  não com certeza pra todo tribunal.
+- **Valor da causa** e **Data de distribuição** — o sistema já tenta buscar
+  os dois (mecanismo que já existia), mas nem todo tribunal preenche esses
+  campos na base do DataJud — quando o tribunal não manda o dado, não tem
+  como inventar um valor.
+- **Responsável** e **Cliente** — são informações internas do seu
+  escritório (quem é o advogado responsável, quem é o cliente no seu
+  cadastro) — nenhuma fonte externa saberia disso, é sempre você quem
+  escolhe.
+
+Arquivos novos/alterados: `app/utils/ibge.py` (novo — consulta à API
+pública do IBGE, com cache simples e nunca propaga erro),
+`app/utils/conector_datajud.py` (extrai `grau` e o código IBGE do
+município da resposta do DataJud; também corrigido pra não quebrar num
+formato alternativo de "assuntos" — lista aninhada — documentado num
+exemplo real da API), `app/utils/captura_pipeline.py` (`aplicar_carga_inicial`
+passou a preencher também `tipo_acao`, `instancia` e `comarca`, sempre só
+quando o campo já não tinha valor), `app/routes/governanca.py` (preview
+devolve `instancia`/`comarca`) e `app/templates/processos/form.html`
+(campos com `id` pra JS conseguir preencher, avisos nos campos que não têm
+como vir automáticos). Testado no sandbox local simulando uma resposta real
+do DataJud (com `grau` e `codigoMunicipioIBGE`, formato do exemplo oficial
+documentado) e a API do IBGE respondendo o nome do município — confirmando
+que Tipo de ação, Instância e Comarca são preenchidos tanto na
+pré-visualização quanto no cadastro salvo; testado também que uma falha de
+rede na consulta ao IBGE não trava o resto da captura (só deixa a Comarca
+em branco).
+
 ## -11. Dígito verificador do CNJ deixou de travar a busca automática — corrigido nesta rodada
 
 **O que aconteceu:** depois da correção da pendência nº -10 (abaixo), você

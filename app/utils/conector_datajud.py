@@ -68,8 +68,25 @@ from flask import current_app
 from app.utils.captura_conectores import ConectorCaptura, MovimentacaoCapturada
 from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.tribunais_datajud import slug_valido, candidatos_do_segmento
+from app.utils import ibge
 
 BASE_URL = "https://api-publica.datajud.cnj.jus.br"
+
+_ROTULOS_GRAU = {
+    "G1": "1º grau", "G2": "2º grau", "G3": "3º grau",
+    "GRAU_1": "1º grau", "GRAU_2": "2º grau", "GRAU_3": "3º grau",
+    "JE": "Juizado Especial", "JR": "Justiça de Recursos",
+}
+
+
+def rotulo_grau(grau):
+    """'G1' -> '1º grau', etc. — ver campo `grau` no exemplo de resposta do
+    DataJud (https://www.tabnews.com.br/joaotextor/abstraindo-a-api-publica-do-cnj-datajud).
+    Código não mapeado: devolve o valor cru (melhor um rótulo estranho do
+    que nada) — nunca inventa um grau que não veio da resposta."""
+    if not grau:
+        return None
+    return _ROTULOS_GRAU.get(grau.upper(), grau)
 
 
 class TribunalNaoIdentificadoError(Exception):
@@ -165,14 +182,37 @@ class ConectorDataJud(ConectorCaptura):
                 hash_dedup=hash_dedup,
             ))
 
+        # "assuntos" normalmente é uma lista de objetos ({"nome": ...}), mas
+        # pelo menos um exemplo real documentado tem uma lista ANINHADA
+        # (lista de listas) — trata os dois formatos pra nunca quebrar por
+        # causa disso (campo secundário, não vale travar a captura toda).
+        assuntos_brutos = origem.get("assuntos") or []
+        assuntos_nomes = []
+        for item in assuntos_brutos:
+            candidatos = item if isinstance(item, list) else [item]
+            for c in candidatos:
+                if isinstance(c, dict) and c.get("nome"):
+                    assuntos_nomes.append(c["nome"])
+
+        orgao_julgador = origem.get("orgaoJulgador") or {}
+        codigo_municipio = orgao_julgador.get("codigoMunicipioIBGE")
+
         return {
             "tribunal_slug": slug,
             "classe": (origem.get("classe") or {}).get("nome"),
-            "assunto": ", ".join(a.get("nome") for a in (origem.get("assuntos") or []) if a.get("nome")) or None,
-            "orgao_julgador": (origem.get("orgaoJulgador") or {}).get("nome"),
+            "assunto": ", ".join(assuntos_nomes) or None,
+            "orgao_julgador": orgao_julgador.get("nome"),
             "data_ajuizamento": _parse_data(origem.get("dataAjuizamento")),
             "valor_causa": origem.get("valorCausa"),
             "movimentacoes": movimentacoes,
+            # Adicionados nesta rodada pra autopreencher mais campos do
+            # cadastro (Instância, Comarca — ver app/routes/processos.py e
+            # app/templates/processos/form.html). Melhor esforço: quando o
+            # tribunal não devolve esses campos (nem todos preenchem), ou a
+            # consulta ao IBGE falha, ficam None sem travar o resto.
+            "grau": origem.get("grau"),
+            "instancia": rotulo_grau(origem.get("grau")),
+            "comarca": ibge.nome_municipio(codigo_municipio),
         }
 
     def consultar_processo(self, numero_cnj: str, tribunal_hint: str | None = None) -> dict:

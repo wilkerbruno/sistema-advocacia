@@ -181,6 +181,12 @@ def consultar_cnj_preview():
         valor_causa=str(dados["valor_causa"]) if dados["valor_causa"] is not None else None,
         qtd_movimentacoes=len(dados["movimentacoes"]),
         aviso_dv=dados.get("aviso_dv"),
+        # Adicionados nesta rodada — ver app/utils/conector_datajud.py
+        # (campo "grau" do DataJud) e app/utils/ibge.py (nome do município
+        # a partir do código IBGE que vem dentro de "orgaoJulgador"). Nem
+        # todo tribunal/processo devolve esses dois; ficam None quando não dá.
+        instancia=dados.get("instancia"),
+        comarca=dados.get("comarca"),
     )
 
 

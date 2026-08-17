@@ -47,20 +47,21 @@
       </div>
       <div class="col-md-4">
         <label class="form-label">Tipo de ação</label>
-        <input type="text" name="tipo_acao" class="form-control" value="{{ processo.tipo_acao if processo else '' }}">
+        <input type="text" name="tipo_acao" id="tipo_acao" class="form-control" value="{{ processo.tipo_acao if processo else '' }}">
       </div>
 
       <div class="col-md-3">
         <label class="form-label">Fase</label>
         <input type="text" name="fase" class="form-control" placeholder="Conhecimento, Execução..." value="{{ processo.fase if processo else '' }}">
+        <div class="small text-muted-doc mt-1">O DataJud não informa a fase — preencha à mão.</div>
       </div>
       <div class="col-md-3">
         <label class="form-label">Instância</label>
-        <input type="text" name="instancia" class="form-control" value="{{ processo.instancia if processo else '' }}">
+        <input type="text" name="instancia" id="instancia" class="form-control" value="{{ processo.instancia if processo else '' }}">
       </div>
       <div class="col-md-3">
         <label class="form-label">Comarca</label>
-        <input type="text" name="comarca" class="form-control" value="{{ processo.comarca if processo else '' }}">
+        <input type="text" name="comarca" id="comarca" class="form-control" value="{{ processo.comarca if processo else '' }}">
       </div>
       <div class="col-md-3">
         <label class="form-label">Vara / Tribunal</label>
@@ -92,6 +93,7 @@
       <div class="col-md-5">
         <label class="form-label">Parte contrária</label>
         <input type="text" name="parte_contraria" class="form-control" value="{{ processo.parte_contraria if processo else '' }}">
+        <div class="small text-muted-doc mt-1">O DataJud não expõe nome de partes (dado protegido por LGPD) — preencha à mão.</div>
       </div>
       <div class="col-md-4">
         <label class="form-label">Advogado da parte contrária</label>
@@ -204,18 +206,27 @@
 {% block scripts_extra %}
 <script>
 // Digitar o CNJ e apertar Enter já busca no DataJud e preenche os campos
-// vazios abaixo (área do direito, vara/tribunal, valor da causa, data de
-// distribuição, tribunal DataJud) — mesma pré-visualização usada em
-// "Cadastrar por CNJ" (governanca.consultar_cnj_preview, só lê, nunca
-// grava nada). O cadastro/edição em si (POST deste formulário) tenta a
-// captura de novo e persiste de fato (ver app/routes/processos.py —
+// vazios abaixo (área do direito, tipo de ação, vara/tribunal, instância,
+// comarca, valor da causa, data de distribuição, tribunal DataJud) — mesma
+// pré-visualização usada em "Cadastrar por CNJ"
+// (governanca.consultar_cnj_preview, só lê, nunca grava nada). O
+// cadastro/edição em si (POST deste formulário) tenta a captura de novo e
+// persiste de fato (ver app/routes/processos.py —
 // _tentar_captura_automatica_no_cadastro) — esta busca aqui é só pra dar
 // feedback imediato e evitar digitar tudo à mão antes de salvar.
+//
+// O que o DataJud NÃO tem, então nunca preenche sozinho: Fase (não é um
+// campo da resposta), Parte contrária/Advogado da parte contrária (a API
+// pública não expõe nome de partes — dado protegido por LGPD), Responsável
+// e Cliente (são do seu escritório, nenhuma fonte externa saberia).
 (function () {
   const campoNumero = document.getElementById("numero_processo");
   const campoTribunal = document.getElementById("tribunal_datajud");
   const campoArea = document.getElementById("area_direito");
+  const campoTipoAcao = document.getElementById("tipo_acao");
   const campoVara = document.getElementById("vara");
+  const campoInstancia = document.getElementById("instancia");
+  const campoComarca = document.getElementById("comarca");
   const campoValor = document.getElementById("valor_causa");
   const campoData = document.getElementById("data_distribuicao");
   const status = document.getElementById("cnj-preview-status");
@@ -253,7 +264,10 @@
         (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
 
       preencherSeVazio(campoArea, dados.assunto || dados.classe);
+      preencherSeVazio(campoTipoAcao, dados.classe);
       preencherSeVazio(campoVara, dados.orgao_julgador);
+      preencherSeVazio(campoInstancia, dados.instancia);
+      preencherSeVazio(campoComarca, dados.comarca);
       preencherSeVazio(campoValor, dados.valor_causa);
       preencherSeVazio(campoData, dados.data_ajuizamento_iso);
 

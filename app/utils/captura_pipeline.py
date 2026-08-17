@@ -27,10 +27,21 @@ def aplicar_carga_inicial(processo, dados_capturados):
     """
     if dados_capturados.get("classe") and not processo.classe_processual:
         processo.classe_processual = dados_capturados["classe"]
+    # "classe" (ex: "Execução Fiscal", "Procedimento Comum Cível") também
+    # preenche "Tipo de ação" — campo visível no cadastro manual (ver
+    # app/templates/processos/form.html), que não tem equivalente próprio
+    # vindo do DataJud; "classe_processual" acima é o valor "cru" da
+    # classificação CNJ, guardado à parte para relatórios/BI.
+    if dados_capturados.get("classe") and not processo.tipo_acao:
+        processo.tipo_acao = dados_capturados["classe"]
     if dados_capturados.get("assunto") and not processo.assunto_cnj:
         processo.assunto_cnj = dados_capturados["assunto"]
     if dados_capturados.get("orgao_julgador") and not processo.vara:
         processo.vara = dados_capturados["orgao_julgador"]
+    if dados_capturados.get("instancia") and not processo.instancia:
+        processo.instancia = dados_capturados["instancia"]
+    if dados_capturados.get("comarca") and not processo.comarca:
+        processo.comarca = dados_capturados["comarca"]
     if dados_capturados.get("data_ajuizamento") and not processo.data_distribuicao:
         processo.data_distribuicao = dados_capturados["data_ajuizamento"].date()
     valor_causa = dados_capturados.get("valor_causa")
