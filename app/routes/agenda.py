@@ -129,7 +129,16 @@ def _smtp_configurado():
 
 
 def _whatsapp_configurado():
-    return bool(current_app.config.get("WHATSAPP_BRIDGE_URL"))
+    """Controla se o checkbox "Enviar lembrete por WhatsApp" aparece no
+    formulário do compromisso — só faz sentido mostrar se o servidor tem o
+    WAHA configurado E a EMPRESA do usuário logado já conectou o próprio
+    número em "Minhas Integrações" (ver app/utils/whatsapp.py, seção
+    "MULTI-SESSÃO"). Empresa sem número conectado não vê a opção, em vez
+    de deixar marcar um envio que o job de lembrete vai pular em silêncio."""
+    if not current_app.config.get("WHATSAPP_BRIDGE_URL"):
+        return False
+    empresa = current_user.empresa
+    return bool(empresa and empresa.whatsapp_sessao_efetiva)
 
 
 def _parse_datetime_local(valor):

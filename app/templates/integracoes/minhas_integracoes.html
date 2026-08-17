@@ -74,6 +74,68 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- ---------------- WhatsApp dos lembretes ---------------- -->
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 h-100">
+      <h4 class="mb-1" style="font-size:1rem;">WhatsApp dos lembretes</h4>
+      <p class="small text-muted-doc mb-3">
+        Número usado para enviar os lembretes de compromisso da Agenda (pro cliente e pro responsável).
+        Cada empresa conecta o PRÓPRIO número aqui, escaneando um QR code — assim os clientes recebem a
+        mensagem (e conseguem responder dúvidas) de um número da sua própria empresa, não de um número
+        compartilhado com outras empresas da plataforma.
+      </p>
+
+      {% if not whatsapp_bridge_configurado %}
+      <div class="alert alert-warning py-2 px-3 small mb-0">
+        Recurso de WhatsApp não está configurado neste servidor (fale com o administrador da plataforma).
+      </div>
+
+      {% elif whatsapp_erro %}
+      <div class="alert alert-warning py-2 px-3 small">Não foi possível consultar o WAHA agora: {{ whatsapp_erro }}</div>
+      <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Tentar novamente</button>
+      </form>
+
+      {% elif whatsapp_status == "WORKING" %}
+      <div class="small mb-2">
+        <span class="badge-status badge-cumprido">✓ conectado</span>
+        {% if whatsapp_numero %}<span class="text-muted-doc ms-2">{{ whatsapp_numero }}</span>{% endif %}
+        {% if empresa.dono_da_plataforma %}<div class="text-muted-doc mt-1">Sessão padrão da plataforma.</div>{% endif %}
+      </div>
+      <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Desconectar</button>
+      </form>
+
+      {% elif whatsapp_status in ("STARTING", "SCAN_QR_CODE") %}
+      <div class="small text-muted-doc mb-2">
+        Abra o WhatsApp no celular do número que vai ser usado → <strong>Aparelhos conectados</strong> →
+        <strong>Conectar um aparelho</strong> → escaneie o código abaixo.
+      </div>
+      <img id="whatsapp-qr" src="{{ url_for('integracoes.qr_whatsapp') }}" alt="QR code do WhatsApp"
+           style="width:220px; height:220px; border:1px solid var(--brass-200); border-radius:6px;">
+      <div id="whatsapp-status-msg" class="small text-muted-doc mt-2">Aguardando leitura do QR code…</div>
+      <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}" class="mt-2">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Cancelar</button>
+      </form>
+      <script>iniciarPollingWhatsApp();</script>
+
+      {% elif whatsapp_status in ("STOPPED", "FAILED", "NAO_ENCONTRADA") %}
+      <div class="small text-muted-doc mb-2">
+        {{ "Sessão parou/falhou." if whatsapp_status != "NAO_ENCONTRADA" else "A sessão salva não foi encontrada no servidor (pode ter sido removida manualmente)." }}
+      </div>
+      <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+        <button type="submit" class="btn btn-brass btn-sm">Reconectar</button>
+      </form>
+
+      {% else %}
+      <div class="small text-muted-doc mb-2">Nenhum número conectado ainda.</div>
+      <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+        <button type="submit" class="btn btn-brass btn-sm">Conectar WhatsApp</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <script>
@@ -82,5 +144,37 @@ function atualizarCamposIA() {
   document.getElementById('campos-ia-claude').style.display = claude ? 'block' : 'none';
 }
 atualizarCamposIA();
+
+// Enquanto a sessão do WhatsApp está esperando o QR ser escaneado: checa o
+// status a cada poucos segundos (recarrega a página quando conectar, pra
+// mostrar o estado novo) e atualiza a imagem do QR de tempos em tempos
+// (o QR do WAHA expira rápido — poucos segundos a cada código).
+function iniciarPollingWhatsApp() {
+  var statusUrl = "{{ url_for('integracoes.status_whatsapp') }}";
+  var tentativas = 0;
+  var poll = setInterval(function () {
+    tentativas++;
+    fetch(statusUrl).then(function (r) { return r.json(); }).then(function (dados) {
+      if (dados.status === "WORKING") {
+        clearInterval(poll);
+        window.location.reload();
+      } else if (dados.status && dados.status !== "STARTING" && dados.status !== "SCAN_QR_CODE") {
+        // sessão caiu/expirou enquanto esperava — recarrega pra mostrar o estado atual
+        clearInterval(poll);
+        window.location.reload();
+      }
+    }).catch(function () {});
+
+    // Atualiza a imagem do QR a cada ~15s (código expira antes disso)
+    if (tentativas % 5 === 0) {
+      var img = document.getElementById('whatsapp-qr');
+      if (img) img.src = "{{ url_for('integracoes.qr_whatsapp') }}?t=" + Date.now();
+    }
+  }, 3000);
+
+  // Não fica pra sempre: depois de ~3 minutos, para de tentar sozinho (o
+  // usuário pode atualizar a página se ainda quiser continuar).
+  setTimeout(function () { clearInterval(poll); }, 180000);
+}
 </script>
 {% endblock %}

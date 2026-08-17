@@ -23,10 +23,13 @@ e data/hora — pra ninguém receber uma versão incompleta):
     cliente, se ele estiver vinculado ao compromisso e tiver e-mail
     cadastrado. Sem SMTP configurado, só a notificação in-app é enviada
     mesmo assim — nunca falha o lembrete inteiro por falta de e-mail.
-  - WhatsApp, SE `WHATSAPP_BRIDGE_URL` estiver configurada (ver
-    app/utils/whatsapp.py, WAHA e PENDENCIAS.md — automação NÃO-OFICIAL,
-    decisão explícita do dono do sistema, ciente do risco de banimento do
-    número usado):
+  - WhatsApp, SE `WHATSAPP_BRIDGE_URL` estiver configurada E a EMPRESA do
+    compromisso já tiver conectado o próprio número (ver
+    app/utils/whatsapp.py, seção "MULTI-SESSÃO", e app/routes/
+    integracoes.py — a pedido explícito, pra cada empresa cliente usar o
+    PRÓPRIO número em vez de todas compartilharem o número da
+    plataforma, já que os clientes não conseguem responder dúvida num
+    número que não é da própria empresa deles):
       - Para o RESPONSÁVEL (o usuário do escritório que está enviando o
         lembrete), sempre que ele tiver um número cadastrado no próprio
         perfil (Usuario.whatsapp) — independente de cliente ou de
@@ -34,9 +37,12 @@ e data/hora — pra ninguém receber uma versão incompleta):
         compromisso.
       - Para o CLIENTE, SE o compromisso tiver `enviar_whatsapp=True` e
         estiver vinculado a um cliente com número cadastrado.
-    Sem `WHATSAPP_BRIDGE_URL` configurada, o envio por WhatsApp
-    simplesmente não acontece pra ninguém — o lembrete continua saindo
-    normalmente pelos outros canais.
+    Sem `WHATSAPP_BRIDGE_URL` configurada, OU sem a empresa ter conectado
+    um número próprio ainda, o envio por WhatsApp simplesmente não
+    acontece pra ninguém daquela empresa — o lembrete continua saindo
+    normalmente pelos outros canais. NUNCA cai pra outro número "por
+    padrão" (isso seria mandar a mensagem de uma empresa pelo número de
+    outra).
 
 Uso:
     python enviar_lembretes_compromissos.py
@@ -93,14 +99,23 @@ def enviar_lembretes():
                     if c.cliente and c.cliente.email:
                         enviar_email(c.cliente.email, titulo, mensagem)
 
+                # Cada compromisso pertence a uma empresa (via unidade), e
+                # cada empresa tem a própria sessão do WAHA (= o próprio
+                # número conectado) — ver Empresa.whatsapp_sessao_efetiva.
+                # Sem empresa identificável ou sem sessão conectada, os
+                # dois blocos de WhatsApp abaixo são pulados por completo
+                # (nunca cai pro número de outra empresa).
+                empresa_do_compromisso = c.unidade.empresa if c.unidade else None
+                sessao = empresa_do_compromisso.whatsapp_sessao_efetiva if empresa_do_compromisso else None
+
                 # WhatsApp do RESPONSÁVEL — a pedido explícito, pra quem
                 # está enviando o lembrete também não esquecer do próprio
                 # compromisso. Usa o número cadastrado no perfil dele
                 # (Usuario.whatsapp, cadastro em Equipe > editar usuário),
                 # NÃO o número do cliente, e independe de `enviar_whatsapp`
                 # (que é sobre avisar o cliente, não sobre o responsável).
-                if whatsapp_configurado() and c.responsavel and c.responsavel.whatsapp:
-                    if enviar_whatsapp(c.responsavel.whatsapp, mensagem):
+                if whatsapp_configurado() and sessao and c.responsavel and c.responsavel.whatsapp:
+                    if enviar_whatsapp(c.responsavel.whatsapp, mensagem, sessao=sessao):
                         print(f"  WHATSAPP OK (responsável) compromisso #{c.id}: enviado para {c.responsavel.nome}.")
                     else:
                         print(f"  WHATSAPP FALHOU (responsável) compromisso #{c.id}: o WAHA recusou o envio "
@@ -115,13 +130,17 @@ def enviar_lembretes():
                     if not whatsapp_configurado():
                         print(f"  WHATSAPP PULADO compromisso #{c.id}: WHATSAPP_BRIDGE_URL não configurada "
                               f"no .env do app principal (ver PENDENCIAS.md, seção -4).")
+                    elif not sessao:
+                        print(f"  WHATSAPP PULADO compromisso #{c.id}: a empresa "
+                              f"'{empresa_do_compromisso.nome if empresa_do_compromisso else '?'}' ainda não "
+                              f"conectou um número de WhatsApp próprio (Minhas Integrações).")
                     elif not c.cliente:
                         print(f"  WHATSAPP PULADO compromisso #{c.id}: nenhum cliente vinculado ao compromisso.")
                     elif not c.cliente.whatsapp:
                         print(f"  WHATSAPP PULADO compromisso #{c.id}: cliente '{c.cliente.nome}' não tem "
                               f"número de WhatsApp cadastrado.")
                     else:
-                        if enviar_whatsapp(c.cliente.whatsapp, mensagem):
+                        if enviar_whatsapp(c.cliente.whatsapp, mensagem, sessao=sessao):
                             c.whatsapp_enviado_em = agora
                             print(f"  WHATSAPP OK compromisso #{c.id}: enviado para {c.cliente.nome}.")
                         else:
@@ -129,8 +148,8 @@ def enviar_lembretes():
                                   f"(veja o código HTTP no aviso 'WARNING in whatsapp' logo acima). "
                                   f"Causas mais comuns: (1) WHATSAPP_BRIDGE_TOKEN (no app principal) "
                                   f"diferente do WAHA_API_KEY (no serviço WAHA) — precisam ser "
-                                  f"IDÊNTICOS, char por char; (2) a sessão 'default' não está com "
-                                  f"status WORKING no dashboard do WAHA.")
+                                  f"IDÊNTICOS, char por char; (2) a sessão '{sessao}' não está com "
+                                  f"status WORKING (confira em Minhas Integrações).")
 
                 c.notificacao_enviada_em = agora
                 db.session.commit()

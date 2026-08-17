@@ -1,5 +1,62 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -8. Lembretes de compromisso: mensagem completa, WhatsApp pro responsável, e-mail pro cliente, e cada empresa com o PRÓPRIO número de WhatsApp — implementado nesta rodada
+
+Três pedidos em sequência, todos em `enviar_lembretes_compromissos.py` e
+na integração de WhatsApp:
+
+1. **Mensagem completa** — a mensagem enviada (in-app, e-mail e
+   WhatsApp) só trazia o nome do compromisso. Agora traz nome, descrição
+   completa (quando cadastrada) e data/hora, cada um em sua própria linha.
+2. **WhatsApp também pro responsável, e-mail também pro cliente** —
+   antes, o lembrete por WhatsApp só ia pro cliente, e o e-mail só pro
+   responsável (usuário do escritório). Agora: o responsável também recebe
+   o lembrete por WhatsApp (no número cadastrado no próprio perfil dele,
+   Equipe → editar usuário → campo WhatsApp — campo que já existia no
+   sistema, só não estava sendo usado ainda), e o cliente também recebe
+   por e-mail (quando tiver e-mail cadastrado), além do WhatsApp.
+3. **Um número de WhatsApp por empresa, não um só compartilhado** — você
+   percebeu que, com todas as empresas clientes usando o mesmo número
+   conectado no WAHA, os clientes de empresas diferentes recebem mensagem
+   de um número que não é o "deles", e ninguém consegue responder dúvida
+   por ali (o número é seu, não da empresa cliente). Antes de implementar,
+   perguntei se "evolution" era uma ferramenta diferente do WAHA (não era,
+   só um jeito de falar) e como cada empresa deveria conectar o próprio
+   número — você escolheu: cada empresa escaneia o próprio QR code no
+   MESMO servidor WAHA que você já hospeda (não precisa de servidor
+   próprio por empresa). Confirmei antes de construir: desde a versão
+   2026.6.1 o WAHA Core (grátis) suporta sessões ilimitadas — não tem
+   custo extra de licença por empresa conectada.
+
+   O que mudou: nova seção **"WhatsApp dos lembretes"** em "Minhas
+   Integrações" (mesma tela do BYOK do Claude/DataJud, seção -7 abaixo).
+   A empresa clica "Conectar WhatsApp", aparece um QR code (a página
+   atualiza sozinha enquanto espera o escaneamento), escaneia com o
+   WhatsApp que vai usar, e pronto — aquele número passa a ser o dela,
+   isolado de todas as outras empresas. Pode desconectar a qualquer
+   momento pelo botão "Desconectar".
+
+   ⚠️ **Isso muda o comportamento de quem já usava o WhatsApp
+   compartilhado**: depois deste deploy, NENHUMA empresa cliente volta a
+   usar o número antigo automaticamente — cada uma precisa entrar em
+   "Minhas Integrações" e conectar o próprio número, ou os lembretes por
+   WhatsApp dela ficam pausados (os outros canais — notificação e e-mail —
+   continuam normais). Isso foi proposital (é exatamente o problema que
+   você queria resolver, um "meio-termo" que continuasse usando o número
+   antigo como reserva reproduziria o mesmo problema), mas avise as
+   empresas clientes que já usavam WhatsApp antes de fazer o deploy, senão
+   os lembretes delas somem sem aviso. A própria plataforma (sua conta)
+   continua na sessão "default" de sempre, sem precisar reconectar nada.
+
+   Testado no sandbox local simulando as respostas do WAHA (criar sessão,
+   pegar QR, virar "conectada", desconectar) e confirmando isolamento
+   entre duas empresas diferentes (uma com número conectado, outra sem —
+   a sem número nunca recebe/envia nada, nunca "vaza" pro número de
+   outra). **Não consegui testar uma chamada real contra um servidor WAHA
+   de verdade** (sem acesso de rede a partir daqui) — teste o fluxo
+   completo (conectar uma empresa de teste, escanear o QR de verdade,
+   confirmar que a mensagem sai do número certo) depois do deploy.
+
 ## -7. Cada empresa pode escolher usar a própria chave de API do Claude e/ou do DataJud (BYOK) — implementado nesta rodada
 
 A pedido explícito ("coloque a opção do cliente escolher usar o nosso

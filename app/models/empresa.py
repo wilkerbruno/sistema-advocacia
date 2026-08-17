@@ -46,6 +46,17 @@ class Empresa(db.Model):
     datajud_provedor = db.Column(db.String(20))  # None/"padrao" ou "chave_propria"
     datajud_chave_propria_cifrada = db.Column(db.LargeBinary)  # Fernet, ver app/utils/cofre.py
 
+    # Número de WhatsApp PRÓPRIO da empresa pros lembretes da Agenda (ver
+    # app/utils/whatsapp.py) — cada empresa conecta o próprio número
+    # escaneando um QR code em "Minhas Integrações", em vez de todas as
+    # empresas compartilharem o mesmo número da plataforma (cliente de uma
+    # empresa recebendo mensagem de um número que não é dela, sem ninguém
+    # pra responder dúvida). Guarda só o NOME da sessão do WAHA — nenhuma
+    # credencial nova: o WAHA é um único servidor compartilhado (mesma
+    # WHATSAPP_BRIDGE_URL/TOKEN do .env de sempre), só que agora com uma
+    # sessão (= um número conectado) por empresa em vez de uma só global.
+    whatsapp_sessao = db.Column(db.String(80))
+
     unidades = db.relationship("Unidade", back_populates="empresa", lazy="dynamic")
     licenca = db.relationship("Licenca", back_populates="empresa", uselist=False)
 
@@ -56,6 +67,18 @@ class Empresa(db.Model):
     @property
     def datajud_provedor_efetivo(self):
         return self.datajud_provedor or self.PROVEDOR_DATAJUD_PADRAO
+
+    @property
+    def whatsapp_sessao_efetiva(self):
+        """Nome da sessão do WAHA a usar pra esta empresa, ou None se ela
+        ainda não conectou nenhum número. "default" é a sessão histórica
+        da própria plataforma (dono_da_plataforma) — conectada manualmente
+        no dashboard do WAHA antes desta funcionalidade existir; as demais
+        empresas sempre têm um nome de sessão próprio (ex.: "empresa-42"),
+        criado em app/routes/integracoes.py quando clicam "Conectar"."""
+        if self.whatsapp_sessao:
+            return self.whatsapp_sessao
+        return "default" if self.dono_da_plataforma else None
 
     def __repr__(self):
         return f"<Empresa {self.nome}>"
