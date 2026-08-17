@@ -32,7 +32,7 @@ from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
-from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
+from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils import tribunais_datajud
@@ -187,6 +187,12 @@ def consultar_cnj_preview():
         # todo tribunal/processo devolve esses dois; ficam None quando não dá.
         instancia=dados.get("instancia"),
         comarca=dados.get("comarca"),
+        # Nota com o que não tem campo próprio no cadastro (mais de um
+        # assunto, sistema/formato, sigilo) — ver
+        # app/utils/captura_pipeline.py::montar_nota_datajud. None quando
+        # não há nada extra que valha a pena mostrar.
+        descricao_sugerida=montar_nota_datajud(dados),
+        sigilo_sugerido=bool(dados.get("nivel_sigilo") not in (None, 0)),
     )
 
 

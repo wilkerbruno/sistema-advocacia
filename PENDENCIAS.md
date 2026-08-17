@@ -1,5 +1,51 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -13. Descrição/objeto e "Segredo de justiça" também autopreenchidos com o que sobrava do DataJud — implementado nesta rodada
+
+**O que foi pedido:** depois dos campos da pendência nº -12, a pergunta foi
+se dava pra verificar se tinha mais algum dado do processo que o DataJud
+devolve mas não tem campo próprio no cadastro, e colocar isso na
+"Descrição/objeto".
+
+**O que eu encontrei que estava sendo capturado mas não ia pra lugar
+nenhum**, olhando de novo a resposta real do DataJud:
+- Quando o processo tem **mais de um assunto CNJ** (o campo "Área do
+  direito" só guarda um texto corrido, então processo com 2+ assuntos
+  perdia os outros).
+- Se o processo é **eletrônico ou físico**, e por qual **sistema** (PJe,
+  e-Proc, etc.) — informação que a resposta do DataJud traz mas o cadastro
+  não tinha onde colocar.
+- O campo **nível de sigilo** que o próprio DataJud sinaliza — isso é
+  informação de verdade, não só complementar.
+
+**O que foi feito:** quando algum desses três aparece, o sistema monta uma
+notinha de texto (ex.: *"Dados do DataJud (captura automática): Assuntos
+(CNJ): Dívida Ativa (Execução Fiscal); IPTU. Processo eletrônico, sistema
+Pje."*) e preenche sozinho o campo **Descrição/objeto** — só quando esse
+campo ainda está vazio, nunca sobrescreve o que foi escrito à mão. Quando
+não há nada de extra pra mostrar (processo com 1 assunto só, sem essas
+informações), não escreve nada — não cria descrição vazia ou genérica.
+
+Além disso, quando o DataJud sinaliza nível de sigilo diferente de zero, o
+sistema **marca sozinho a caixinha "Segredo de justiça"** (só liga, nunca
+desliga uma marcação que você já tinha mudado) — tanto na pré-visualização
+(dá pra desmarcar antes de salvar, com um aviso explicando por que foi
+marcado) quanto ao salvar de fato.
+
+Arquivos alterados: `app/utils/conector_datajud.py` (extrai `sistema`,
+`formato`, `nivelSigilo` e a lista completa de assuntos da resposta),
+`app/utils/captura_pipeline.py` (nova função `montar_nota_datajud` +
+`aplicar_carga_inicial` passou a preencher `descricao` e marcar
+`segredo_justica`), `app/routes/governanca.py` (preview devolve
+`descricao_sugerida`/`sigilo_sugerido`) e os templates
+`processos/form.html` e `governanca/novo_por_cnj.html` (JS preenche a
+Descrição e marca a caixa de sigilo). Testado no sandbox local: nota
+montada corretamente com múltiplos assuntos + sistema + sigilo, preview
+devolvendo os dois campos novos, cadastro salvando a descrição e marcando
+sigilo automaticamente mesmo sem o usuário marcar a caixa, e confirmando
+que uma descrição já escrita pelo usuário nunca é sobrescrita (o sigilo
+continua sendo marcado normalmente, por ser um campo separado).
+
 ## -12. Mais campos autopreenchidos a partir do DataJud (Tipo de ação, Instância, Comarca) — implementado nesta rodada
 
 **O que foi pedido:** depois da busca automática já funcionando (pendências

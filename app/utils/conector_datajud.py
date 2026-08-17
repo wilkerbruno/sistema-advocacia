@@ -201,6 +201,7 @@ class ConectorDataJud(ConectorCaptura):
             "tribunal_slug": slug,
             "classe": (origem.get("classe") or {}).get("nome"),
             "assunto": ", ".join(assuntos_nomes) or None,
+            "assuntos_lista": assuntos_nomes,
             "orgao_julgador": orgao_julgador.get("nome"),
             "data_ajuizamento": _parse_data(origem.get("dataAjuizamento")),
             "valor_causa": origem.get("valorCausa"),
@@ -213,6 +214,13 @@ class ConectorDataJud(ConectorCaptura):
             "grau": origem.get("grau"),
             "instancia": rotulo_grau(origem.get("grau")),
             "comarca": ibge.nome_municipio(codigo_municipio),
+            # Sistema/formato/sigilo — dados que não têm campo próprio no
+            # cadastro, então viram nota na Descrição/objeto (ver
+            # app/utils/captura_pipeline.py::montar_nota_datajud) em vez de
+            # ficarem perdidos sem aparecer em lugar nenhum.
+            "sistema": (origem.get("sistema") or {}).get("nome"),
+            "formato": (origem.get("formato") or {}).get("nome"),
+            "nivel_sigilo": origem.get("nivelSigilo"),
         }
 
     def consultar_processo(self, numero_cnj: str, tribunal_hint: str | None = None) -> dict:

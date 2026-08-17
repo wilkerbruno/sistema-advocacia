@@ -19,6 +19,48 @@ from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils.notificacoes import notificar
 
 
+def montar_nota_datajud(dados_capturados):
+    """
+    Monta uma notinha de texto só com o que o DataJud devolve que NÃO tem
+    campo próprio no cadastro (ver app/templates/processos/form.html):
+    mais de um assunto CNJ (o campo "Área do direito" só guarda um texto
+    corrido), se o processo é eletrônico/físico e por qual sistema (PJe,
+    e-Proc...), e um alerta se o DataJud sinalizar algum nível de sigilo —
+    pra virar preenchimento automático da "Descrição/objeto" (ver
+    `aplicar_carga_inicial` abaixo) em vez de ficar um dado capturado mas
+    perdido, sem aparecer em lugar nenhum do cadastro.
+
+    Devolve None quando não há nada que valha a pena registrar (nenhum
+    desses três só um assunto e sem sistema/sigilo informado).
+    """
+    partes = []
+
+    assuntos = dados_capturados.get("assuntos_lista") or []
+    if len(assuntos) > 1:
+        partes.append(f"Assuntos (CNJ): {'; '.join(assuntos)}.")
+
+    sistema = dados_capturados.get("sistema")
+    formato = dados_capturados.get("formato")
+    if sistema or formato:
+        if formato and sistema:
+            partes.append(f"Processo {formato.lower()}, sistema {sistema}.")
+        elif formato:
+            partes.append(f"Processo {formato.lower()}.")
+        else:
+            partes.append(f"Sistema: {sistema}.")
+
+    nivel_sigilo = dados_capturados.get("nivel_sigilo")
+    if nivel_sigilo not in (None, 0):
+        partes.append(
+            f"Atenção: o DataJud indica nível de sigilo {nivel_sigilo} neste processo — "
+            "confira se deve estar marcado como \"Segredo de justiça\"."
+        )
+
+    if not partes:
+        return None
+    return "Dados do DataJud (captura automática): " + " ".join(partes)
+
+
 def aplicar_carga_inicial(processo, dados_capturados):
     """
     Preenche campos do Processo com o retorno de
@@ -50,6 +92,18 @@ def aplicar_carga_inicial(processo, dados_capturados):
             processo.valor_causa = valor_causa
         except (TypeError, ValueError):
             pass  # formato inesperado — não trava o cadastro por causa de um campo secundário
+
+    nota = montar_nota_datajud(dados_capturados)
+    if nota and not processo.descricao:
+        processo.descricao = nota
+
+    # nivelSigilo > 0: o próprio DataJud está sinalizando alguma restrição
+    # de acesso — só LIGA a marcação (nunca desliga uma que o usuário já
+    # tinha marcado ou desmarcado de propósito), e sempre com o motivo
+    # registrado na nota acima, nunca uma mudança silenciosa.
+    nivel_sigilo = dados_capturados.get("nivel_sigilo")
+    if nivel_sigilo not in (None, 0) and not processo.segredo_justica:
+        processo.segredo_justica = True
 
 
 def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas):

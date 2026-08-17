@@ -157,6 +157,13 @@
       if (campoArea && !campoArea.value && (dados.assunto || dados.classe)) {
         campoArea.value = dados.assunto || dados.classe;
       }
+      // O DataJud sinalizou algum nível de sigilo: só MARCA a caixa (nunca
+      // desmarca uma escolha do usuário) — decisão final continua sendo sua.
+      const campoSegredo = document.getElementById("segredo");
+      if (dados.sigilo_sugerido && campoSegredo && !campoSegredo.checked) {
+        campoSegredo.checked = true;
+        status.innerHTML += `<br><span class="text-warning">O DataJud sinaliza sigilo neste processo — marquei "Segredo de justiça" automaticamente; desmarque se não for o caso.</span>`;
+      }
     } catch (e) {
       status.innerHTML = `<span class="text-danger">Falha ao consultar o DataJud (verifique sua conexão).</span>`;
     }

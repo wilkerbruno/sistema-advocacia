@@ -130,7 +130,12 @@
 
       <div class="col-12">
         <label class="form-label">Descrição / objeto</label>
-        <textarea name="descricao" class="form-control">{{ processo.descricao if processo else '' }}</textarea>
+        <textarea name="descricao" id="descricao" class="form-control">{{ processo.descricao if processo else '' }}</textarea>
+        <div class="small text-muted-doc mt-1">
+          Se a busca automática (Enter no CNJ acima) achar algo que não tem campo
+          próprio — mais de um assunto, se é eletrônico/físico, sinal de sigilo — cai
+          aqui sozinho, só quando este campo ainda estiver vazio.
+        </div>
       </div>
 
       <div class="col-12">
@@ -229,6 +234,8 @@
   const campoComarca = document.getElementById("comarca");
   const campoValor = document.getElementById("valor_causa");
   const campoData = document.getElementById("data_distribuicao");
+  const campoDescricao = document.getElementById("descricao");
+  const campoSegredo = document.getElementById("segredo");
   const status = document.getElementById("cnj-preview-status");
   if (!campoNumero || !status) return;
 
@@ -270,6 +277,7 @@
       preencherSeVazio(campoComarca, dados.comarca);
       preencherSeVazio(campoValor, dados.valor_causa);
       preencherSeVazio(campoData, dados.data_ajuizamento_iso);
+      preencherSeVazio(campoDescricao, dados.descricao_sugerida);
 
       // Se o tribunal foi identificado (automático ou por tentativa), reflete
       // no <select> quando o usuário não tinha escolhido nada ainda.
@@ -277,6 +285,14 @@
         for (const opt of campoTribunal.options) {
           if (opt.value === dados.tribunal_slug) { campoTribunal.value = dados.tribunal_slug; break; }
         }
+      }
+
+      // O DataJud sinalizou algum nível de sigilo: só MARCA a caixa (nunca
+      // desmarca uma que o usuário já mudou), com um aviso visível — a
+      // decisão final continua sendo sua, dá pra desmarcar antes de salvar.
+      if (dados.sigilo_sugerido && campoSegredo && !campoSegredo.checked) {
+        campoSegredo.checked = true;
+        status.innerHTML += `<br><span class="text-warning">O DataJud sinaliza sigilo neste processo — marquei "Segredo de justiça" automaticamente; desmarque se não for o caso.</span>`;
       }
     } catch (e) {
       status.innerHTML = `<span class="text-danger">Erro ao consultar o DataJud agora. Tente de novo em alguns instantes.</span>`;
