@@ -1,5 +1,66 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -10. "Novo processo" (tela manual) não buscava nada sozinho ao apertar Enter no CNJ — corrigido nesta rodada
+
+**O problema relatado (com print):** na tela normal de cadastro de processo
+("Novo processo" — os campos Nº do processo, Cliente, Área do direito, etc.,
+não a tela separada "Cadastrar por CNJ"), digitar o número CNJ e apertar Enter
+não buscava nem preenchia nada.
+
+**Causa:** essa tela (`app/templates/processos/form.html`) nunca teve esse
+recurso implementado — só a tela "Cadastrar por CNJ" (usada pela pendência
+nº -9 abaixo) tinha a busca automática. Além disso, mesmo o cadastro em si
+(ao clicar "Salvar processo") nunca chamava o DataJud nessa tela — o
+processo ficava marcado como "monitorável"/"automático" por padrão do banco,
+mas sem ter buscado nada de fato, dependendo só da rotina periódica (que roda
+1x por dia, se estiver configurada, e nunca desmarca sozinha um processo que
+falhou, só registra no Log de Captura) pra eventualmente tentar.
+
+**Corrigido nesta rodada:**
+- Digitar o CNJ e apertar Enter nessa tela agora busca no DataJud (mesma
+  pré-visualização de "Cadastrar por CNJ") e preenche sozinho os campos que
+  estiverem vazios: Área do direito, Vara/Tribunal, Valor da causa, Data de
+  distribuição, e Tribunal (DataJud) — só pra conferência, nada é salvo até
+  clicar em "Salvar processo".
+- Ao **salvar** (tanto em "Novo processo" quanto ao editar um processo já
+  existente, se o número for alterado), o sistema agora tenta a captura
+  automática de verdade nesse momento — reaproveitando o mesmo motor de
+  "Cadastrar por CNJ"/"Tentar captura automática" (busca por tentativa em
+  todos os tribunais do segmento, ver pendência nº -9). Se achar, já grava
+  classe/assunto/vara/data/valor e as movimentações, e marca
+  monitorável/automático de verdade (não mais um "automático" de fachada sem
+  ter buscado nada). Se não achar (número inválido, chave não configurada,
+  processo não indexado), marca como "manual" (sem número) ou
+  "não monitorável" com o motivo explicado — nunca mais um "automático"
+  silencioso que na real nunca rodou.
+- Editar um processo sem mudar o número não dispara nova busca (só quando o
+  número muda de verdade) — pra não sair rebuscando/reclassificando o
+  acompanhamento toda vez que alguém corrige só a Fase ou a Descrição, por
+  exemplo.
+
+Arquivos alterados: `app/routes/processos.py` (nova função
+`_tentar_captura_automatica_no_cadastro`, usada em `novo()` e `editar()`),
+`app/templates/processos/form.html` (JS de Enter-pra-buscar-e-preencher) e
+`app/routes/governanca.py` (endpoint de pré-visualização passou a devolver
+também a data em formato ISO, pro campo `<input type="date">` conseguir se
+autopreencher). Testado no sandbox local (Flask test_client + DataJud
+simulado) cobrindo: cadastro com CNJ válido e encontrado (captura tudo e já
+salva monitorável/automático), cadastro sem número (vira "manual", zero
+chamada de rede), cadastro com CNJ de dígito verificador inválido (vira
+"manual" com o motivo explicado, zero chamada de rede), edição corrigindo um
+número errado (dispara nova busca e encontra), edição sem mudar o número
+(não dispara busca nenhuma), e as telas de cadastro/edição renderizando sem
+erro com o JS novo.
+
+**Isso também resolve, de um jeito mais direto, o mesmo achado da pendência
+nº -9 abaixo sobre o processo #1**: o número `0025567-55.2002.8.12.0001` tem
+dígito verificador inválido (o correto seria `47`, não `55`) — com a correção
+desta rodada, digitar esse número errado nessa tela agora mostra a mensagem
+"Número CNJ inválido" tanto no preview (Enter) quanto ao salvar, em vez de
+simplesmente não fazer nada. Ainda assim, vale corrigir o número certo do
+processo #1 (ver detalhes na pendência nº -9) pra a busca automática
+funcionar nele.
+
 ## -9. Captura automática do DataJud não rodava sozinha em processo Estadual/Federal, e não tinha como tentar de novo — corrigido nesta rodada (+ achado importante sobre o número do processo #1)
 
 **O problema relatado:** ao cadastrar o processo `0025567-55.2002.8.12.0001` pela

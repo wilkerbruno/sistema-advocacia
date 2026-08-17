@@ -7,11 +7,15 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao, AnaliseProcessoIA
+from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao, AnaliseProcessoIA, LogCaptura
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils import tribunais_datajud, agente_ia_router
 from app.utils.analise_processo_ia import gerar_analise
+from app.utils.cnj import validar_numero_cnj
+from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
+from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
+from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -26,6 +30,78 @@ def _parse_data(valor):
     if not valor:
         return None
     return datetime.strptime(valor, "%Y-%m-%d").date()
+
+
+def _tentar_captura_automatica_no_cadastro(processo, empresa):
+    """
+    Tenta a captura automática via DataJud no MOMENTO do cadastro/edição
+    manual de um processo (telas "Novo processo"/"Editar processo") —
+    reaproveita exatamente o mesmo pipeline usado no cadastro por CNJ
+    (governanca.novo_por_cnj) e no botão "Tentar captura automática"
+    (governanca.tentar_captura), pra não importar qual tela o usuário usa
+    pra cadastrar: digitar o CNJ e salvar já busca os dados sozinho, sem
+    precisar ir na tela separada "Cadastrar por CNJ" nem clicar em mais
+    nada depois.
+
+    Só tenta quando `numero_processo` já é um CNJ válido (dígito
+    verificador correto — módulo 97). Número em branco ou fora do padrão
+    simplesmente vira acompanhamento manual (`forma_acompanhamento` =
+    "manual"), sem tentar nada e sem alarme nenhum — processo antigo com
+    numeração legada, ou processo sem número ainda, não é erro.
+
+    Efeitos colaterais: ajusta processo.monitoravel,
+    processo.forma_acompanhamento, processo.motivo_nao_monitoravel e
+    processo.tribunal_datajud; quando encontra o processo, também aplica a
+    carga inicial e registra as movimentações (idempotente — seguro
+    chamar de novo). NÃO faz commit — quem chama decide isso (precisa que
+    `processo.id` já exista, ou seja, chamar depois de um `db.session.flush()`
+    num cadastro novo).
+    """
+    numero = processo.numero_processo
+    if not numero:
+        processo.forma_acompanhamento = "manual"
+        processo.monitoravel = False
+        processo.motivo_nao_monitoravel = None
+        return
+
+    resultado = validar_numero_cnj(numero)
+    if not resultado["valido"]:
+        processo.forma_acompanhamento = "manual"
+        processo.monitoravel = False
+        processo.motivo_nao_monitoravel = f"Número fora do padrão CNJ: {resultado['motivo']}"
+        return
+
+    tribunal_hint = processo.tribunal_datajud or None
+    dados_capturados, motivo = None, None
+    try:
+        conector = obter_conector("padrao", empresa=empresa)
+        dados_capturados = conector.consultar_processo(resultado["partes"]["formatado"], tribunal_hint=tribunal_hint)
+    except ConectorNaoConfiguradoError as e:
+        motivo = str(e)
+    except TribunalNaoIdentificadoError as e:
+        motivo = str(e)
+    except ConexaoDataJudError as e:
+        motivo = str(e)
+
+    if dados_capturados:
+        processo.tribunal_datajud = dados_capturados["tribunal_slug"]
+        aplicar_carga_inicial(processo, dados_capturados)
+        novas = registrar_movimentacoes_capturadas(processo, dados_capturados["movimentacoes"])
+        processo.monitoravel = True
+        processo.forma_acompanhamento = "automatico"
+        processo.motivo_nao_monitoravel = None
+        db.session.add(LogCaptura(
+            fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
+            status="sucesso", mensagem=f"{novas} movimentação(ões) capturada(s).",
+        ))
+    else:
+        processo.forma_acompanhamento = "nao_monitoravel"
+        processo.monitoravel = False
+        processo.motivo_nao_monitoravel = motivo
+        db.session.add(LogCaptura(
+            fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
+            status="falha", mensagem=(motivo or "")[:500],
+        ))
 
 
 @processos_bp.route("/")
@@ -95,6 +171,12 @@ def novo():
         db.session.add(processo)
         db.session.flush()
 
+        # Tenta buscar os dados automaticamente no DataJud já no cadastro —
+        # mesmo comportamento de "Cadastrar por CNJ", só que nesta tela com
+        # todos os campos (ver _tentar_captura_automatica_no_cadastro acima).
+        empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
+        _tentar_captura_automatica_no_cadastro(processo, empresa_do_cadastro)
+
         db.session.add(Andamento(
             processo_id=processo.id, tipo="movimentacao",
             descricao="Processo cadastrado no sistema.",
@@ -104,7 +186,16 @@ def novo():
         registrar_log(current_user, "criou", "Processo", processo.id,
                        processo.numero_processo or processo.numero_interno)
         db.session.commit()
-        flash("Processo cadastrado com sucesso.", "success")
+
+        if processo.forma_acompanhamento == "automatico" and processo.monitoravel:
+            qtd = len(processo.movimentacoes)
+            flash(f"Processo cadastrado e em monitoramento automático — dados encontrados no "
+                  f"DataJud ({qtd} movimentação(ões)).", "success")
+        elif processo.motivo_nao_monitoravel:
+            flash(f"Processo cadastrado, mas não foi possível buscar automaticamente no DataJud: "
+                  f"{processo.motivo_nao_monitoravel}", "warning")
+        else:
+            flash("Processo cadastrado com sucesso.", "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     responsaveis = Usuario.query.filter_by(
@@ -141,6 +232,7 @@ def editar(processo_id):
     responsaveis = Usuario.query.filter_by(unidade_id=processo.unidade_id, ativo=True).all()
 
     if request.method == "POST":
+        numero_anterior = processo.numero_processo
         processo.numero_processo = request.form.get("numero_processo")
         processo.numero_interno = request.form.get("numero_interno")
         processo.area_direito = request.form["area_direito"]
@@ -185,9 +277,29 @@ def editar(processo_id):
         if processo.status == "encerrado" and processo.desfecho and not processo.data_encerramento:
             processo.data_encerramento = date.today()
 
+        # Se o número do processo mudou (ex.: corrigindo um dígito digitado
+        # errado), tenta a captura automática de novo com o número novo —
+        # mesmo comportamento do cadastro (novo() acima) e do botão "Tentar
+        # captura automática". Só quando o número muda de verdade: editar
+        # outros campos não deve sair rebuscando/re-classificando o
+        # acompanhamento de um processo que o usuário já configurou.
+        numero_mudou = processo.numero_processo != numero_anterior
+        if numero_mudou:
+            empresa_da_edicao = processo.unidade.empresa if processo.unidade else None
+            _tentar_captura_automatica_no_cadastro(processo, empresa_da_edicao)
+
         registrar_log(current_user, "editou", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
-        flash("Processo atualizado com sucesso.", "success")
+
+        if numero_mudou and processo.forma_acompanhamento == "automatico" and processo.monitoravel:
+            qtd = len(processo.movimentacoes)
+            flash(f"Processo atualizado — número novo encontrado no DataJud e em monitoramento "
+                  f"automático ({qtd} movimentação(ões)).", "success")
+        elif numero_mudou and processo.motivo_nao_monitoravel:
+            flash(f"Processo atualizado, mas não foi possível buscar automaticamente no DataJud com "
+                  f"o número novo: {processo.motivo_nao_monitoravel}", "warning")
+        else:
+            flash("Processo atualizado com sucesso.", "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     return render_template("processos/form.html", processo=processo, unidades=unidades,

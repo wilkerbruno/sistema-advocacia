@@ -9,7 +9,13 @@
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Nº do processo (CNJ)</label>
-        <input type="text" name="numero_processo" class="form-control" placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo if processo else '' }}">
+        <input type="text" name="numero_processo" id="numero_processo" class="form-control"
+               placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo if processo else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Digite o número e aperte <strong>Enter</strong> pra já buscar e preencher os
+          campos abaixo com os dados do DataJud (base pública do CNJ), antes de salvar.
+        </div>
+        <div id="cnj-preview-status" class="small mt-1"></div>
       </div>
       <div class="col-md-3">
         <label class="form-label">Nº de controle interno</label>
@@ -37,7 +43,7 @@
       {% endif %}
       <div class="col-md-4">
         <label class="form-label">Área do direito *</label>
-        <input type="text" name="area_direito" class="form-control" required placeholder="Cível, Trabalhista, Tributário..." value="{{ processo.area_direito if processo else '' }}">
+        <input type="text" name="area_direito" id="area_direito" class="form-control" required placeholder="Cível, Trabalhista, Tributário..." value="{{ processo.area_direito if processo else '' }}">
       </div>
       <div class="col-md-4">
         <label class="form-label">Tipo de ação</label>
@@ -58,20 +64,20 @@
       </div>
       <div class="col-md-3">
         <label class="form-label">Vara / Tribunal</label>
-        <input type="text" name="vara" class="form-control" value="{{ processo.vara if processo else '' }}">
+        <input type="text" name="vara" id="vara" class="form-control" value="{{ processo.vara if processo else '' }}">
       </div>
       <div class="col-md-3">
         <label class="form-label">Tribunal (DataJud)</label>
-        <select name="tribunal_datajud" class="form-select">
+        <select name="tribunal_datajud" id="tribunal_datajud" class="form-select">
           <option value="">— (opcional)</option>
           {% for slug, rotulo in tribunais_datajud %}
           <option value="{{ slug }}" {{ "selected" if processo and processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
           {% endfor %}
         </select>
         <div class="small text-muted-doc mt-1">
-          Só é preciso escolher para processos que não sejam da Justiça do Trabalho
-          (esses identificam o TRT automaticamente pelo próprio número). Necessário
-          para a captura automática de movimentações via DataJud.
+          Opcional — deixando em branco, o sistema tenta descobrir o tribunal
+          sozinho ao salvar (só é automático de verdade, sem tentar nada, para
+          Justiça do Trabalho). Escolher aqui deixa a busca mais rápida.
         </div>
       </div>
 
@@ -94,11 +100,11 @@
 
       <div class="col-md-3">
         <label class="form-label">Valor da causa (R$)</label>
-        <input type="number" step="0.01" name="valor_causa" class="form-control" value="{{ processo.valor_causa if processo else '' }}">
+        <input type="number" step="0.01" name="valor_causa" id="valor_causa" class="form-control" value="{{ processo.valor_causa if processo else '' }}">
       </div>
       <div class="col-md-3">
         <label class="form-label">Data de distribuição</label>
-        <input type="date" name="data_distribuicao" class="form-control" value="{{ processo.data_distribuicao if processo else '' }}">
+        <input type="date" name="data_distribuicao" id="data_distribuicao" class="form-control" value="{{ processo.data_distribuicao if processo else '' }}">
       </div>
       <div class="col-md-3">
         <label class="form-label">Responsável</label>
@@ -193,4 +199,81 @@
     </div>
   </form>
 </div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Digitar o CNJ e apertar Enter já busca no DataJud e preenche os campos
+// vazios abaixo (área do direito, vara/tribunal, valor da causa, data de
+// distribuição, tribunal DataJud) — mesma pré-visualização usada em
+// "Cadastrar por CNJ" (governanca.consultar_cnj_preview, só lê, nunca
+// grava nada). O cadastro/edição em si (POST deste formulário) tenta a
+// captura de novo e persiste de fato (ver app/routes/processos.py —
+// _tentar_captura_automatica_no_cadastro) — esta busca aqui é só pra dar
+// feedback imediato e evitar digitar tudo à mão antes de salvar.
+(function () {
+  const campoNumero = document.getElementById("numero_processo");
+  const campoTribunal = document.getElementById("tribunal_datajud");
+  const campoArea = document.getElementById("area_direito");
+  const campoVara = document.getElementById("vara");
+  const campoValor = document.getElementById("valor_causa");
+  const campoData = document.getElementById("data_distribuicao");
+  const status = document.getElementById("cnj-preview-status");
+  if (!campoNumero || !status) return;
+
+  function preencherSeVazio(campo, valor) {
+    if (campo && valor && !campo.value) campo.value = valor;
+  }
+
+  async function buscarEPreencher() {
+    const numero = campoNumero.value.trim();
+    if (!numero) return;
+
+    status.innerHTML = `<span class="text-muted-doc">Consultando DataJud...</span>`;
+
+    const params = new URLSearchParams({ numero_cnj: numero });
+    if (campoTribunal.value) params.set("tribunal_datajud", campoTribunal.value);
+
+    try {
+      const resp = await fetch(`{{ url_for('governanca.consultar_cnj_preview') }}?${params}`);
+      const dados = await resp.json();
+
+      if (!dados.valido) {
+        status.innerHTML = `<span class="text-danger">Número CNJ inválido: ${dados.motivo}</span>`;
+        return;
+      }
+      if (!dados.encontrado) {
+        status.innerHTML = `<span class="text-warning">Não foi possível buscar automaticamente agora: ${dados.motivo}</span>` +
+          ` Os campos podem ser preenchidos à mão — ao salvar, o sistema tenta a busca de novo.`;
+        return;
+      }
+
+      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud (${dados.tribunal_slug.toUpperCase()}) — ` +
+        `${dados.qtd_movimentacoes} movimentação(ões). Campos em branco preenchidos abaixo; confira antes de salvar.</span>`;
+
+      preencherSeVazio(campoArea, dados.assunto || dados.classe);
+      preencherSeVazio(campoVara, dados.orgao_julgador);
+      preencherSeVazio(campoValor, dados.valor_causa);
+      preencherSeVazio(campoData, dados.data_ajuizamento_iso);
+
+      // Se o tribunal foi identificado (automático ou por tentativa), reflete
+      // no <select> quando o usuário não tinha escolhido nada ainda.
+      if (dados.tribunal_slug && !campoTribunal.value) {
+        for (const opt of campoTribunal.options) {
+          if (opt.value === dados.tribunal_slug) { campoTribunal.value = dados.tribunal_slug; break; }
+        }
+      }
+    } catch (e) {
+      status.innerHTML = `<span class="text-danger">Erro ao consultar o DataJud agora. Tente de novo em alguns instantes.</span>`;
+    }
+  }
+
+  campoNumero.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      buscarEPreencher();
+    }
+  });
+})();
+</script>
 {% endblock %}

@@ -165,6 +165,11 @@ def consultar_cnj_preview():
         assunto=dados["assunto"],
         orgao_julgador=dados["orgao_julgador"],
         data_ajuizamento=dados["data_ajuizamento"].strftime("%d/%m/%Y") if dados["data_ajuizamento"] else None,
+        # formato ISO (YYYY-MM-DD) à parte do "data_ajuizamento" (dd/mm/aaaa)
+        # acima — é o formato que <input type="date"> exige pra preencher
+        # sozinho (ver app/templates/processos/form.html); o dd/mm/aaaa
+        # continua servindo só pra exibição na pré-visualização.
+        data_ajuizamento_iso=dados["data_ajuizamento"].strftime("%Y-%m-%d") if dados["data_ajuizamento"] else None,
         valor_causa=str(dados["valor_causa"]) if dados["valor_causa"] is not None else None,
         qtd_movimentacoes=len(dados["movimentacoes"]),
     )
