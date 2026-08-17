@@ -50,7 +50,11 @@ def novo_por_cnj():
 
     if request.method == "POST":
         numero = request.form.get("numero_cnj", "")
-        resultado = validar_numero_cnj(numero)
+        # exigir_dv=False: número com dígito verificador que não bate pela
+        # fórmula oficial não trava mais o cadastro (pode ser numeração
+        # legada real) — quem decide se o processo existe é a busca no
+        # DataJud logo abaixo, não esse cálculo. Ver app/utils/cnj.py.
+        resultado = validar_numero_cnj(numero, exigir_dv=False)
         if not resultado["valido"]:
             flash(f"Número CNJ inválido: {resultado['motivo']}", "danger")
             return redirect(url_for("governanca.novo_por_cnj"))
@@ -115,12 +119,14 @@ def novo_por_cnj():
         registrar_log(current_user, "cadastro_por_cnj", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
 
+        aviso_dv = resultado.get("aviso_dv")
         if not monitoravel:
             flash(f"Processo {processo.numero_processo} cadastrado, mas marcado como NÃO monitorável "
                   f"automaticamente: {motivo}", "warning")
         else:
             flash(f"Processo {processo.numero_processo} cadastrado e em monitoramento automático "
-                  f"({qtd_movimentacoes_novas} movimentação(ões) já capturada(s) do DataJud).", "success")
+                  f"({qtd_movimentacoes_novas} movimentação(ões) já capturada(s) do DataJud)."
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     return render_template("governanca/novo_por_cnj.html", clientes=clientes, unidades=unidades,
@@ -140,7 +146,9 @@ def consultar_cnj_preview():
     de novo_por_cnj(), que faz a mesma consulta de novo e persiste).
     """
     numero = request.args.get("numero_cnj", "")
-    resultado = validar_numero_cnj(numero)
+    # exigir_dv=False: mesmo raciocínio de novo_por_cnj() acima — não barra
+    # a busca por dígito verificador que não bate, só avisa (aviso_dv).
+    resultado = validar_numero_cnj(numero, exigir_dv=False)
     if not resultado["valido"]:
         return jsonify(valido=False, motivo=resultado["motivo"])
 
@@ -172,6 +180,7 @@ def consultar_cnj_preview():
         data_ajuizamento_iso=dados["data_ajuizamento"].strftime("%Y-%m-%d") if dados["data_ajuizamento"] else None,
         valor_causa=str(dados["valor_causa"]) if dados["valor_causa"] is not None else None,
         qtd_movimentacoes=len(dados["movimentacoes"]),
+        aviso_dv=dados.get("aviso_dv"),
     )
 
 

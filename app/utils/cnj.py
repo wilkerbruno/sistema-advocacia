@@ -63,16 +63,30 @@ def calcular_digito_verificador(sequencial: str, ano: str, segmento: str, tribun
     return f"{dv:02d}"
 
 
-def validar_numero_cnj(numero: str) -> dict:
+def validar_numero_cnj(numero: str, exigir_dv: bool = True) -> dict:
     """
-    Valida o dígito verificador e devolve as partes do número.
+    Confere o formato (20 dígitos, segmento conhecido) e, por padrão, o
+    dígito verificador (módulo 97) — devolve as partes do número.
+
+    `exigir_dv=False`: não bloqueia mais por dígito verificador que não
+    bate com o cálculo oficial — só avisa (campo `aviso_dv` na resposta).
+    Existe porque, na prática, processos reais (principalmente antigos,
+    anteriores à unificação de numeração pela Resolução CNJ 65/2008) às
+    vezes têm um número com dígito verificador que não fecha pela fórmula
+    atual, mas que é exatamente como o próprio tribunal registrou o
+    processo e como o DataJud indexou — quem decide se o processo existe
+    de verdade é a consulta real ao DataJud, não o cálculo do dígito por
+    aqui. Use `exigir_dv=False` nos fluxos que efetivamente BUSCAM no
+    DataJud (ver app/utils/conector_datajud.py); mantenha o padrão
+    (`exigir_dv=True`) onde faz sentido barrar entrada claramente digitada
+    errada sem nem tentar (ex.: importação em lote via CSV).
 
     Retorna:
-        {"valido": bool, "motivo": str|None, "partes": {...}|None}
+        {"valido": bool, "motivo": str|None, "aviso_dv": str|None, "partes": {...}|None}
     """
     d = somente_digitos(numero)
     if len(d) != 20:
-        return {"valido": False, "motivo": "Número precisa ter 20 dígitos (formato CNJ).", "partes": None}
+        return {"valido": False, "motivo": "Número precisa ter 20 dígitos (formato CNJ).", "aviso_dv": None, "partes": None}
 
     sequencial = d[0:7]
     dv_informado = d[7:9]
@@ -83,20 +97,30 @@ def validar_numero_cnj(numero: str) -> dict:
 
     # Verificação direta pela fórmula oficial (item VI do Anexo VIII):
     # o número completo, na ordem original, módulo 97 deve dar resto 1.
-    if int(d) % 97 != 1:
+    dv_bate = (int(d) % 97 == 1)
+    aviso_dv = None
+    if not dv_bate:
         dv_calculado = calcular_digito_verificador(sequencial, ano, segmento, tribunal, origem)
-        return {
-            "valido": False,
-            "motivo": f"Dígito verificador inválido (informado {dv_informado}, esperado {dv_calculado}).",
-            "partes": None,
-        }
+        if exigir_dv:
+            return {
+                "valido": False,
+                "motivo": f"Dígito verificador inválido (informado {dv_informado}, esperado {dv_calculado}).",
+                "aviso_dv": None,
+                "partes": None,
+            }
+        aviso_dv = (
+            f"Dígito verificador não confere pelo cálculo oficial (informado {dv_informado}, "
+            f"esperado {dv_calculado}) — pode ser numeração legada. Buscando mesmo assim com o "
+            "número exatamente como digitado."
+        )
 
     if segmento not in SEGMENTOS:
-        return {"valido": False, "motivo": f"Segmento de Justiça desconhecido: {segmento}.", "partes": None}
+        return {"valido": False, "motivo": f"Segmento de Justiça desconhecido: {segmento}.", "aviso_dv": None, "partes": None}
 
     return {
         "valido": True,
         "motivo": None,
+        "aviso_dv": aviso_dv,
         "partes": {
             "sequencial": sequencial,
             "digito_verificador": dv_informado,

@@ -200,7 +200,13 @@ class ConectorDataJud(ConectorCaptura):
             Estadual): levanta `TribunalNaoIdentificadoError` — não tem
             tribunal nenhum no catálogo pra sequer tentar.
         """
-        resultado = validar_numero_cnj(numero_cnj)
+        # exigir_dv=False: quem decide se o processo existe de verdade é a
+        # busca real no DataJud, não o cálculo do dígito verificador aqui —
+        # processos legados (principalmente antigos) às vezes têm número
+        # registrado com um dígito que não bate com a fórmula atual, mas
+        # que é exatamente como o tribunal/DataJud indexou de verdade. Ver
+        # docstring de `validar_numero_cnj` (app/utils/cnj.py).
+        resultado = validar_numero_cnj(numero_cnj, exigir_dv=False)
         if not resultado["valido"]:
             raise ValueError(f"Número CNJ inválido: {resultado['motivo']}")
         partes = resultado["partes"]
@@ -215,6 +221,7 @@ class ConectorDataJud(ConectorCaptura):
                     "indexação (leva de horas a dias) ou o processo estar em segredo de "
                     "justiça (não indexado publicamente)."
                 )
+            dados["aviso_dv"] = resultado["aviso_dv"]
             return dados
 
         if tribunal_hint and slug_valido(tribunal_hint):
@@ -226,6 +233,7 @@ class ConectorDataJud(ConectorCaptura):
                     "segredo de justiça (não indexado publicamente), ou o tribunal escolhido "
                     "não ser o correto para este processo."
                 )
+            dados["aviso_dv"] = resultado["aviso_dv"]
             return dados
 
         candidatos = candidatos_do_segmento(partes["segmento_codigo"])
@@ -241,6 +249,7 @@ class ConectorDataJud(ConectorCaptura):
         for slug in candidatos:
             dados = self._buscar_no_tribunal(slug, numero_cnj, digitos)
             if dados is not None:
+                dados["aviso_dv"] = resultado["aviso_dv"]
                 return dados
 
         raise ConexaoDataJudError(

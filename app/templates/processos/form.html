@@ -249,7 +249,8 @@
       }
 
       status.innerHTML = `<span class="text-success">Processo encontrado no DataJud (${dados.tribunal_slug.toUpperCase()}) — ` +
-        `${dados.qtd_movimentacoes} movimentação(ões). Campos em branco preenchidos abaixo; confira antes de salvar.</span>`;
+        `${dados.qtd_movimentacoes} movimentação(ões). Campos em branco preenchidos abaixo; confira antes de salvar.</span>` +
+        (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
 
       preencherSeVazio(campoArea, dados.assunto || dados.classe);
       preencherSeVazio(campoVara, dados.orgao_julgador);

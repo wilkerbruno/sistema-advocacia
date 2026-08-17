@@ -1,5 +1,56 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -11. Dígito verificador do CNJ deixou de travar a busca automática — corrigido nesta rodada
+
+**O que aconteceu:** depois da correção da pendência nº -10 (abaixo), você
+testou de novo com o número `0025567-55.2002.8.12.0001` — tanto em "Novo
+processo" quanto em "Cadastrar por CNJ" — e as duas telas mostraram
+"Número CNJ inválido: Dígito verificador inválido (informado 55, esperado
+47)", em vez de encontrar o processo. Isso confirmava o achado da pendência
+nº -9: matematicamente, esse número não bate com a fórmula oficial do CNJ
+(módulo 97). Só que você continuava esperando que esse número específico
+funcionasse — ou seja, pra você esse é o número certo do processo.
+
+**O que eu tinha errado:** eu estava tratando o dígito verificador como um
+portão travado — se não batesse com a fórmula, nem tentava buscar no
+DataJud. Mas quem decide se um processo existe de verdade é o próprio
+DataJud (o índice oficial do CNJ), não esse cálculo por aqui. Processos
+mais antigos (esse é de 2002, bem antes da unificação de numeração pela
+Resolução CNJ 65/2008 valer pra todos os tribunais) às vezes têm, no
+próprio tribunal e no DataJud, um número registrado que não fecha pela
+fórmula atual — e mesmo assim é o número real e é assim que está indexado.
+Bloquear a busca por causa disso era eu impedindo a busca de algo que
+podia estar certo.
+
+**Corrigido nesta rodada:** o dígito verificador que não bate **não trava
+mais** a busca em nenhuma das telas (Novo processo, Editar processo,
+Cadastrar por CNJ, botão "Tentar captura automática") — o sistema busca no
+DataJud com o número exatamente como foi digitado, dígito por dígito, sem
+"corrigir" nada. Só mostra um aviso (amarelo, não mais vermelho travando
+tudo): "Dígito verificador não confere pelo cálculo oficial... pode ser
+numeração legada. Buscando mesmo assim." Se o DataJud encontrar o processo
+com esse número, tudo funciona normalmente (preenche os campos, ativa
+monitoramento automático) — o aviso fica só como uma nota de atenção. Um
+número realmente com formato errado (menos de 20 dígitos, por exemplo)
+continua barrado de cara, sem tentar — essa parte não mudou. A importação
+em lote (CSV) também continua exigindo o dígito verificador correto, de
+propósito: numa carga de muitas linhas sem revisão individual, é melhor
+sinalizar a linha como erro do que gastar uma chamada de API por uma
+possível linha digitada errada.
+
+Arquivos alterados: `app/utils/cnj.py` (`validar_numero_cnj` ganhou o
+parâmetro `exigir_dv=False`, usado nos fluxos que buscam no DataJud de
+verdade), `app/utils/conector_datajud.py`, `app/routes/governanca.py`,
+`app/routes/processos.py` e os templates `governanca/novo_por_cnj.html` e
+`processos/form.html` (mostram o aviso em amarelo quando aplicável).
+Testado no sandbox local simulando o DataJud com o número exatamente como
+você digitou (dígito verificador "errado") indexado no tribunal —
+confirmando que agora É encontrado, ativa monitoramento automático, e o
+aviso aparece na tela; testado também que número com formato realmente
+errado continua barrado sem tentar, e que um número com dígito que não
+bate mas que o DataJud genuinamente não encontra vira "não monitorável"
+com o motivo explicado (não mais um bloqueio silencioso).
+
 ## -10. "Novo processo" (tela manual) não buscava nada sozinho ao apertar Enter no CNJ — corrigido nesta rodada
 
 **O problema relatado (com print):** na tela normal de cadastro de processo

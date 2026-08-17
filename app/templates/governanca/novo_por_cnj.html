@@ -135,7 +135,8 @@
         return;
       }
 
-      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud — confira os dados abaixo antes de cadastrar.</span>`;
+      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud — confira os dados abaixo antes de cadastrar.</span>` +
+        (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
       document.getElementById("cnj-preview-tribunal").textContent = (dados.tribunal_slug || "—").toUpperCase();
       document.getElementById("cnj-preview-classe").textContent = dados.classe || "—";
       document.getElementById("cnj-preview-assunto").textContent = dados.assunto || "—";

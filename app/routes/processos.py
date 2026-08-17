@@ -43,11 +43,15 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
     precisar ir na tela separada "Cadastrar por CNJ" nem clicar em mais
     nada depois.
 
-    Só tenta quando `numero_processo` já é um CNJ válido (dígito
-    verificador correto — módulo 97). Número em branco ou fora do padrão
-    simplesmente vira acompanhamento manual (`forma_acompanhamento` =
-    "manual"), sem tentar nada e sem alarme nenhum — processo antigo com
-    numeração legada, ou processo sem número ainda, não é erro.
+    Só tenta quando `numero_processo` tem o FORMATO de um CNJ (20 dígitos,
+    segmento de Justiça reconhecido) — número em branco ou com formato
+    claramente errado (menos de 20 dígitos, por exemplo) vira
+    acompanhamento manual (`forma_acompanhamento` = "manual"), sem tentar
+    nada e sem alarme. Já um dígito verificador que não bate com a fórmula
+    oficial (módulo 97) NÃO bloqueia mais a tentativa — processos antigos
+    às vezes têm número assim mesmo, e é o próprio DataJud (não esse
+    cálculo) quem decide se o processo existe de verdade (ver
+    `validar_numero_cnj(..., exigir_dv=False)` em app/utils/cnj.py).
 
     Efeitos colaterais: ajusta processo.monitoravel,
     processo.forma_acompanhamento, processo.motivo_nao_monitoravel e
@@ -56,20 +60,24 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
     chamar de novo). NÃO faz commit — quem chama decide isso (precisa que
     `processo.id` já exista, ou seja, chamar depois de um `db.session.flush()`
     num cadastro novo).
+
+    Devolve o `aviso_dv` (string) quando encontrou o processo mas o dígito
+    verificador não batia — ou None quando não há aviso pra mostrar (não
+    achou nada, ou achou e o número era válido normalmente).
     """
     numero = processo.numero_processo
     if not numero:
         processo.forma_acompanhamento = "manual"
         processo.monitoravel = False
         processo.motivo_nao_monitoravel = None
-        return
+        return None
 
-    resultado = validar_numero_cnj(numero)
+    resultado = validar_numero_cnj(numero, exigir_dv=False)
     if not resultado["valido"]:
         processo.forma_acompanhamento = "manual"
         processo.monitoravel = False
         processo.motivo_nao_monitoravel = f"Número fora do padrão CNJ: {resultado['motivo']}"
-        return
+        return None
 
     tribunal_hint = processo.tribunal_datajud or None
     dados_capturados, motivo = None, None
@@ -94,6 +102,7 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
             fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
             status="sucesso", mensagem=f"{novas} movimentação(ões) capturada(s).",
         ))
+        return dados_capturados.get("aviso_dv")
     else:
         processo.forma_acompanhamento = "nao_monitoravel"
         processo.monitoravel = False
@@ -102,6 +111,7 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
             fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
             status="falha", mensagem=(motivo or "")[:500],
         ))
+        return None
 
 
 @processos_bp.route("/")
@@ -175,7 +185,7 @@ def novo():
         # mesmo comportamento de "Cadastrar por CNJ", só que nesta tela com
         # todos os campos (ver _tentar_captura_automatica_no_cadastro acima).
         empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
-        _tentar_captura_automatica_no_cadastro(processo, empresa_do_cadastro)
+        aviso_dv = _tentar_captura_automatica_no_cadastro(processo, empresa_do_cadastro)
 
         db.session.add(Andamento(
             processo_id=processo.id, tipo="movimentacao",
@@ -190,7 +200,8 @@ def novo():
         if processo.forma_acompanhamento == "automatico" and processo.monitoravel:
             qtd = len(processo.movimentacoes)
             flash(f"Processo cadastrado e em monitoramento automático — dados encontrados no "
-                  f"DataJud ({qtd} movimentação(ões)).", "success")
+                  f"DataJud ({qtd} movimentação(ões))."
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
         elif processo.motivo_nao_monitoravel:
             flash(f"Processo cadastrado, mas não foi possível buscar automaticamente no DataJud: "
                   f"{processo.motivo_nao_monitoravel}", "warning")
@@ -284,9 +295,10 @@ def editar(processo_id):
         # outros campos não deve sair rebuscando/re-classificando o
         # acompanhamento de um processo que o usuário já configurou.
         numero_mudou = processo.numero_processo != numero_anterior
+        aviso_dv = None
         if numero_mudou:
             empresa_da_edicao = processo.unidade.empresa if processo.unidade else None
-            _tentar_captura_automatica_no_cadastro(processo, empresa_da_edicao)
+            aviso_dv = _tentar_captura_automatica_no_cadastro(processo, empresa_da_edicao)
 
         registrar_log(current_user, "editou", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
@@ -294,7 +306,8 @@ def editar(processo_id):
         if numero_mudou and processo.forma_acompanhamento == "automatico" and processo.monitoravel:
             qtd = len(processo.movimentacoes)
             flash(f"Processo atualizado — número novo encontrado no DataJud e em monitoramento "
-                  f"automático ({qtd} movimentação(ões)).", "success")
+                  f"automático ({qtd} movimentação(ões))."
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
         elif numero_mudou and processo.motivo_nao_monitoravel:
             flash(f"Processo atualizado, mas não foi possível buscar automaticamente no DataJud com "
                   f"o número novo: {processo.motivo_nao_monitoravel}", "warning")
