@@ -9,11 +9,17 @@ Isso é o que separa isso de um chatbot genérico: as respostas são
 embasadas em números reais do momento da pergunta (prazos vencendo,
 processos parados, receita pendente etc.), não em nada inventado.
 
-Motor: modelo de IA local (até 2B parâmetros, ver app/utils/ia_local.py),
-rodando dentro do próprio servidor — sem chave de API, sem custo por
-mensagem, sem dado saindo do servidor. Sem o arquivo de pesos baixado
-(ver baixar_modelo_ia_local.py), o agente responde de forma honesta que
-está indisponível — nunca finge uma resposta nem trava a tela.
+Motor: por padrão, modelo de IA local (até 2B parâmetros, ver
+app/utils/ia_local.py), rodando dentro do próprio servidor — sem chave de
+API, sem custo por mensagem, sem dado saindo do servidor. Desde a rodada
+BYOK, cada empresa pode escolher em "Minhas Integrações"
+(app/routes/integracoes.py) usar a API do Claude com a PRÓPRIA chave da
+Anthropic no lugar do modelo local — ver app/utils/agente_ia_router.py,
+que decide qual dos dois usar sem este arquivo precisar saber a
+diferença. Em qualquer um dos dois casos, sem o provedor pronto (modelo
+não baixado, ou chave Claude não cadastrada/inválida), o agente responde
+de forma honesta que está indisponível — nunca finge uma resposta nem
+trava a tela.
 """
 from datetime import datetime, date, timedelta
 
@@ -25,7 +31,7 @@ from app.extensions import db
 from app.models import ConversaAgenteIA, MensagemAgenteIA, Processo, Prazo, Tarefa, Cliente, Lancamento
 from app.utils.acesso import aplicar_escopo_unidade
 from app.utils.notificacoes import registrar_log
-from app.utils import ia_local
+from app.utils import agente_ia_router
 
 agente_ia_bp = Blueprint("agente_ia", __name__)
 
@@ -184,7 +190,7 @@ _CONTEXTO_POR_PERSONA = {
 
 # ---------------------- Chamada ao modelo ----------------------
 
-def _chamar_llm(persona, mensagens_historico, contexto_dados):
+def _chamar_llm(empresa, persona, mensagens_historico, contexto_dados):
     system = (
         PERSONA_CONFIG[persona]["system"]
         + "\n\nContexto atual do escritório (dados reais, consultados no momento desta mensagem — "
@@ -198,8 +204,8 @@ def _chamar_llm(persona, mensagens_historico, contexto_dados):
     ]
 
     try:
-        return ia_local.gerar_resposta(system, mensagens_api)
-    except ia_local.ModeloIndisponivelError as e:
+        return agente_ia_router.gerar_resposta(empresa, system, mensagens_api)
+    except agente_ia_router.ProvedorIAIndisponivelError as e:
         raise AgenteIndisponivelError(str(e)) from e
 
 
@@ -210,9 +216,10 @@ def _chamar_llm(persona, mensagens_historico, contexto_dados):
 def index():
     conversas = ConversaAgenteIA.query.filter_by(usuario_id=current_user.id) \
         .order_by(ConversaAgenteIA.atualizado_em.desc()).all()
-    configurado = ia_local.modelo_disponivel()
+    configurado = agente_ia_router.provedor_disponivel(current_user.empresa)
+    provedor_texto = agente_ia_router.descricao_provedor(current_user.empresa)
     return render_template("agente_ia/index.html", conversas=conversas,
-                            personas=PERSONA_CONFIG, configurado=configurado)
+                            personas=PERSONA_CONFIG, configurado=configurado, provedor_texto=provedor_texto)
 
 
 @agente_ia_bp.route("/nova", methods=["POST"])
@@ -238,9 +245,11 @@ def conversa(conversa_id):
     conversa = db.get_or_404(ConversaAgenteIA, conversa_id)
     if conversa.usuario_id != current_user.id and not current_user.is_admin:
         abort(403)
-    configurado = ia_local.modelo_disponivel()
+    configurado = agente_ia_router.provedor_disponivel(current_user.empresa)
+    provedor_texto = agente_ia_router.descricao_provedor(current_user.empresa)
     return render_template("agente_ia/conversa.html", conversa=conversa,
-                            persona=PERSONA_CONFIG[conversa.persona], configurado=configurado)
+                            persona=PERSONA_CONFIG[conversa.persona], configurado=configurado,
+                            provedor_texto=provedor_texto)
 
 
 @agente_ia_bp.route("/<int:conversa_id>/mensagem", methods=["POST"])
@@ -262,7 +271,7 @@ def enviar_mensagem(conversa_id):
 
     try:
         contexto_dados = _CONTEXTO_POR_PERSONA[conversa.persona]()
-        resposta_texto = _chamar_llm(conversa.persona, conversa.mensagens, contexto_dados)
+        resposta_texto = _chamar_llm(current_user.empresa, conversa.persona, conversa.mensagens, contexto_dados)
         if not resposta_texto:
             resposta_texto = "[O agente respondeu vazio — tente reformular a pergunta.]"
     except AgenteIndisponivelError as e:

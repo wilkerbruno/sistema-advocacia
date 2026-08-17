@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block titulo %}Minhas Integrações — JusControl{% endblock %}
+{% block eyebrow %}Minha empresa{% endblock %}
+{% block cabecalho %}Integrações{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-4" style="max-width: 640px;">
+  Escolha, para a sua empresa, qual provedor usar no Agente de IA. Na opção "chave própria", a chave é
+  cifrada antes de ser salva (nunca fica em texto puro no banco) e nunca é reexibida depois — só
+  mostramos se já existe uma cadastrada.
+</p>
+
+<div class="row g-4">
+  <!-- ---------------- Agente de IA ---------------- -->
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 h-100">
+      <h4 class="mb-1" style="font-size:1rem;">Agente de IA</h4>
+      <p class="small text-muted-doc mb-3">
+        Motor usado pelo Agente de IA (Operação/Gestão/Negócios) e pela Análise de processo
+        (resumo dos autos / rascunho de petição).
+      </p>
+
+      <form method="post" action="{{ url_for('integracoes.salvar_ia') }}" id="form-ia">
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="provedor" id="ia-local" value="local"
+                 {{ "checked" if ia_provedor == "local" }} onchange="atualizarCamposIA()">
+          <label class="form-check-label small" for="ia-local">
+            <strong>Modelo local (grátis)</strong> — roda no próprio servidor, sem chave, sem custo por
+            mensagem, mas modelo menor (pode alucinar mais em casos complexos).
+          </label>
+        </div>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="radio" name="provedor" id="ia-claude" value="claude_byok"
+                 {{ "checked" if ia_provedor == "claude_byok" }} onchange="atualizarCamposIA()">
+          <label class="form-check-label small" for="ia-claude">
+            <strong>API do Claude (chave própria)</strong> — modelo mais robusto; a Anthropic cobra a sua
+            empresa DIRETAMENTE pelo uso, com a sua própria chave. A JusControl não vê nem intermedeia
+            esse consumo/pagamento.
+          </label>
+        </div>
+
+        <div id="campos-ia-claude" class="ps-3 mb-3" style="border-left: 2px solid var(--brass-200); display:none;">
+          <div class="mb-2">
+            <label class="form-label small mb-1">Chave de API do Claude</label>
+            <input type="password" name="api_key" class="form-control form-control-sm"
+                   placeholder="{{ 'Chave cadastrada — deixe em branco para manter' if ia_tem_chave else 'sk-ant-...' }}"
+                   autocomplete="off">
+            <div class="form-text small">
+              Gere em <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a>.
+              {% if ia_tem_chave %}Já existe uma chave cadastrada — só preencha aqui se quiser trocá-la.{% endif %}
+            </div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small mb-1">Modelo</label>
+            <input type="text" name="modelo" class="form-control form-control-sm" value="{{ ia_modelo }}">
+            <div class="form-text small">
+              Identificador exato do modelo (ex.: <code>{{ modelo_claude_padrao }}</code>). Confira o valor
+              atual em <a href="https://docs.claude.com/en/docs/about-claude/models" target="_blank" rel="noopener">docs.claude.com</a>
+              antes de trocar.
+            </div>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-brass btn-sm">Salvar</button>
+        {% if ia_tem_chave %}
+        <span class="small text-muted-doc ms-2">✓ chave cadastrada</span>
+        {% endif %}
+      </form>
+
+      {% if ia_tem_chave %}
+      <form method="post" action="{{ url_for('integracoes.remover_chave_ia') }}" class="mt-2">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave e voltar ao modelo local</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<script>
+function atualizarCamposIA() {
+  var claude = document.getElementById('ia-claude').checked;
+  document.getElementById('campos-ia-claude').style.display = claude ? 'block' : 'none';
+}
+atualizarCamposIA();
+</script>
+{% endblock %}

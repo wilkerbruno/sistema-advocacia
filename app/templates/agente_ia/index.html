@@ -6,8 +6,13 @@
 {% block conteudo %}
 {% if not configurado %}
 <div class="alert alert-warning py-2 px-3 small">
-  Modelo de IA local ainda não está pronto neste servidor — rode <code>python baixar_modelo_ia_local.py</code> no servidor para baixar os pesos (feito automaticamente durante o build da imagem, ver o log do deploy se está faltando). Você pode abrir uma conversa, mas as respostas virão como indisponíveis até o modelo estar pronto.
+  Agente de IA indisponível no momento (modelo local ainda não pronto neste servidor, ou chave da API do
+  Claude não cadastrada — confira/ajuste em
+  {% if current_user.is_admin %}<a href="{{ url_for('integracoes.minhas_integracoes') }}">Minhas Integrações</a>{% else %}"Minhas Integrações" com o administrador da sua conta{% endif %}).
+  Você pode abrir uma conversa, mas as respostas virão como indisponíveis até o provedor estar pronto.
 </div>
+{% else %}
+<div class="small text-muted-doc mb-3">Provedor atual: {{ provedor_texto }}</div>
 {% endif %}
 
 <div class="row g-3 mb-4">

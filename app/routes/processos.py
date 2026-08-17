@@ -10,7 +10,7 @@ from app.extensions import db
 from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao, AnaliseProcessoIA
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log, notificar
-from app.utils import tribunais_datajud, ia_local
+from app.utils import tribunais_datajud, agente_ia_router
 from app.utils.analise_processo_ia import gerar_analise
 
 processos_bp = Blueprint("processos", __name__)
@@ -127,7 +127,7 @@ def detalhe(processo_id):
         .order_by(AnaliseProcessoIA.criado_em.desc()).all()
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
-                            ia_configurada=ia_local.modelo_disponivel())
+                            ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None))
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -436,9 +436,10 @@ def gerar_analise_ia(processo_id):
     tipo = request.form.get("tipo")
     instrucao = request.form.get("instrucao", "").strip()
 
-    if not ia_local.modelo_disponivel():
-        flash("Agente de IA local indisponível neste servidor (modelo não baixado/configurado — "
-              "ver PENDENCIAS.md).", "danger")
+    empresa_do_processo = processo.unidade.empresa if processo.unidade else None
+    if not agente_ia_router.provedor_disponivel(empresa_do_processo):
+        flash("Agente de IA indisponível para esta empresa no momento (modelo local não baixado, ou "
+              "chave da API do Claude não cadastrada — confira em \"Minhas Integrações\").", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     try:
@@ -446,10 +447,10 @@ def gerar_analise_ia(processo_id):
     except ValueError as e:
         flash(str(e), "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
-    except ia_local.ModeloIndisponivelError as e:
+    except agente_ia_router.ProvedorIAIndisponivelError as e:
         flash(f"Agente de IA indisponível: {e}", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
-    except Exception as e:  # nunca deixa a tela do processo travada por erro do modelo local
+    except Exception as e:  # nunca deixa a tela do processo travada por erro do provedor de IA
         flash(f"Não foi possível gerar a análise agora: {e}", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 

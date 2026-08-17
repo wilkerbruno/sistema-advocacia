@@ -11,8 +11,12 @@
 
 {% if not configurado %}
 <div class="alert alert-warning py-2 px-3 small">
-  Modelo de IA local ainda não está pronto neste servidor — rode <code>python baixar_modelo_ia_local.py</code> no servidor para baixar os pesos.
+  Agente de IA indisponível no momento (modelo local ainda não pronto neste servidor, ou chave da API do
+  Claude não cadastrada — confira/ajuste em
+  {% if current_user.is_admin %}<a href="{{ url_for('integracoes.minhas_integracoes') }}">Minhas Integrações</a>{% else %}"Minhas Integrações" com o administrador da sua conta{% endif %}).
 </div>
+{% else %}
+<div class="small text-muted-doc mb-2">Provedor atual: {{ provedor_texto }}</div>
 {% endif %}
 
 <div class="card-doc tab p-3 mb-3" style="max-height: 60vh; overflow-y: auto;">

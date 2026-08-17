@@ -45,12 +45,6 @@ PAUSA_ENTRE_CHAMADAS_SEGUNDOS = 0.5  # gentileza com a cota de uso da chave de A
 def capturar(limite=None, processo_id=None):
     app = create_app()
     with app.app_context():
-        try:
-            conector = obter_conector("padrao")
-        except ConectorNaoConfiguradoError as e:
-            print(f"Captura não configurada: {e}")
-            return
-
         query = Processo.query.filter_by(monitoravel=True, forma_acompanhamento="automatico")
         if processo_id:
             query = query.filter_by(id=processo_id)
@@ -61,7 +55,30 @@ def capturar(limite=None, processo_id=None):
         print(f"{len(processos)} processo(s) para recapturar.")
         sucesso, falha = 0, 0
 
+        # Este cron varre processos de TODAS as empresas de uma vez, e cada
+        # empresa pode ter configurado sua própria chave do DataJud (ver
+        # app/routes/integracoes.py) — por isso o conector é resolvido POR
+        # EMPRESA (com cache simples nesta execução, pra não decifrar a
+        # mesma chave de novo a cada processo) em vez de uma vez só no
+        # início como antes.
+        conectores_por_empresa = {}  # empresa_id (ou None) -> conector | None
+
         for processo in processos:
+            empresa = processo.unidade.empresa if processo.unidade else None
+            empresa_id = empresa.id if empresa else None
+
+            if empresa_id not in conectores_por_empresa:
+                try:
+                    conectores_por_empresa[empresa_id] = obter_conector("padrao", empresa=empresa)
+                except ConectorNaoConfiguradoError as e:
+                    conectores_por_empresa[empresa_id] = None
+                    print(f"Captura não configurada para \"{empresa.nome if empresa else '?'}\": {e}")
+
+            conector = conectores_por_empresa[empresa_id]
+            if conector is None:
+                falha += 1
+                continue
+
             try:
                 dados = conector.consultar_processo(processo.numero_processo, tribunal_hint=processo.tribunal_datajud)
                 aplicar_carga_inicial(processo, dados)

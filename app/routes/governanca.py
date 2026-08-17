@@ -65,9 +65,12 @@ def novo_por_cnj():
         # forma honesta se a chave não estiver configurada, se o tribunal
         # não puder ser identificado, ou se o processo ainda não estiver
         # indexado (segredo de justiça, ou defasagem do próprio DataJud).
+        # Respeita a chave própria do DataJud da empresa quando cadastrada
+        # (ver app/routes/integracoes.py).
+        empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
         dados_capturados = None
         try:
-            conector = obter_conector("padrao")
+            conector = obter_conector("padrao", empresa=empresa_do_cadastro)
             dados_capturados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
             forma_acompanhamento, monitoravel, motivo = "automatico", True, None
         except ConectorNaoConfiguradoError as e:
@@ -144,7 +147,7 @@ def consultar_cnj_preview():
     tribunal_hint = request.args.get("tribunal_datajud") or None
 
     try:
-        conector = obter_conector("padrao")
+        conector = obter_conector("padrao", empresa=current_user.empresa)
     except ConectorNaoConfiguradoError as e:
         return jsonify(valido=True, encontrado=False, motivo=str(e))
 

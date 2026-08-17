@@ -1,4 +1,90 @@
-# Status das pendências do briefing (atualizado em 16/08/2026)
+# Status das pendências do briefing (atualizado em 17/08/2026)
+
+## -7. Cada empresa pode escolher usar a própria chave de API do Claude e/ou do DataJud (BYOK) — implementado nesta rodada
+
+A pedido explícito ("coloque a opção do cliente escolher usar o nosso
+agente local ou inserir uma chave API do claude [...] quero que ocorra o
+mesmo com o DataJud"). Antes de implementar, chequei os Termos Comerciais
+da Anthropic: cobrar um markup sobre o uso da API de clientes usando uma
+chave só da JusControl por trás ("revenda"/repasse com lucro embutido) é
+proibido sem acordo de revenda expresso com a Anthropic (Seção D.4 proíbe
+revenda dos Serviços, e os termos também proíbem usar autenticação por
+assinatura para dar acesso à API a terceiros). Por isso o que foi
+construído é o modelo permitido: **BYOK — cada empresa cadastra e é
+cobrada diretamente pela própria chave**, e a JusControl não vê, processa
+ou intermedeia esse consumo/pagamento (nenhuma cobrança de markup foi
+implementada — se você quiser monetizar isso no futuro, o caminho
+compatível é uma taxa fixa de desbloqueio do recurso, independente de
+uso, reaproveitando o Mercado Pago/Licenca que já existe; não construí
+isso ainda, é uma decisão separada).
+
+### O que existe agora
+Nova tela **"Minhas Integrações"** (menu do admin de cada empresa cliente,
+`/minhas-integracoes`), com duas escolhas independentes:
+
+- **Agente de IA** (usado tanto no chat do Agente de IA de portfólio
+  quanto na Análise de processo): "Modelo local (grátis)" (padrão, sem
+  mudança de comportamento pra quem não mexer em nada) ou "API do Claude
+  (chave própria)" — a empresa cola a própria chave (gerada em
+  console.anthropic.com) e opcionalmente escolhe o modelo exato. A chave é
+  validada com uma chamada mínima antes de ser salva (nunca salva uma
+  chave que não funciona), fica cifrada no banco (mesmo cofre Fernet de
+  `SenhaProcesso`, ver `app/utils/cofre.py`) e nunca é reexibida depois —
+  só aparece "chave cadastrada: sim". Roteamento entre os dois provedores
+  é centralizado em `app/utils/agente_ia_router.py`, então nem
+  `app/routes/agente_ia.py` nem `app/utils/analise_processo_ia.py`
+  precisam saber qual dos dois está sendo usado.
+- **Captura processual (DataJud)**: "chave padrão da plataforma" (padrão)
+  ou "minha própria chave DataJud" (também gratuita, cadastro individual
+  em datajud-wiki.cnj.jus.br — útil pra empresa que quer sua própria cota
+  de uso, sem depender/disputar a cota compartilhada da plataforma).
+  `app/utils/captura_conectores.py::obter_conector` agora aceita um
+  parâmetro `empresa` opcional pra decidir qual chave usar; os três
+  lugares que chamam essa função (`app/routes/governanca.py`, duas vezes,
+  e `capturar_movimentacoes.py`) foram atualizados pra passar a empresa
+  certa — o cron de recaptura em particular varre processos de TODAS as
+  empresas numa mesma execução, então resolve o conector POR EMPRESA
+  dentro do laço (com cache simples pra não decifrar a mesma chave duas
+  vezes), em vez de uma única vez no início como era antes.
+
+### O que ficou de fora de propósito, e por quê
+- **Provedores pagos de captura** (Judit/Escavador/Digesto/Codilo) — cada
+  um tem contrato de API próprio e diferente do DataJud. Implementar
+  contra um deles sem a documentação e credenciais reais do provedor
+  contratado arriscaria uma integração que parece funcionar mas devolve
+  dado errado/incompleto silenciosamente. O ponto de extensão já existe
+  (`ConectorCaptura` em `app/utils/captura_conectores.py`) — se/quando
+  contratar um desses, me chame com a documentação da API dele e eu
+  implemento a subclasse específica.
+- **Cobrança de markup sobre uso de API** — não implementado, de propósito
+  (ver explicação acima sobre os Termos Comerciais da Anthropic). Se
+  quiser uma taxa fixa de desbloqueio no futuro, é rápido de adicionar
+  reaproveitando `Licenca`/Mercado Pago.
+- Colunas novas em `Empresa` (`agente_ia_provedor`,
+  `agente_ia_claude_chave_cifrada`, `agente_ia_claude_modelo`,
+  `datajud_provedor`, `datajud_chave_propria_cifrada`) foram criadas
+  NULLABLE de propósito, mesmo as que têm um "padrão" em código — o
+  `sincronizar_schema.py` só sabe adicionar coluna sem `DEFAULT` no banco,
+  então uma coluna `NOT NULL` quebraria a sincronização em bancos com
+  empresas já cadastradas (que é exatamente o seu caso em produção).
+  `None` é tratado como o valor padrão em todo o código (ver
+  `Empresa.agente_ia_provedor_efetivo` / `datajud_provedor_efetivo`).
+
+### Testado no sandbox local antes de entregar
+Subi o app contra um banco sqlite descartável, criei uma empresa cliente
+com licença ativa e simulei login, e testei: a tela de Integrações abre e
+salva as duas configurações; salvar Claude com chave inválida é rejeitado
+com mensagem amigável e NÃO salva nada (sem chave falsa gravada); salvar/
+remover chave própria do DataJud funciona e `obter_conector` de fato passa
+a usar a chave da empresa; as telas do Agente de IA, Análise de processo e
+cadastro por CNJ continuam respondendo normalmente (sem erro 500) quando
+nenhum provedor está configurado, com aviso amigável apontando pra
+"Minhas Integrações"; e o script `capturar_movimentacoes.py` roda sem
+travar e resolve o conector por empresa dentro do laço. Não testei uma
+chamada real à API da Anthropic com uma chave verdadeira (sem acesso de
+rede a partir do ambiente onde gerei o código) — teste isso depois do
+deploy com uma chave real da sua conta Anthropic (ou de um cliente de
+teste) antes de anunciar a funcionalidade pros clientes.
 
 ## -6. Modelo de IA local maior avaliado e revertido por falta de RAM — script de troca deixado pronto
 

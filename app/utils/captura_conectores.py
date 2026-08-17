@@ -4,15 +4,26 @@ Interface de conectores de captura automática (seções 5.0/5.2 do briefing).
 Status: o conector "padrão" (`obter_conector("padrao")`) já está LIGADO —
 usa o DataJud, a API pública e gratuita do CNJ (ver
 app/utils/conector_datajud.py para o que ela cobre e o que não cobre).
-Não depende de contrato pago; depende só de `DATAJUD_API_KEY` configurada
-no `.env` (cadastro individual gratuito em https://datajud-wiki.cnj.jus.br/).
+Por padrão usa `DATAJUD_API_KEY` configurada no `.env` do servidor
+(compartilhada entre todas as empresas), mas desde a rodada BYOK cada
+empresa também pode cadastrar a PRÓPRIA chave do DataJud (também gratuita,
+cadastro individual em https://datajud-wiki.cnj.jus.br/) em "Minhas
+Integrações" (app/routes/integracoes.py) e usá-la no lugar da chave
+compartilhada — passe a `empresa` para `obter_conector` para isso ser
+respeitado (ver app/routes/governanca.py e capturar_movimentacoes.py).
 
 Um provedor pago (Judit, Escavador, Digesto ou Codilo — recomendação
 original do briefing, seção 5.2) continua sendo a única forma de cobrir o
 que o DataJud não cobre: busca de processos por nome/CPF sem já ter o
 número, inteiro teor de documentos, e monitoramento de publicação por OAB.
-Se um desses for contratado no futuro, basta implementar uma nova
-subclasse de `ConectorCaptura` (ex: `ConectorJudit`) e registrá-la aqui.
+Isso NÃO está implementado (nem como opção "traga sua própria chave"):
+cada um desses provedores tem um contrato de API próprio e diferente, e
+implementar contra um deles sem a documentação e credenciais reais do
+provedor contratado arriscaria produzir uma integração que parece
+funcionar mas devolve dado errado ou incompleto silenciosamente — o
+oposto do princípio deste módulo. Se/quando um desses for contratado,
+basta implementar uma nova subclasse de `ConectorCaptura` (ex:
+`ConectorJudit`) e registrá-la aqui (o ponto de extensão já existe).
 
 Nenhuma classe/função abaixo faz requisição de rede diretamente — só a
 implementação concreta (ConectorDataJud) faz.
@@ -65,16 +76,37 @@ class ConectorNaoConfiguradoError(Exception):
     pass
 
 
-def obter_conector(nome_fonte: str) -> ConectorCaptura:
+def obter_conector(nome_fonte: str, empresa=None) -> ConectorCaptura:
     """
     Fábrica de conectores. "padrao" usa o DataJud (gratuito, ver
-    app/utils/conector_datajud.py) quando DATAJUD_API_KEY está configurada;
-    sem a chave, levanta ConectorNaoConfiguradoError como antes — nunca
-    finge que a captura está funcionando.
+    app/utils/conector_datajud.py).
+
+    `empresa`: quando informada e configurada para usar chave própria
+    (`empresa.datajud_provedor_efetivo == Empresa.PROVEDOR_DATAJUD_CHAVE_PROPRIA`,
+    ver app/routes/integracoes.py), usa a chave cifrada dessa empresa em
+    vez de `DATAJUD_API_KEY` do `.env`. Sem `empresa` (ou empresa
+    configurada para o padrão), usa a chave compartilhada da plataforma
+    como sempre. Nunca finge que a captura está funcionando: sem nenhuma
+    chave disponível, levanta ConectorNaoConfiguradoError.
     """
     if nome_fonte == "padrao":
         from flask import current_app
+        from app.models import Empresa
         from app.utils.conector_datajud import ConectorDataJud
+        from app.utils import cofre
+
+        if empresa is not None and empresa.datajud_provedor_efetivo == Empresa.PROVEDOR_DATAJUD_CHAVE_PROPRIA:
+            if not empresa.datajud_chave_propria_cifrada:
+                raise ConectorNaoConfiguradoError(
+                    f"A empresa \"{empresa.nome}\" está configurada para usar uma chave própria do "
+                    "DataJud, mas nenhuma chave foi cadastrada ainda. Cadastre em \"Minhas "
+                    "Integrações\", ou volte a usar a chave padrão da plataforma."
+                )
+            try:
+                chave_propria = cofre.decifrar_segredo(empresa.datajud_chave_propria_cifrada)
+            except (cofre.CofreNaoConfiguradoError, ValueError) as e:
+                raise ConectorNaoConfiguradoError(str(e)) from e
+            return ConectorDataJud(api_key=chave_propria)
 
         if current_app.config.get("DATAJUD_API_KEY"):
             return ConectorDataJud()
@@ -82,10 +114,10 @@ def obter_conector(nome_fonte: str) -> ConectorCaptura:
         raise ConectorNaoConfiguradoError(
             "DATAJUD_API_KEY não configurada — cadastre-se de graça em "
             "https://datajud-wiki.cnj.jus.br/, gere uma chave de API e "
-            "defina DATAJUD_API_KEY no .env do servidor. Para cobrir o que "
-            "o DataJud não cobre (busca por nome/CPF sem número, inteiro "
-            "teor, publicação por OAB), seria necessário um provedor pago "
-            "(Judit, Escavador, Digesto ou Codilo)."
+            "defina DATAJUD_API_KEY no .env do servidor (ou cada empresa pode cadastrar sua "
+            "própria chave em \"Minhas Integrações\"). Para cobrir o que o DataJud não cobre "
+            "(busca por nome/CPF sem número, inteiro teor, publicação por OAB), seria necessário "
+            "um provedor pago (Judit, Escavador, Digesto ou Codilo) — não implementado."
         )
 
     raise ConectorNaoConfiguradoError(

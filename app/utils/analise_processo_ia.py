@@ -3,19 +3,24 @@ Análise de UM processo específico via Agente de IA (resumo dos autos ou
 rascunho inicial de petição) — ver app/models/agente_ia.py::AnaliseProcessoIA
 e a rota app/routes/processos.py::analise_ia.
 
-Usa o mesmo motor local gratuito do Agente de IA de portfólio (ver
-app/utils/ia_local.py) — mesmas limitações e mesma regra de nunca inventar
+Usa o mesmo roteador de provedor do Agente de IA de portfólio (ver
+app/utils/agente_ia_router.py — modelo local gratuito por padrão, ou a API
+do Claude com chave própria da empresa se ela tiver escolhido isso em
+"Minhas Integrações") — mesmas limitações e mesma regra de nunca inventar
 fato fora do que foi injetado no contexto. `montar_digest_processo` monta
 esse contexto real a partir dos dados do processo no banco (nunca do
 próprio modelo "lembrando" nada).
 
-⚠️ O modelo local roda numa janela de contexto pequena (ver
-IA_LOCAL_CONTEXT_SIZE, padrão 4096 tokens) — por isso o digest é cortado a
-um orçamento de caracteres (`LIMITE_PADRAO_CHARS`); processos com histórico
-muito longo têm as movimentações/decisões mais antigas omitidas, e isso é
-sinalizado ao usuário (`digest_truncado`) em vez de escondido.
+⚠️ Quando o provedor é o modelo local, ele roda numa janela de contexto
+pequena (ver IA_LOCAL_CONTEXT_SIZE, padrão 4096 tokens) — por isso o
+digest é cortado a um orçamento de caracteres (`LIMITE_PADRAO_CHARS`);
+processos com histórico muito longo têm as movimentações/decisões mais
+antigas omitidas, e isso é sinalizado ao usuário (`digest_truncado`) em
+vez de escondido. Empresas usando a API do Claude (BYOK) têm uma janela de
+contexto bem maior — o mesmo corte se aplica hoje por simplicidade, mas dá
+pra revisitar se isso incomodar na prática.
 """
-from app.utils import ia_local
+from app.utils import agente_ia_router
 
 LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões cada, mais recentes primeiro
 # Orçamento aproximado de caracteres do digest — calibrado para caber com
@@ -126,8 +131,9 @@ def gerar_analise(processo, tipo, instrucao=None):
     """
     Gera o resumo ou rascunho de petição para `processo`. Levanta ValueError
     para erro de uso (tipo inválido, instrução obrigatória faltando) e deixa
-    propagar ia_local.ModeloIndisponivelError quando o modelo local não está
-    pronto no servidor — quem chama decide como exibir cada um.
+    propagar agente_ia_router.ProvedorIAIndisponivelError quando o provedor
+    de IA configurado para a empresa do processo (modelo local ou Claude
+    BYOK) não está pronto — quem chama decide como exibir isso.
 
     Devolve (resultado_texto, digest_truncado).
     """
@@ -147,5 +153,8 @@ def gerar_analise(processo, tipo, instrucao=None):
         pedido = instrucao.strip()
         max_tokens = 1400
 
-    resultado = ia_local.gerar_resposta(system, [{"role": "user", "content": pedido}], max_tokens=max_tokens)
+    empresa = processo.unidade.empresa if processo.unidade else None
+    resultado = agente_ia_router.gerar_resposta(
+        empresa, system, [{"role": "user", "content": pedido}], max_tokens=max_tokens
+    )
     return resultado, truncado
