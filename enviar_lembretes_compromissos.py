@@ -61,7 +61,15 @@ def enviar_lembretes():
             try:
                 titulo = f"Lembrete: {c.titulo}"
                 detalhes = f" — {c.local}" if c.local else ""
-                mensagem = f"{c.titulo} às {c.data_hora.strftime('%d/%m/%Y %H:%M')}{detalhes}"
+                # Nome do compromisso na 1ª linha, descrição completa (se
+                # houver) na 2ª, e data/hora — igual já funcionava — na
+                # última. Sem descrição cadastrada, a linha some (nunca fica
+                # uma linha em branco no meio da mensagem).
+                linhas_mensagem = [c.titulo]
+                if c.descricao:
+                    linhas_mensagem.append(c.descricao)
+                linhas_mensagem.append(f"às {c.data_hora.strftime('%d/%m/%Y %H:%M')}{detalhes}")
+                mensagem = "\n".join(linhas_mensagem)
 
                 notificar(c.responsavel_id, titulo, mensagem=mensagem, tipo="compromisso",
                           link=f"/agenda/compromissos/{c.id}/editar")
