@@ -21,9 +21,13 @@ reais do provedor contratado arriscaria parecer funcionar e devolver dado
 errado). O ponto de extensão (ConectorCaptura) já existe pra quando um
 desses for contratado de verdade.
 
-Nunca acessível para a empresa dona da plataforma (ela usa a configuração
-global do .env normalmente) nem para quem não é admin da própria empresa
-— mesmo padrão de app/routes/licenciamento.py.
+Também acessível para o admin desenvolvedor (empresa dona da plataforma) —
+a pedido explícito, pra poder configurar/testar o provedor de IA da
+própria conta da plataforma por aqui em vez de só via variável de
+ambiente legada (ANTHROPIC_API_KEY em config.py). Único requisito: ser
+admin (`apenas_admin`) de alguma empresa — mesmo padrão de
+app/routes/licenciamento.py, exceto que licenciamento continua bloqueado
+pra empresa dona da plataforma (ela não tem licença) e esta tela não.
 """
 from flask import Blueprint, render_template, redirect, url_for, flash, request
 from flask_login import login_required, current_user
@@ -37,13 +41,13 @@ from app.utils import cofre, claude_api
 integracoes_bp = Blueprint("integracoes", __name__)
 
 
-def _empresa_cliente():
-    """Empresa da própria sessão, ou None (com flash já emitido) se não fizer
-    sentido pra este usuário (admin desenvolvedor / dono da plataforma)."""
+def _empresa_atual():
+    """Empresa da própria sessão (cliente OU a própria plataforma), ou None
+    (com flash já emitido) no caso raro de um admin sem nenhuma empresa
+    vinculada."""
     empresa = current_user.empresa
-    if empresa is None or empresa.dono_da_plataforma:
-        flash("Esta área é só para empresas clientes — a própria plataforma usa a configuração do "
-              "servidor (.env) diretamente.", "warning")
+    if empresa is None:
+        flash("Seu usuário não está vinculado a uma empresa.", "warning")
         return None
     return empresa
 
@@ -52,7 +56,7 @@ def _empresa_cliente():
 @login_required
 @apenas_admin
 def minhas_integracoes():
-    empresa = _empresa_cliente()
+    empresa = _empresa_atual()
     if empresa is None:
         return redirect(url_for("dashboard.index"))
     return render_template(
@@ -71,7 +75,7 @@ def minhas_integracoes():
 @login_required
 @apenas_admin
 def salvar_ia():
-    empresa = _empresa_cliente()
+    empresa = _empresa_atual()
     if empresa is None:
         return redirect(url_for("dashboard.index"))
 
@@ -112,7 +116,7 @@ def salvar_ia():
 @login_required
 @apenas_admin
 def remover_chave_ia():
-    empresa = _empresa_cliente()
+    empresa = _empresa_atual()
     if empresa is None:
         return redirect(url_for("dashboard.index"))
     empresa.agente_ia_claude_chave_cifrada = None
@@ -127,7 +131,7 @@ def remover_chave_ia():
 @login_required
 @apenas_admin
 def salvar_datajud():
-    empresa = _empresa_cliente()
+    empresa = _empresa_atual()
     if empresa is None:
         return redirect(url_for("dashboard.index"))
 
@@ -160,7 +164,7 @@ def salvar_datajud():
 @login_required
 @apenas_admin
 def remover_chave_datajud():
-    empresa = _empresa_cliente()
+    empresa = _empresa_atual()
     if empresa is None:
         return redirect(url_for("dashboard.index"))
     empresa.datajud_chave_propria_cifrada = None

@@ -108,6 +108,8 @@
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.') }}" href="{{ url_for('licenciamento.minha_licenca') }}">
         <span class="tab-index">10</span> Minha licença
       </a>
+      {% endif %}
+      {% if current_user.is_admin %}
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('integracoes.') }}" href="{{ url_for('integracoes.minhas_integracoes') }}">
         <span class="tab-index">11</span> Integrações
       </a>
