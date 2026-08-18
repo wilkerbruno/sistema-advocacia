@@ -7,6 +7,16 @@ tela — ver app/routes/governanca.py). Quando o código não está mapeado, o
 requisito do briefing é explícito: "movimentação não mapeada cai em fila
 de triagem, nunca é descartada em silêncio" — por isso a movimentação é
 marcada com `triagem_pendente=True` em vez de ficar sem estado.
+
+Além do código exato, também tenta casar por TEXTO (`MapaEstadoTPU.
+texto_contido`, igual já existe em RegraProximaAcao.ato_capturado — ver
+prazos_engine.py) quando não há mapa pelo código. Isso importa porque
+vários códigos da Tabela Processual Unificada são genéricos demais pra
+carregar sozinhos o significado do ato — "Ato ordinatório" (11383) é o
+caso mais comum: tribunais usam esse mesmo código pra expedientes bem
+diferentes entre si, então só cadastrar "11383 -> algum estado" mapearia
+tudo errado. Mapear por um trecho do texto real do ato é o jeito de dar
+conta desses casos sem depender só do código.
 """
 from datetime import datetime
 
@@ -33,6 +43,19 @@ def traduzir_movimentacao(movimentacao):
         return None
 
     mapa = MapaEstadoTPU.query.filter_by(codigo_tpu=movimentacao.codigo_tpu, ativo=True).first()
+
+    # Código sem mapa cadastrado (ou código genérico demais, tipo "Ato
+    # ordinatório") — tenta casar pelo texto real do ato antes de desistir
+    # e cair em triagem. Mesma lógica de RegraProximaAcao (prazos_engine.py).
+    if mapa is None and movimentacao.texto_integral:
+        texto = movimentacao.texto_integral.lower()
+        for candidata in MapaEstadoTPU.query.filter(
+            MapaEstadoTPU.ativo.is_(True), MapaEstadoTPU.texto_contido.isnot(None)
+        ).all():
+            if candidata.texto_contido.lower() in texto:
+                mapa = candidata
+                break
+
     if mapa is None:
         movimentacao.triagem_pendente = True
         return None

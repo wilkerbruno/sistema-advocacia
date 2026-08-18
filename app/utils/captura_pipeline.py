@@ -106,17 +106,38 @@ def aplicar_carga_inicial(processo, dados_capturados):
         processo.segredo_justica = True
 
 
-def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas):
+def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captura_inicial=False):
     """
     Persiste uma lista de MovimentacaoCapturada (dataclass de
     captura_conectores.py) como registros de Movimentacao, deduplicando
     por hash, rodando a máquina de estados e o motor de próxima ação.
+
+    `captura_inicial=True`: use quando este lote é a PRIMEIRA carga de
+    histórico de um processo (cadastro por CNJ, cadastro manual com busca
+    automática, ou o botão "Tentar captura automática" — ver
+    app/routes/governanca.py e app/routes/processos.py). O DataJud devolve
+    o histórico inteiro do processo de uma vez, que pode ter anos (ou
+    décadas) de movimentações antigas; sem essa flag, cada uma delas que
+    não bater com nenhuma regra cadastrada geraria um prazo "genérico" de
+    análise com vencimento já vencido há anos, inundando a tela de Prazos
+    com dezenas de alarmes falsos (foi exatamente o que aconteceu num
+    processo real de 2002 usado nos testes). Com `captura_inicial=True`,
+    só a movimentação mais RECENTE do lote pode gerar esse prazo genérico
+    (se nenhuma regra específica bater) — o resto fica visível do mesmo
+    jeito na aba Governança (badge "triagem pendente"), só não vira tarefa
+    de prazo. Em captura periódica (captura_inicial=False, padrão — ver
+    capturar_movimentacoes.py) o comportamento não muda: toda movimentação
+    nova de verdade continua gerando seu prazo genérico normalmente.
 
     Devolve o número de movimentações NOVAS persistidas (as já existentes
     são silenciosamente ignoradas — é o comportamento normal em recaptura
     periódica, onde a maioria já foi vista antes). Não faz commit — quem
     chama decide.
     """
+    data_mais_recente_do_lote = max(
+        (c.data for c in movimentacoes_capturadas if c.data), default=None
+    )
+
     novas = 0
     for capturada in movimentacoes_capturadas:
         if not capturada.data:
@@ -136,7 +157,8 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas):
         if historico:
             db.session.add(historico)
 
-        prazo_gerado = aplicar_regra_proxima_acao(mov)
+        permitir_generico = (not captura_inicial) or (capturada.data == data_mais_recente_do_lote)
+        prazo_gerado = aplicar_regra_proxima_acao(mov, permitir_generico=permitir_generico)
         if prazo_gerado:
             db.session.add(prazo_gerado)
             db.session.flush()

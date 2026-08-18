@@ -104,7 +104,7 @@ def novo_por_cnj():
         if dados_capturados:
             aplicar_carga_inicial(processo, dados_capturados)
             qtd_movimentacoes_novas = registrar_movimentacoes_capturadas(
-                processo, dados_capturados["movimentacoes"]
+                processo, dados_capturados["movimentacoes"], captura_inicial=True
             )
             db.session.add(LogCaptura(
                 fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
@@ -451,7 +451,9 @@ def tentar_captura(processo_id):
 
     processo.tribunal_datajud = dados_capturados["tribunal_slug"]
     aplicar_carga_inicial(processo, dados_capturados)
-    novas = registrar_movimentacoes_capturadas(processo, dados_capturados["movimentacoes"])
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados_capturados["movimentacoes"], captura_inicial=True
+    )
     processo.monitoravel = True
     processo.forma_acompanhamento = "automatico"
     processo.motivo_nao_monitoravel = None
@@ -899,7 +901,13 @@ def nova_regra_proxima_acao():
         flash("Regra de próxima ação cadastrada.", "success")
         return redirect(url_for("governanca.regras_proxima_acao_lista"))
 
-    return render_template("governanca/regra_proxima_acao_form.html", regra=None)
+    # Atalho "cadastrar regra" a partir da tela do processo (aba Prazos, ver
+    # detalhe.html) — chega com o texto do ato já preenchido via querystring.
+    prefill = {
+        "ato_capturado": request.args.get("ato_capturado", ""),
+        "codigo_tpu": request.args.get("codigo_tpu", ""),
+    }
+    return render_template("governanca/regra_proxima_acao_form.html", regra=None, prefill=prefill)
 
 
 @governanca_bp.route("/regras-proxima-acao/<int:regra_id>/editar", methods=["GET", "POST"])
@@ -950,24 +958,42 @@ def mapa_estado_lista():
 @apenas_admin
 def novo_mapa_estado():
     if request.method == "POST":
-        codigo_tpu = request.form["codigo_tpu"].strip()
-        if MapaEstadoTPU.query.filter_by(codigo_tpu=codigo_tpu).first():
+        codigo_tpu = request.form.get("codigo_tpu", "").strip() or None
+        texto_contido = request.form.get("texto_contido", "").strip() or None
+
+        # Pelo menos um dos dois é obrigatório — um mapeamento sem código E
+        # sem texto não teria como nunca ser encontrado (ver
+        # estado_processual_engine.traduzir_movimentacao).
+        if not codigo_tpu and not texto_contido:
+            flash("Informe pelo menos o código TPU ou o texto a procurar.", "danger")
+            return redirect(url_for("governanca.novo_mapa_estado"))
+
+        if codigo_tpu and MapaEstadoTPU.query.filter_by(codigo_tpu=codigo_tpu).first():
             flash(f"Já existe um mapeamento cadastrado para o código TPU {codigo_tpu}.", "danger")
             return redirect(url_for("governanca.novo_mapa_estado"))
 
         item = MapaEstadoTPU(
             codigo_tpu=codigo_tpu,
             descricao_tpu=request.form.get("descricao_tpu") or None,
+            texto_contido=texto_contido,
             estado_negocio=request.form["estado_negocio"].strip(),
             ativo=True,
         )
         db.session.add(item)
-        registrar_log(current_user, "criou", "MapaEstadoTPU", None, item.codigo_tpu)
+        registrar_log(current_user, "criou", "MapaEstadoTPU", None, item.codigo_tpu or item.texto_contido)
         db.session.commit()
         flash("Mapeamento de estado cadastrado.", "success")
         return redirect(url_for("governanca.mapa_estado_lista"))
 
-    return render_template("governanca/mapa_estado_form.html", item=None)
+    # Atalho "mapear agora" a partir da lista de andamentos de um processo
+    # (ver app/templates/processos/detalhe.html) — chega aqui com o código e
+    # o começo do texto do ato já preenchidos via querystring, pra não
+    # precisar redigitar o código TPU inteiro.
+    prefill = {
+        "codigo_tpu": request.args.get("codigo_tpu", ""),
+        "descricao_tpu": request.args.get("descricao_tpu", ""),
+    }
+    return render_template("governanca/mapa_estado_form.html", item=None, prefill=prefill)
 
 
 @governanca_bp.route("/mapa-estado-tpu/<int:item_id>/editar", methods=["GET", "POST"])
@@ -977,6 +1003,7 @@ def editar_mapa_estado(item_id):
     item = db.get_or_404(MapaEstadoTPU, item_id)
     if request.method == "POST":
         item.descricao_tpu = request.form.get("descricao_tpu") or None
+        item.texto_contido = request.form.get("texto_contido") or None
         item.estado_negocio = request.form["estado_negocio"].strip()
         registrar_log(current_user, "editou", "MapaEstadoTPU", item.id, item.codigo_tpu)
         db.session.commit()

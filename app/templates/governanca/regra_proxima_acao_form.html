@@ -18,7 +18,7 @@
         <label class="form-label">Ato capturado (texto a procurar na movimentação) *</label>
         <input type="text" name="ato_capturado" class="form-control" required
                placeholder="Ex.: Citação para pagar ou embargar em execução fiscal"
-               value="{{ regra.ato_capturado if regra else '' }}">
+               value="{{ regra.ato_capturado if regra else (prefill.ato_capturado if prefill else '') }}">
         <div class="small text-muted-doc mt-1">
           Quando a movimentação capturada não tiver código TPU reconhecido, o
           sistema procura este texto (sem diferenciar maiúsculas/minúsculas)
@@ -29,7 +29,7 @@
       <div class="col-md-4">
         <label class="form-label">Código TPU (opcional)</label>
         <input type="text" name="codigo_tpu" class="form-control" placeholder="Ex.: 246"
-               value="{{ regra.codigo_tpu if regra else '' }}">
+               value="{{ regra.codigo_tpu if regra else (prefill.codigo_tpu if prefill else '') }}">
         <div class="small text-muted-doc mt-1">Se preenchido, tem prioridade sobre o texto acima.</div>
       </div>
       <div class="col-md-8">

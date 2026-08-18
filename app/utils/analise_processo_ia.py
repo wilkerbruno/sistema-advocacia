@@ -42,6 +42,14 @@ RESUMO_SYSTEM = (
     "ÚLTIMOS ATOS RELEVANTES\n"
     "PRAZOS PENDENTES\n"
     "PONTOS DE ATENÇÃO\n\n"
+    "Regra de formato muito importante: CADA informação do contexto só pode aparecer em UMA seção, "
+    "a mais apropriada — nunca repita a mesma lista ou os mesmos itens em duas seções diferentes. Em "
+    "especial, a seção SITUAÇÃO ATUAL deve ser um parágrafo curto (2 a 4 frases corridas, sem listas e "
+    "sem repetir a lista de prazos) descrevendo em que fase o processo está agora; a lista completa de "
+    "prazos pendentes (com datas) vai APENAS na seção PRAZOS PENDENTES — se quiser mencionar um prazo em "
+    "SITUAÇÃO ATUAL, cite no máximo o mais próximo, nunca a lista inteira de novo. Seja conciso: cada "
+    "seção deve ter poucas linhas, não parágrafos longos — o objetivo é leitura rápida, não um relatório "
+    "completo.\n\n"
     "Use APENAS as informações fornecidas no contexto abaixo — nunca invente fato, data, valor, lei ou "
     "movimentação que não esteja ali. Se um dado relevante não estiver disponível no contexto, escreva "
     "isso explicitamente na seção correspondente em vez de supor ou pular em silêncio. Você não é "
@@ -98,7 +106,12 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
     if prazos_pendentes:
         linhas = [f"- {p.descricao} (vence {p.data_vencimento.strftime('%d/%m/%Y')}, status: {p.status})"
                   for p in prazos_pendentes[:10]]
-        partes.append("Prazos pendentes:\n" + "\n".join(linhas))
+        # Nome deliberadamente diferente do título da seção "PRAZOS PENDENTES"
+        # pedida no system prompt (RESUMO_SYSTEM) — o modelo local (pequeno)
+        # tende a "copiar" de volta um bloco do contexto quando o rótulo bate
+        # com o título de seção pedido, duplicando a lista em duas seções.
+        partes.append("Prazos ainda em aberto no cadastro (usar só na seção PRAZOS PENDENTES da "
+                       "resposta, não repetir em nenhuma outra seção):\n" + "\n".join(linhas))
 
     movs = [m for m in processo.movimentacoes if not m.deletado_em][:limite_itens]
     if movs:
@@ -145,7 +158,14 @@ def gerar_analise(processo, tipo, instrucao=None):
     if tipo == "resumo":
         system = RESUMO_SYSTEM + "\n\nDados do processo:\n" + digest
         pedido = instrucao.strip() if instrucao and instrucao.strip() else "Resuma a situação atual deste processo."
-        max_tokens = 700
+        # 700 tokens vinha sendo pouco pra caber as 4 seções pedidas (RESUMO_SYSTEM)
+        # sem cortar no meio de frase quando o processo tem vários prazos/andamentos
+        # — o digest (até LIMITE_PADRAO_CHARS=6000 chars, ~1500-2000 tokens) mais o
+        # system prompt (~300 tokens) ainda deixam folga confortável dentro da janela
+        # de contexto do modelo local (IA_LOCAL_CONTEXT_SIZE=4096, ver ia_local.py)
+        # pra uma resposta maior.
+        max_tokens = 1100
+
     else:
         if not instrucao or not instrucao.strip():
             raise ValueError("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").")

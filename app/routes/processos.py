@@ -94,7 +94,9 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
     if dados_capturados:
         processo.tribunal_datajud = dados_capturados["tribunal_slug"]
         aplicar_carga_inicial(processo, dados_capturados)
-        novas = registrar_movimentacoes_capturadas(processo, dados_capturados["movimentacoes"])
+        novas = registrar_movimentacoes_capturadas(
+            processo, dados_capturados["movimentacoes"], captura_inicial=True
+        )
         processo.monitoravel = True
         processo.forma_acompanhamento = "automatico"
         processo.motivo_nao_monitoravel = None

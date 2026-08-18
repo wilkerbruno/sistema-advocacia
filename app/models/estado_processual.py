@@ -15,12 +15,35 @@ class MapaEstadoTPU(db.Model):
     Estados adicionais (execução fiscal / administrativo):
     Citado em execução, Garantido o juízo, Embargos opostos,
     Auto de infração, Recurso administrativo pendente.
+
+    Alguns códigos da Tabela Processual Unificada são genéricos demais para
+    carregar sozinhos o significado real do ato — o exemplo mais comum é
+    "Ato ordinatório" (código 11383), usado por muitos tribunais como
+    guarda-chuva para qualquer expediente de mero impulso processual, sem
+    diferenciar o que de fato aconteceu (intimação, remessa dos autos,
+    juntada de petição etc. podem todos cair no mesmo código). Pra esses
+    casos, `texto_contido` permite mapear pelo CONTEÚDO real do ato (um
+    trecho de texto a procurar, sem diferenciar maiúsculas/minúsculas, igual
+    já funciona em RegraProximaAcao.ato_capturado) em vez de depender só do
+    código — ver app/utils/estado_processual_engine.py.
     """
     __tablename__ = "mapa_estado_tpu"
 
     id = db.Column(db.Integer, primary_key=True)
-    codigo_tpu = db.Column(db.String(20), unique=True, nullable=False, index=True)
+    # Opcional a partir de quando texto_contido passou a existir: um código
+    # como "Ato ordinatório" (11383) sozinho não diferencia atos bem
+    # diferentes entre si, então pode fazer sentido ter várias linhas SEM
+    # código (codigo_tpu=None), cada uma casando por um texto_contido
+    # diferente. MySQL permite múltiplos NULL num índice único, então isso
+    # não conflita com o unique= abaixo (que segue impedindo cadastrar o
+    # MESMO código duas vezes).
+    codigo_tpu = db.Column(db.String(20), unique=True, nullable=True, index=True)
     descricao_tpu = db.Column(db.String(255))  # texto original do código (ex: "Conclusos para despacho")
+    # Trecho de texto (opcional) a procurar no texto integral da movimentação
+    # quando o código sozinho não for suficiente/confiável (ex.: "Ato
+    # ordinatório") — só é consultado quando não há mapa pelo código exato.
+    # Cadastro exige pelo menos um dos dois (codigo_tpu ou texto_contido).
+    texto_contido = db.Column(db.String(150), nullable=True)
     estado_negocio = db.Column(db.String(60), nullable=False)
     ativo = db.Column(db.Boolean, default=True)
     atualizado_em = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,5 +1,148 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -15. Resumo do Agente de IA repetia a lista de prazos duas vezes e cortava no meio da frase — corrigido nesta rodada
+
+**O que foi reportado:** no "Resumo dos autos" de um processo real (execução
+fiscal aberta em 2002), a resposta trazia a lista de "Prazos pendentes"
+completa dentro da seção SITUAÇÃO ATUAL, e depois a MESMA lista de novo na
+seção PRAZOS PENDENTES — e ainda cortava no meio de uma frase.
+
+**Causa:** duas coisas se somaram. (1) O contexto real injetado no prompt
+(`montar_digest_processo`, em `app/utils/analise_processo_ia.py`) já trazia
+um bloco rotulado "Prazos pendentes:" com a lista — como o system prompt
+pede uma seção com o título quase idêntico ("PRAZOS PENDENTES"), o modelo
+local (pequeno, roda em janela de contexto de só 4096 tokens — ver
+`app/utils/ia_local.py`) tendia a "copiar de volta" esse bloco em mais de
+um lugar da resposta, em vez de resumir. (2) O limite de tamanho da
+resposta (`max_tokens=700`) era baixo demais pra caber as 4 seções pedidas
+sem cortar no meio — havia folga de sobra na janela de contexto pra uma
+resposta maior (prompt + digest ficam bem abaixo de 4096 tokens), o limite
+de 700 era só um número escolhido sem testar com um caso de processo com
+vários prazos.
+
+**O que foi corrigido:** (1) o rótulo do bloco de prazos no digest foi
+trocado por um que não colide com o título de seção pedido, com uma
+instrução explícita dentro do próprio rótulo pra não repetir a lista fora
+da seção própria; (2) o system prompt (`RESUMO_SYSTEM`) ganhou uma regra
+explícita — cada informação só pode aparecer em UMA seção, SITUAÇÃO ATUAL
+deve ser um parágrafo curto sem listas, a lista completa de prazos vai só
+na seção PRAZOS PENDENTES; (3) `max_tokens` do resumo subiu de 700 para
+1100 (ainda com folga segura dentro da janela de 4096 tokens do modelo
+local). Isso também melhora indiretamente o rascunho de petição, que usa o
+mesmo digest como base factual (ver pendência nº -14 abaixo — a lista de
+prazos ficou bem mais enxuta depois daquela correção, o que por si só já
+reduz o material repetitivo que o modelo tinha pra "copiar").
+
+Não dá pra garantir 100% que um modelo local pequeno nunca mais vai repetir
+nada — é uma limitação de tamanho do modelo, documentada desde o início em
+`analise_processo_ia.py` — mas as duas causas concretas identificadas neste
+caso real foram corrigidas. Se o escritório sentir que a qualidade ainda
+incomoda na prática, o caminho é o modelo local maior (Qwen3-4B, já
+preparado mas desligado por padrão — ver pendência de infraestrutura na
+seção -6 mais abaixo) ou a API do Claude com chave própria (BYOK, já
+suportada em "Minhas Integrações").
+
+Arquivo alterado: `app/utils/analise_processo_ia.py`. Testado no sandbox
+local checando o texto do digest gerado (rótulo não colide mais com o
+título de seção).
+
+## -14. Captura inicial de processo antigo gerava dezenas de "prazos" fantasmas de histórico + mapeamento de estado/próxima ação agora também casa por texto — implementado nesta rodada
+
+**O que foi reportado:** depois de capturar pela primeira vez todo o
+histórico de um processo real de 2002 (execução fiscal, ~10 movimentações
+capturadas de uma vez, todas com o mesmo código TPU 11383 / texto "Ato
+ordinatório"), a tela de Governança mostrava TODAS como "triagem pendente"
+e a aba Prazos mostrava TODAS gerando o mesmo prazo genérico "Análise
+necessária — ato sem regra de próxima ação cadastrada", com vencimentos já
+vencidos há anos (25/08/2002, 11/08/2003, 06/08/2012, 08/06/2014 — inclusive
+6 entradas praticamente iguais na mesma data). A pergunta foi se dava pra
+"trazer dados mais reais".
+
+**Causa raiz nº 1 (bug de verdade, não só falta de cadastro):** o motor de
+próxima ação (`aplicar_regra_proxima_acao`, em `app/utils/prazos_engine.py`)
+sempre foi pensado pra um ato NOVO chegando hoje — sem regra cadastrada,
+cria uma tarefa de análise com prazo provisório de 5 dias a partir da data
+do ato, pra nunca deixar um ato passar em silêncio (exigência do briefing).
+Isso faz todo sentido em captura periódica (um ato realmente novo, de
+verdade sem regra). Mas na captura INICIAL de um processo antigo, o DataJud
+devolve o histórico inteiro de uma vez — e cada uma dessas dezenas de
+movimentações antigas, sem regra cadastrada, virava um "prazo" pendente com
+vencimento (data do ato + 5 dias) plantado lá atrás no passado. Um ato de
+2002 obviamente não tem uma "tarefa pendente hoje" real — o próprio processo
+já seguiu adiante depois dele — mas a tela de Prazos mostrava como se
+tivesse, inundando a lista de alarmes falsos e "envelhecendo" o digest que
+alimenta o Agente de IA (pendência nº -15 acima).
+
+**Correção:** `registrar_movimentacoes_capturadas` (`app/utils/
+captura_pipeline.py`) ganhou um parâmetro `captura_inicial` — quando `True`
+(cadastro por CNJ, cadastro manual com busca automática, botão "Tentar
+captura automática" — os três lugares que fazem a PRIMEIRA carga completa
+de histórico de um processo), só a movimentação mais RECENTE do lote pode
+gerar o prazo genérico de "análise necessária" quando não há regra
+cadastrada; as mais antigas do mesmo lote não geram mais esse prazo
+fantasma. Nada fica escondido: toda movimentação continua 100% visível na
+aba Governança com o badge "triagem pendente", só deixa de virar uma tarefa
+de prazo isolada. Captura periódica (`capturar_movimentacoes.py`, rodando
+via cron) continua com o comportamento de sempre — todo ato novo de
+verdade gera seu prazo genérico normalmente, sem essa restrição.
+
+**Causa raiz nº 2 (limite de configuração, agora com uma saída melhor):**
+"Ato ordinatório" (código TPU 11383) é, na prática, um código "guarda-chuva"
+que vários tribunais usam pra QUALQUER expediente de mero impulso
+processual — intimação, remessa dos autos, juntada de petição podem cair
+todos no mesmo código. Cadastrar "11383 → um estado só" no Mapa de Estado
+(tela Governança > Mapa de estado) mapearia tudo errado, porque o código
+sozinho não diz o que realmente aconteceu. Agora `MapaEstadoTPU` (e a
+mesma lógica que já existia em `RegraProximaAcao`) aceita mapear também
+pelo TEXTO real do ato (`texto_contido`, um trecho a procurar no texto
+integral, sem diferenciar maiúsculas/minúsculas) — inclusive SEM nenhum
+código associado, pra poder cadastrar várias regras de texto diferentes
+para o mesmo código genérico. Isso exigiu tornar `MapaEstadoTPU.codigo_tpu`
+opcional (era obrigatório) — única alteração de coluna já existente feita
+nesta rodada; `sincronizar_schema.py` foi ajustado para aplicar esse tipo
+específico de mudança automaticamente (só AFROUXAR uma restrição existente,
+nunca apertar — o que nunca corrompe/perde dado já cadastrado, ver
+comentário no topo do próprio script).
+
+**Atalho novo pra reduzir o trabalho manual de configurar isso:** a lista
+de movimentações (aba Governança, na tela do processo) agora tem um link
+"mapear agora" em cada linha com triagem pendente, que já abre o formulário
+de novo mapeamento com o código e o começo do texto do ato preenchidos —
+não precisa mais redigitar. O mesmo em Prazos: toda linha com o prazo
+genérico tem um link "cadastrar regra para ..." que abre o formulário de
+nova regra de próxima ação já com o texto do ato preenchido.
+
+Isso continua sendo, no fundo, trabalho de CONFIGURAÇÃO que só o escritório
+pode fazer com segurança (qual é o estado de negócio certo, qual o prazo
+legal certo pra cada tipo de ato — errar aqui é grave, por isso o sistema
+nunca sugere um valor sozinho) — o que mudou é: (1) o histórico antigo não
+gera mais alarme falso de prazo vencido há anos, e (2) cadastrar as regras
+de verdade ficou mais rápido e possível até pra um código tão genérico
+quanto "Ato ordinatório".
+
+Arquivos alterados: `app/models/estado_processual.py` (novo campo
+`texto_contido`, `codigo_tpu` passou a opcional), `app/utils/
+estado_processual_engine.py` (fallback por texto), `app/utils/
+prazos_engine.py` (parâmetro `permitir_generico`), `app/utils/
+captura_pipeline.py` (parâmetro `captura_inicial` + lógica do "só o mais
+recente"), `app/routes/processos.py` e `app/routes/governanca.py` (os três
+pontos de captura inicial passam `captura_inicial=True`; rotas de
+mapeamento/regra aceitam prefill via querystring e validam "pelo menos
+código ou texto"), `app/templates/governanca/mapa_estado_form.html`,
+`app/templates/governanca/mapa_estado_lista.html`, `app/templates/
+governanca/regra_proxima_acao_form.html` e `app/templates/processos/
+detalhe.html` (links "mapear agora"/"cadastrar regra"), e
+`sincronizar_schema.py` (nova etapa de afrouxamento de coluna). Testado no
+sandbox local: captura inicial de um lote com 6 movimentações antigas do
+mesmo código sem regra gerou só 1 prazo genérico (o mais recente), as 6
+continuam visíveis com triagem pendente; captura periódica continua
+gerando 1 prazo por movimentação nova, sem a restrição; mapeamento por
+`texto_contido` resolvendo um código sem mapa exato; duas linhas de
+`MapaEstadoTPU` com `codigo_tpu` nulo coexistindo sem violar a restrição de
+único; telas de mapeamento/regra renderizando com o prefill e recusando
+cadastro sem código nem texto — tudo via Flask test_client + SQLite
+descartável.
+
 ## -13. Descrição/objeto e "Segredo de justiça" também autopreenchidos com o que sobrava do DataJud — implementado nesta rodada
 
 **O que foi pedido:** depois dos campos da pendência nº -12, a pergunta foi

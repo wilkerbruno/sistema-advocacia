@@ -126,12 +126,18 @@
           </form>
         </div>
         {% if processo.prazos %}
+        {% set desc_generica = "Análise necessária — ato sem regra de próxima ação cadastrada" %}
         <table class="table-doc">
           <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {% for p in processo.prazos %}
             <tr>
-              <td>{{ p.descricao }}</td>
+              <td>
+                {{ p.descricao }}
+                {% if p.descricao == desc_generica %}
+                <br><a class="small" href="{{ url_for('governanca.nova_regra_proxima_acao', ato_capturado=p.tipo_ato or '') }}">cadastrar regra para "{{ (p.tipo_ato or '')[:60] }}"</a>
+                {% endif %}
+              </td>
               <td>{{ p.data_vencimento|data_br }}</td>
               <td><span class="badge-status badge-{{ p.prioridade }}">{{ p.prioridade }}</span></td>
               <td><span class="badge-status badge-{{ p.status }}">{{ p.status }}</span></td>
@@ -292,7 +298,9 @@
               <td>{{ m.codigo_tpu or "—" }}</td>
               <td>{{ m.texto_integral[:100] }}</td>
               <td>
-                {% if m.triagem_pendente %}<span class="badge-status badge-pendente">triagem pendente</span>
+                {% if m.triagem_pendente %}
+                <span class="badge-status badge-pendente">triagem pendente</span>
+                <a class="small ms-1" href="{{ url_for('governanca.novo_mapa_estado', codigo_tpu=m.codigo_tpu or '', descricao_tpu=m.texto_integral[:150]) }}">mapear agora</a>
                 {% else %}{{ m.estado_negocio_resultante or "—" }}{% endif %}
               </td>
             </tr>

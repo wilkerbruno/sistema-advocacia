@@ -8,15 +8,35 @@
   <form method="post">
     <div class="row g-3">
       <div class="col-md-5">
-        <label class="form-label">Código TPU *</label>
-        <input type="text" name="codigo_tpu" class="form-control" required placeholder="Ex.: 246"
-               value="{{ item.codigo_tpu if item else '' }}" {{ "readonly" if item }}>
-        {% if item %}<div class="small text-muted-doc mt-1">O código não pode ser alterado depois de criado — cadastre um novo mapeamento se precisar mudar.</div>{% endif %}
+        <label class="form-label">Código TPU {{ "" if item and not item.codigo_tpu else "(pelo menos um dos dois é obrigatório: código ou texto)" }}</label>
+        <input type="text" name="codigo_tpu" class="form-control" placeholder="Ex.: 246 (ou deixe em branco se for mapear só por texto)"
+               value="{{ item.codigo_tpu if item else (prefill.codigo_tpu if prefill else '') }}" {{ "readonly" if item }}>
+        {% if item %}<div class="small text-muted-doc mt-1">
+          {% if item.codigo_tpu %}O código não pode ser alterado depois de criado — cadastre um novo mapeamento se precisar mudar.
+          {% else %}Este mapeamento é só por texto (sem código TPU) — cadastre um novo se também quiser um código.{% endif %}
+        </div>{% endif %}
       </div>
       <div class="col-md-7">
         <label class="form-label">Descrição do código (opcional)</label>
         <input type="text" name="descricao_tpu" class="form-control" placeholder="Ex.: Conclusos para despacho"
-               value="{{ item.descricao_tpu if item else '' }}">
+               value="{{ item.descricao_tpu if item else (prefill.descricao_tpu if prefill else '') }}">
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Texto contém (opcional)</label>
+        <input type="text" name="texto_contido" class="form-control"
+               placeholder="Ex.: remessa dos autos ao arquivo"
+               value="{{ item.texto_contido if item else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Alguns códigos TPU são genéricos demais e cobrem atos bem diferentes
+          entre si — o mais comum é "Ato ordinatório" (código 11383), que
+          tribunais usam pra qualquer expediente de mero impulso, sem
+          diferenciar o que aconteceu de fato. Nesses casos, cadastre um
+          mapeamento por CÓDIGO só pra registrar a descrição, e use este campo
+          num mapeamento à parte pra casar pelo TEXTO real do ato (um trecho,
+          sem diferenciar maiúsculas/minúsculas) — só é usado quando não há
+          mapeamento pelo código exato.
+        </div>
       </div>
 
       <div class="col-12">

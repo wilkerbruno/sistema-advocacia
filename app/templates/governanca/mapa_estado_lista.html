@@ -25,6 +25,7 @@
       <tr>
         <th>Código TPU</th>
         <th>Descrição do código</th>
+        <th>Texto contém</th>
         <th>Estado de negócio</th>
         <th>Status</th>
         <th></th>
@@ -33,8 +34,9 @@
     <tbody>
       {% for i in itens %}
       <tr class="{{ '' if i.ativo else 'text-muted-doc' }}">
-        <td>{{ i.codigo_tpu }}</td>
+        <td>{{ i.codigo_tpu or "—" }}</td>
         <td>{{ i.descricao_tpu or "—" }}</td>
+        <td>{{ i.texto_contido or "—" }}</td>
         <td>{{ i.estado_negocio }}</td>
         <td><span class="badge-status {{ 'badge-concluida' if i.ativo else 'badge-cancelada' }}">{{ "ativo" if i.ativo else "inativo" }}</span></td>
         <td class="d-flex gap-1">
