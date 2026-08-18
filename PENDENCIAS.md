@@ -1,5 +1,78 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -20. Rascunho de petição inventou valores em R$ e uma citação legal, sem marcar nada como [REVISAR] — checagem automática pós-geração
+
+**O que foi reportado:** com o loop de repetição já corrigido (pendência nº
+-19), um novo teste de rascunho de petição gerou um texto bem estruturado
+(endereçamento, DOS FATOS, DO DIREITO, DOS PEDIDOS, fecho, seção de
+revisão) — mas o CONTEÚDO tinha problema grave: o modelo inventou um valor
+de penhora ("R$ 5000"), inventou uma "avaliação do imóvel" de R$ 12.768 e um
+"histórico anterior" de R$ 9.054 (nenhum desses três dados existe em lugar
+nenhum do processo cadastrado), inventou uma citação legal ("Lei nº 167,
+artigo 89 do CPC" — não existe fundamento jurídico correspondente a essa
+citação) e mencionou "o último leilão em julho/2023" sem essa data constar
+em nenhum lugar dos dados reais — e nenhum desses itens veio marcado como
+"[REVISAR: ...]", mesmo o system prompt (`RASCUNHO_SYSTEM`) e o pedido do
+próprio usuário instruindo EXPLICITAMENTE pra nunca inventar valor/data/
+citação e sempre marcar como revisão em vez disso.
+
+**Por que isso é mais grave que os problemas anteriores:** os bugs das
+pendências nº -15/-19 (repetição, duplicação) eram óbvios de perceber — um
+parágrafo repetido 40 vezes não engana ninguém. Este aqui é o oposto:
+números específicos, formatados como se fossem dado real extraído dos
+autos, apresentados com confiança total. Um advogado batendo o olho rápido
+pode facilmente achar que "R$ 12.768" veio de uma avaliação de verdade no
+processo — quando na verdade não veio de lugar nenhum, foi inventado pelo
+modelo.
+
+**Causa:** limitação de capacidade do modelo local (Qwen 1,5B, pequeno,
+grátis, sem GPU) — mesmo com a instrução escrita de forma bem explícita
+(no system prompt E no pedido do usuário), um modelo desse porte pode
+simplesmente não seguir a regra "nunca invente, marque como [REVISAR]" de
+forma confiável. Não é um bug de configuração que dá pra "consertar" só
+escrevendo o prompt melhor — já tentamos isso nas pendências anteriores e o
+modelo ainda assim inventou dado nesta rodada. É um teto de capacidade.
+
+**Correção (defesa em profundidade, não confia só na palavra do modelo):**
+adicionei uma checagem automática DETERMINÍSTICA (código Python puro, não
+outra pergunta pro modelo) que roda DEPOIS da geração de todo rascunho de
+petição: extrai todo valor em R$ mencionado no texto gerado e confere se
+ele aparece, de verdade, nos dados reais do processo que foram injetados no
+contexto (`digest`) — se não aparecer, é sinalizado como possivelmente
+inventado. Da mesma forma, procura citação de lei/artigo/súmula que NÃO
+esteja marcada com "[REVISAR: ...]" como foi pedido, e sinaliza também. Os
+avisos aparecem num bloco "⚠️ VERIFICAÇÃO AUTOMÁTICA" bem no topo do
+rascunho salvo, ANTES do texto da peça — não é mais preciso confiar que o
+modelo vai se auto-policiar corretamente, o sistema confere por fora.
+
+Testado com o texto real que você reportou (reproduzido no teste): a
+checagem identificou corretamente os três valores inventados (R$ 5000, R$
+12.768, R$ 9.054) e a citação legal não marcada ("Lei nº 167", "artigo
+89"), sem acusar falso-positivo no valor real do processo (R$ 10.000,00,
+que estava correto). Também reforcei mais uma vez o `RASCUNHO_SYSTEM` com
+uma frase específica sobre valores em R$ (redundante com a checagem
+automática de propósito — mais uma camada, não substitui a outra).
+
+**Limite honesto do que essa checagem cobre:** ela pega valor em R$ e
+citação legal claramente identificável por padrão de texto — não cobre
+frases inventadas sem número nem citação (ex.: "o imóvel está em bom estado
+de conservação" sem nenhum dado sobre isso no processo) nem datas inventadas
+soltas sem contexto de leilão/valor. Continua sendo indispensável a revisão
+humana completa antes de protocolar qualquer coisa — a checagem automática
+é uma rede de segurança a mais pros erros mais perigosos (número
+específico, citação legal), não uma garantia de rascunho 100% confiável.
+Se esse tipo de invenção continuar incomodando na prática, a solução
+estrutural é a API do Claude com chave própria (BYOK), que erra muito menos
+nesse tipo de instrução — mas mesmo lá, revisão humana continua obrigatória.
+
+Arquivo alterado: `app/utils/analise_processo_ia.py` (`_checar_grounding_rascunho`,
+`_normalizar_valor_monetario`, reforço no `RASCUNHO_SYSTEM`, chamada da
+checagem em `gerar_analise` só pro tipo `rascunho_peticao`). Testado no
+sandbox local com o texto real reportado e com um cenário sintético
+adicional, incluindo confirmação de que a checagem NÃO roda no tipo
+`resumo` (só faz sentido pro rascunho de petição, onde o risco jurídico de
+um dado inventado é maior).
+
 ## -19. Rascunho de petição travou num loop repetindo a mesma frase + resumo listou movimentações como se fossem prazos
 
 **O que foi reportado:** depois da correção do estouro de contexto

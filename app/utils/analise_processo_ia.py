@@ -20,6 +20,8 @@ vez de escondido. Empresas usando a API do Claude (BYOK) têm uma janela de
 contexto bem maior — o mesmo corte se aplica hoje por simplicidade, mas dá
 pra revisitar se isso incomodar na prática.
 """
+import re
+
 from app.utils import agente_ia_router
 
 LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões cada, mais recentes primeiro
@@ -29,6 +31,79 @@ LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões ca
 # resposta. Se um dia ativar o modelo "grande" com IA_LOCAL_CONTEXT_SIZE
 # maior (ver PENDENCIAS.md, seção -6), pode valer a pena subir este valor.
 LIMITE_PADRAO_CHARS = 6000
+
+_PADRAO_VALOR_MONETARIO = re.compile(r"R\$\s*[\d][\d.,]*")
+_PADRAO_CITACAO_LEGAL = re.compile(
+    r"(?:lei\s+n[ºo°.]?\s*[\d./-]+|artigo\s+\d+|art\.?\s*\d+|súmula\s+n?[ºo°.]?\s*\d+)",
+    re.IGNORECASE,
+)
+
+
+def _normalizar_valor_monetario(texto_valor):
+    """'R$ 12.768' / 'R$ 10.000,00' / 'R$10000.00' -> float, tolerando os
+    dois formatos de separador (BR com vírgula decimal, ou cru com ponto).
+    Devolve None se não der pra interpretar como número — melhor esforço,
+    não precisa ser perfeito, só precisa servir pra COMPARAR se dois valores
+    batem ou não (ver `_checar_grounding_rascunho` abaixo)."""
+    limpo = re.sub(r"[^\d,.]", "", texto_valor)
+    if not limpo:
+        return None
+    if "," in limpo:
+        limpo = limpo.replace(".", "").replace(",", ".")
+    try:
+        return round(float(limpo), 2)
+    except ValueError:
+        return None
+
+
+def _checar_grounding_rascunho(resultado, digest):
+    """
+    Checagem automática (determinística, não é mais uma pergunta pro
+    modelo) DEPOIS da geração: procura valor em R$ ou citação legal
+    (lei/artigo/súmula) escritos no rascunho SEM estarem marcados como
+    "[REVISAR: ...]" e sem aparecer nos dados reais do processo (`digest`).
+
+    Existe porque o modelo local (pequeno) já demonstrou, num caso real
+    testado nesta rodada, que pode simplesmente IGNORAR a instrução de
+    "nunca inventar valor/citação, marcar como [REVISAR] em vez disso" —
+    mesmo com essa regra escrita bem explicitamente no system prompt
+    (RASCUNHO_SYSTEM) E no pedido do próprio usuário. Pedir de um jeito
+    melhor não é garantia nenhuma com um modelo desse tamanho; por isso essa
+    checagem não confia na palavra do modelo, ela CONFERE o texto gerado
+    contra o dado real que foi de fato injetado no contexto.
+
+    Devolve uma lista de avisos (strings) — vazia quando nada suspeito foi
+    encontrado. Não impede o rascunho de ser salvo (o advogado que decide o
+    que fazer), só chama atenção pra pontos concretos de forma bem visível,
+    em vez de deixar tudo misturado no meio do texto como se fosse dado
+    confiável.
+    """
+    avisos = []
+
+    valores_no_digest = {
+        v for v in (_normalizar_valor_monetario(m) for m in _PADRAO_VALOR_MONETARIO.findall(digest)) if v is not None
+    }
+    valores_no_resultado = _PADRAO_VALOR_MONETARIO.findall(resultado)
+    vistos = set()
+    for bruto in valores_no_resultado:
+        valor = _normalizar_valor_monetario(bruto)
+        if valor is None or bruto in vistos:
+            continue
+        vistos.add(bruto)
+        if valor not in valores_no_digest:
+            avisos.append(f"O rascunho menciona \"{bruto.strip()}\" — esse valor NÃO aparece nos dados reais "
+                           "do processo injetados no contexto. Pode ter sido inventado pelo modelo; confira "
+                           "com atenção antes de usar.")
+
+    for citacao in _PADRAO_CITACAO_LEGAL.finditer(resultado):
+        inicio, fim = citacao.span()
+        vizinhanca = resultado[max(0, inicio - 60):fim + 15]
+        if "[REVISAR" not in vizinhanca:
+            avisos.append(f"O rascunho cita \"{citacao.group().strip()}\" como se fosse certeza, sem o marcador "
+                           "[REVISAR: ...] pedido — confira se essa citação legal está correta antes de usar; "
+                           "modelos pequenos podem inventar número de lei/artigo/súmula.")
+
+    return avisos
 
 
 def _agrupar_movimentacoes_repetidas(movs):
@@ -125,7 +200,11 @@ RASCUNHO_SYSTEM = (
     "'[REVISAR: ...]' usado acima, para o advogado bater o olho rápido sem precisar reler tudo.\n\n"
     "Regra mais importante de todas: nunca invente citação, número de lei, jurisprudência, data ou "
     "fato que não esteja nos dados fornecidos — marcar como [REVISAR: ...] é sempre melhor do que "
-    "parecer completo e estar errado. Este é um rascunho gerado por um modelo de IA local, de porte "
+    "parecer completo e estar errado. Isso vale IGUALMENTE para qualquer valor em R$ (avaliação de "
+    "bem, valor de penhora, valor atualizado etc.): só escreva um valor em R$ se ele aparecer, "
+    "literalmente, nos dados fornecidos abaixo — se precisar mencionar um valor que não está lá, "
+    "escreva '[REVISAR: valor não consta nos dados do processo]' em vez de estimar, calcular ou "
+    "supor um número. Este é um rascunho gerado por um modelo de IA local, de porte "
     "pequeno: o advogado responsável DEVE revisar, corrigir e validar juridicamente cada trecho antes "
     "de usar, protocolar ou enviar a qualquer parte."
 )
@@ -230,4 +309,13 @@ def gerar_analise(processo, tipo, instrucao=None):
     resultado = agente_ia_router.gerar_resposta(
         empresa, system, [{"role": "user", "content": pedido}], max_tokens=max_tokens
     )
+
+    if tipo == "rascunho_peticao":
+        avisos = _checar_grounding_rascunho(resultado, digest)
+        if avisos:
+            bloco_aviso = ("⚠️ VERIFICAÇÃO AUTOMÁTICA — possíveis dados não confirmados no rascunho abaixo "
+                            "(checagem mecânica contra os dados reais do processo, não é uma opinião do "
+                            "modelo sobre si mesmo):\n" + "\n".join(f"- {a}" for a in avisos))
+            resultado = bloco_aviso + "\n\n" + resultado
+
     return resultado, truncado
