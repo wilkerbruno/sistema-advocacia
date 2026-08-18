@@ -58,5 +58,23 @@ EXPOSE 5000
 # 2 workers o pior caso fica em ~2-3 GB. Se o plano do servidor tiver bastante
 # RAM sobrando (8 GB+), pode voltar pra "-w", "4"; se aparecer erro de
 # memória (worker killed / OOM) mesmo com 2, reduza para "-w", "1".
+#
+# --timeout 300 (era 120): o modelo local de IA roda por CPU (sem GPU) — um
+# rascunho de petição (até 1400 tokens de resposta, ver
+# app/utils/analise_processo_ia.py) com uma instrução longa e detalhada pode
+# passar de 2 minutos pra gerar num servidor mais modesto. Com 120s, o
+# gunicorn matava o worker NO MEIO da geração (WORKER TIMEOUT no log) antes
+# de terminar, e o usuário via só "Internal Server Error" sem explicação —
+# aconteceu de verdade num rascunho de petição real durante os testes desta
+# rodada. 300s dá folga confortável pro pior caso (prompt grande + resposta
+# no limite de tokens) sem deixar o worker preso indefinidamente se travar
+# de verdade por outro motivo. Efeito colateral consciente: como só há 2
+# workers (ver acima), enquanto um deles está gerando uma resposta de IA
+# longa, sobra só 1 worker livre pra atender TODO o resto do sistema (outros
+# usuários, outras telas) — aceitável pra hoje (funcionalidade sob demanda,
+# não é o fluxo principal do sistema), mas se isso incomodar na prática com
+# mais gente usando o Agente de IA ao mesmo tempo, a solução de verdade é
+# tirar essa geração do ciclo de requisição/resposta (fila em segundo plano,
+# ver PENDENCIAS.md) em vez de só aumentar o timeout de novo.
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "--timeout", "120", "run:app"]
+CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "--timeout", "300", "run:app"]

@@ -363,7 +363,7 @@
             servidor, mas com qualidade limitada: <strong>é sempre rascunho para revisão humana,
             nunca texto pronto para protocolar sem conferência de um advogado.</strong>
           </p>
-          <form method="post" action="{{ url_for('processos.gerar_analise_ia', processo_id=processo.id) }}">
+          <form method="post" action="{{ url_for('processos.gerar_analise_ia', processo_id=processo.id) }}" id="form-analise-ia">
             <div class="row g-2 align-items-start">
               <div class="col-md-4">
                 <select name="tipo" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)');">
@@ -377,9 +377,25 @@
                           placeholder="Ex.: contestação alegando decadência do crédito de CFEM"></textarea>
               </div>
             </div>
-            <button type="submit" class="btn btn-brass btn-sm mt-2" {{ "disabled" if not ia_configurada }}>Gerar análise</button>
+            <button type="submit" id="botao-gerar-analise-ia" class="btn btn-brass btn-sm mt-2" {{ "disabled" if not ia_configurada }}>Gerar análise</button>
+            <span id="aviso-gerando-analise-ia" class="small text-muted-doc ms-2" style="display:none;">
+              Gerando com o modelo local (CPU, sem custo) — instruções longas ou processos com bastante
+              histórico podem levar alguns minutos. Não feche nem recarregue a página.
+            </span>
           </form>
         </div>
+        <script>
+        (function () {
+          var form = document.getElementById("form-analise-ia");
+          if (!form) return;
+          form.addEventListener("submit", function () {
+            var botao = document.getElementById("botao-gerar-analise-ia");
+            var aviso = document.getElementById("aviso-gerando-analise-ia");
+            if (botao) { botao.disabled = true; botao.textContent = "Gerando..."; }
+            if (aviso) aviso.style.display = "inline";
+          });
+        })();
+        </script>
 
         {% if analises_ia %}
         {% for a in analises_ia %}

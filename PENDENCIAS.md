@@ -1,5 +1,56 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -17. "Internal Server Error" ao gerar rascunho de petição com instrução longa — gunicorn matava o worker no meio da geração
+
+**O que foi reportado:** gerar um rascunho de petição com uma instrução bem
+detalhada (9 itens, pedido de fundamentação jurídica completa) resultou em
+"Internal Server Error" depois de um tempo de espera. O log do servidor
+mostrou `WORKER TIMEOUT` no meio da geração do modelo de IA local
+(`llama_decode`, dentro de `app/utils/ia_local.py`), seguido do gunicorn
+matando e reiniciando o worker à força.
+
+**Causa:** o modelo de IA local roda por CPU (sem GPU, servidor de produção
+atual sem RAM/recurso sobrando — ver comentário no Dockerfile). Gerar até
+1400 tokens de resposta (limite do rascunho de petição, ver
+`app/utils/analise_processo_ia.py`) a partir de uma instrução longa é lento
+nesse tipo de servidor — pode passar dos 2 minutos tranquilamente. O
+gunicorn, porém, estava configurado com `--timeout 120` (2 minutos): quando
+uma requisição passa desse tempo sem responder, o gunicorn assume que o
+worker travou e o MATA à força no meio do processamento — não é um erro no
+código da geração em si, é o próprio servidor interrompendo um trabalho que
+ainda estava em andamento normalmente, só que demorado.
+
+**Correção:** `--timeout` subiu de 120 para 300 segundos no `Dockerfile`
+(linha do `CMD` do gunicorn) — dá folga confortável pro pior caso (prompt
+grande + resposta no limite de tokens) num servidor sem GPU. Também
+adicionei um aviso na tela (trava o botão "Gerar análise" e mostra "pode
+levar alguns minutos, não feche nem recarregue a página" assim que envia o
+formulário) — antes disso, não tinha nenhum retorno visual durante a espera
+e dava a impressão de que a tela tinha travado, o que provavelmente levava a
+recarregar/tentar de novo e piorar a experiência.
+
+**Trade-off consciente, documentado no próprio Dockerfile:** com só 2
+workers do gunicorn (número já enxuto de propósito, por causa do consumo de
+RAM do modelo — ver comentário logo acima no arquivo), enquanto um worker
+está ocupado gerando uma resposta longa de IA, só sobra 1 worker livre pra
+atender TODO o resto do sistema (outros usuários, outras telas) — por até 5
+minutos no pior caso agora. Acho aceitável hoje, porque é uma
+funcionalidade sob demanda (só quando alguém pede um resumo/rascunho), não
+o fluxo principal do sistema. Se isso passar a incomodar na prática (mais
+gente usando o Agente de IA ao mesmo tempo, ou lentidão notada em outras
+telas durante uma geração), a solução correta não é aumentar o timeout de
+novo — é tirar a geração do ciclo de requisição/resposta (rodar em segundo
+plano, com o usuário sendo avisado quando terminar, parecido com o cron de
+captura periódica que já existe) — registro aqui como próximo passo se o
+uso crescer.
+
+Arquivos alterados: `Dockerfile` (`--timeout 120` → `300`) e
+`app/templates/processos/detalhe.html` (aviso + trava do botão ao enviar o
+formulário do Agente de IA). Esta mudança não passa pela sincronização de
+schema nem precisa reiniciar nada além do próprio redeploy do container —
+como sempre, ao fazer o próximo deploy do `Dockerfile` atualizado, o
+EasyPanel reconstrói a imagem e já sobe com o novo timeout.
+
 ## -16. Comarca vinha em branco em alguns processos (TJSP) sem nenhuma explicação — agora mostra o motivo
 
 **O que foi reportado:** testando um processo do TJSP (0043162-08.2001.8.26.0100),
