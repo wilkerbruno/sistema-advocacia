@@ -1,5 +1,35 @@
 # Status das pendências do briefing (atualizado em 18/08/2026)
 
+## -23. Mesmo bug da pendência nº -22, só que com vírgula em vez de ponto — a checagem de valor voltou a sinalizar o R$ 10.000 real, agora escrito "R$ 10,000"
+
+**O que foi reportado:** logo depois da correção da pendência nº -22 (que
+tratava "R$ 10.000" — ponto sem vírgula — como o valor real de dez mil), um
+novo rascunho de petição pro mesmo processo voltou a sinalizar o mesmo valor
+real como "não confirmado" — só que desta vez o modelo escreveu o valor como
+"R$ 10,000" (vírgula, sem ponto, estilo de milhar em inglês) em vez de
+"R$ 10.000". A correção anterior só tinha ensinado a função a desconfiar de
+UM ponto sozinho seguido de 3 dígitos; não tinha aplicado a mesma lógica pro
+caso espelhado com vírgula sozinha.
+
+**Correção:** apliquei a mesma regra (moeda nunca tem 3 casas decimais) para
+o caso de vírgula sozinha também: se só aparece vírgula (sem ponto) e o
+grupo depois dela tem exatamente 3 dígitos — ou há mais de uma vírgula —
+trata como separador de milhar, não decimal. Testei tanto o caso isolado
+("R$ 10,000" → bate com 10000.00 do cadastro) quanto um texto com as duas
+formas juntas (ponto e vírgula, ambas representando o mesmo valor real) e
+confirmei que nenhuma das duas gera mais aviso de falso-positivo, e que
+valores realmente inventados continuam sendo sinalizados normalmente.
+
+Este é o mesmo tipo de ambiguidade da pendência anterior, só que no
+"espelho" (vírgula em vez de ponto) — o padrão de fundo é que qualquer
+separador sozinho seguido de um grupo de exatamente 3 dígitos é
+estruturalmente impossível de ser decimal de moeda (moeda só tem 0, 1 ou 2
+casas decimais), então a mesma regra agora vale pros dois separadores.
+
+Arquivo alterado: `app/utils/analise_processo_ia.py`
+(`_normalizar_valor_monetario` — ramo da vírgula sozinha ganhou a mesma
+lógica que já existia pro ramo do ponto sozinho).
+
 ## -22. Correção: o valor de R$ 10.000 do relato da pendência nº -21 NÃO era inventado — era o valor real que você mesmo cadastrou, e a checagem automática tinha um falso-positivo por ambiguidade de formato de número
 
 **Correção importante sobre a pendência anterior:** você apontou, com razão,

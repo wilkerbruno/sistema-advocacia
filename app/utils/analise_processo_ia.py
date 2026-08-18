@@ -48,24 +48,40 @@ def _normalizar_valor_monetario(texto_valor):
     precisa servir pra COMPARAR se dois valores batem ou não (ver
     `_checar_grounding` abaixo).
 
-    O caso ambíguo de verdade é um ponto SOZINHO sem vírgula nenhuma (ex.:
-    "10.000") — pode ser "dez mil" (separador de milhar, formato BR sem
-    decimal) ou "dez inteiros e algo" (separador decimal, formato cru). Já
-    aconteceu de dar falso-positivo por causa disso: um valor real (R$
-    10.000 — dez mil, exatamente igual ao cadastrado) foi sinalizado como
-    "não confirmado" só porque "10.000" virou 10.0 em vez de 10000.0.
-    Resolvido com uma regra prática: moeda não costuma ter 3 casas decimais
-    (só 2, tipo "10.000,00" ou "100.00") — então se o(s) grupo(s) depois do
-    último ponto tiverem exatamente 3 dígitos, é separador de milhar
-    (comum em texto gerado sem vírgula BR de verdade); só com 1 ou 2
-    dígitos depois do ponto é que trata como decimal.
+    O caso ambíguo de verdade é UM ÚNICO separador sem o outro (ex.:
+    "10.000" ou, como apareceu depois num caso real, "10,000") — pode ser
+    "dez mil" (separador de milhar, seja ponto ao estilo BR sem decimal ou
+    vírgula ao estilo internacional) ou "dez inteiros e algo" (separador
+    decimal). Já aconteceu de dar falso-positivo por causa disso DAS DUAS
+    formas — primeiro com "10.000" (virou 10.0 em vez de 10000.0), depois
+    de corrigir esse caso, o MESMO valor real voltou a ser sinalizado
+    porque o modelo escreveu dessa vez "10,000" (a checagem só tratava
+    vírgula como decimal, sem aplicar a mesma regra de bom senso). Resolvido
+    com uma regra prática aplicada aos DOIS separadores: moeda não costuma
+    ter 3 casas decimais (só 2, tipo "10.000,00" ou "100.00") — então
+    quando só UM tipo de separador aparece (só ponto, ou só vírgula) e o(s)
+    grupo(s) depois dele tiverem exatamente 3 dígitos (ou houver mais de um
+    separador desse tipo), é separador de milhar, não decimal; só com 1 ou
+    2 dígitos depois do único separador é que trata como decimal. Quando os
+    DOIS separadores aparecem juntos (ex. "10.000,00"), não há ambiguidade:
+    segue o padrão BR (ponto = milhar, vírgula = decimal).
     """
     limpo = re.sub(r"[^\d,.]", "", texto_valor)
     if not limpo:
         return None
-    if "," in limpo:
-        # formato BR com decimal explícito: ponto = milhar, vírgula = decimal.
+    if "," in limpo and "." in limpo:
+        # os dois juntos: sem ambiguidade, formato BR completo.
         limpo = limpo.replace(".", "").replace(",", ".")
+    elif "," in limpo:
+        partes = limpo.split(",")
+        if len(partes) > 2 or len(partes[-1]) == 3:
+            # só vírgula, e o último grupo tem 3 dígitos (ou há mais de uma
+            # vírgula) — não é decimal de moeda, é separador de milhar
+            # (ex. "10,000" escrito num estilo internacional/EN).
+            limpo = "".join(partes)
+        else:
+            # 1-2 dígitos após a única vírgula: decimal ao estilo BR.
+            limpo = limpo.replace(",", ".")
     elif "." in limpo:
         partes = limpo.split(".")
         if len(partes) > 2 or len(partes[-1]) == 3:
