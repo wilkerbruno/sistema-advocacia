@@ -98,10 +98,46 @@ def gerar_resposta(system, mensagens_api, max_tokens=None):
 
     Devolve o texto da resposta (str), sem espaços nas pontas. Levanta
     ModeloIndisponivelError com mensagem amigável se o modelo não estiver
-    pronto — nunca deixa exceção crua vazar pra tela do usuário.
+    pronto (ou se o pedido não couber de jeito nenhum na janela de contexto,
+    ver abaixo) — nunca deixa exceção crua vazar pra tela do usuário.
     """
     modelo = _obter_modelo()
     max_tokens = max_tokens or current_app.config.get("IA_LOCAL_MAX_TOKENS_RESPOSTA", 700)
+    n_ctx = current_app.config.get("IA_LOCAL_CONTEXT_SIZE", 4096)
+
+    # Conta quantos tokens o prompt (system + instrução do usuário) ocupa DE
+    # VERDADE, em vez de simplesmente pedir `max_tokens` de resposta sem
+    # checar se ainda cabe na janela de contexto do modelo local (n_ctx).
+    # Isso já causou um problema real: um pedido de rascunho de petição
+    # longo e detalhado, somado ao digest do processo (ver
+    # app/utils/analise_processo_ia.py), passava do limite de contexto — o
+    # modelo, sem espaço de sobra pra "pensar" numa resposta nova, degenerava
+    # em só ecoar de volta o texto do próprio pedido em vez de gerar a peça
+    # (sintoma clássico de estouro de contexto num modelo pequeno, não um
+    # bug de lógica). Agora o `max_tokens` pedido é sempre limitado ao que
+    # realmente sobra de espaço — e se nem uma resposta mínima couber mais
+    # (pedido do usuário já grande demais sozinho), avisa em vez de gerar
+    # uma resposta capenga ou um eco do próprio prompt.
+    texto_prompt = system + "\n\n" + "\n\n".join(m.get("content", "") for m in mensagens_api)
+    try:
+        n_prompt_tokens = len(modelo.tokenize(texto_prompt.encode("utf-8")))
+    except Exception:
+        n_prompt_tokens = len(texto_prompt) // 3  # estimativa grosseira, só se a contagem exata falhar
+
+    MARGEM_SEGURANCA = 64  # tokens especiais de formatação do chat template, arredondamento etc.
+    MINIMO_RESPOSTA_UTIL = 150  # resposta menor que isso não serve pra nada (viraria lixo cortado)
+    espaco_disponivel = n_ctx - n_prompt_tokens - MARGEM_SEGURANCA
+
+    if espaco_disponivel < MINIMO_RESPOSTA_UTIL:
+        raise ModeloIndisponivelError(
+            "O pedido ficou grande demais para o modelo de IA local processar de uma vez (já "
+            "incluindo os dados do processo injetados automaticamente) — encurte a instrução que "
+            "você escreveu e tente de novo. Se precisar de instruções bem detalhadas com "
+            "frequência, considere usar a API do Claude com chave própria da empresa (\"Minhas "
+            "Integrações\"), que tem uma janela de contexto bem maior."
+        )
+
+    max_tokens = min(max_tokens, espaco_disponivel)
 
     resposta = modelo.create_chat_completion(
         messages=[{"role": "system", "content": system}] + mensagens_api,

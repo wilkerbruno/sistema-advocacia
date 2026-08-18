@@ -375,6 +375,12 @@
                 <label id="instrucao-ia-label" class="form-label small mb-1">Alguma instrução específica? (opcional)</label>
                 <textarea id="instrucao-ia" name="instrucao" class="form-control form-control-sm" rows="2"
                           placeholder="Ex.: contestação alegando decadência do crédito de CFEM"></textarea>
+                <div class="small text-muted-doc mt-1">
+                  O modelo local tem uma janela de contexto pequena, dividida entre os dados do
+                  processo e esta instrução — pedidos muito longos e detalhados podem não caber.
+                  Se aparecer um aviso de "pedido grande demais", encurte o texto aqui (peça o mais
+                  essencial primeiro, refine numa segunda geração) e tente de novo.
+                </div>
               </div>
             </div>
             <button type="submit" id="botao-gerar-analise-ia" class="btn btn-brass btn-sm mt-2" {{ "disabled" if not ia_configurada }}>Gerar análise</button>

@@ -1,5 +1,63 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -18. Rascunho de petição só "ecoava" o próprio pedido de volta, sem gerar a peça — estouro da janela de contexto do modelo local
+
+**O que foi reportado:** depois da correção do timeout (pendência nº -17),
+um novo pedido de rascunho de petição — com uma instrução bem longa e
+estruturada (9 itens pedindo verificação de penhora, leilão, hasta pública,
+fundamentação no CPC etc.) — terminou mais rápido, mas o resultado foi só o
+texto do próprio pedido "copiado" de volta, sem petição nenhuma gerada.
+
+**Causa:** o modelo local roda numa janela de contexto pequena
+(`IA_LOCAL_CONTEXT_SIZE=4096` tokens, ver `app/utils/ia_local.py`) — e esse
+espaço é compartilhado entre TUDO: o system prompt com as instruções de como
+montar a peça (`RASCUNHO_SYSTEM`), o digest com os dados reais do processo
+(`montar_digest_processo`, até `LIMITE_PADRAO_CHARS=6000` caracteres) E a
+instrução que o usuário escreveu — que não tinha limite nenhum de tamanho.
+Antes desta correção, o código simplesmente mandava gerar até 1400 tokens de
+resposta (`max_tokens`) sem checar se esse tanto ainda cabia depois de tudo
+isso — com uma instrução tão detalhada quanto a usada no teste, o prompt
+inteiro (system + digest + instrução) já passava perto ou além dos 4096
+tokens disponíveis. Sem espaço de sobra pra gerar algo novo, o modelo
+degenera nesse tipo de situação: em vez de travar ou dar erro, ele
+simplesmente "continua" o texto mais recente que ainda está no seu campo de
+visão — que, nesse caso, era o próprio pedido do usuário — daí "copiar de
+volta" o prompt em vez de escrever a petição. Não é um bug de lógica na
+peça em si, é estouro de contexto mesmo, sintoma bem conhecido em modelos
+pequenos.
+
+**Correção:** `ia_local.gerar_resposta` agora CONTA de verdade quantos
+tokens o prompt (system + instrução) ocupa antes de pedir a geração, e
+limita o `max_tokens` pedido ao espaço que realmente sobra na janela de
+contexto — nunca mais pede mais do que cabe. Se mesmo uma resposta mínima
+(150 tokens) não couber (instrução gigante demais mesmo assim), a geração
+nem é tentada: aparece um aviso claro pedindo pra encurtar a instrução, em
+vez de gerar uma resposta capenga ou o eco do próprio prompt. Também
+adicionei uma notinha embaixo do campo de instrução, na tela do processo,
+explicando esse limite compartilhado — pra já ficar claro de antemão, sem
+precisar tentar e ver o erro.
+
+Isso é uma limitação real e conhecida do modelo local (pequeno, de
+propósito, pra rodar de graça no próprio servidor sem GPU) — já documentada
+desde o início em `analise_processo_ia.py`. Pedidos muito longos e
+detalhados (como o do teste, com 9 itens) têm mais chance de esbarrar nesse
+limite, principalmente em processos com histórico grande (digest também
+maior). Se isso for uma necessidade recorrente do escritório — instruções
+bem detalhadas com frequência —, o caminho é a API do Claude com chave
+própria (BYOK, "Minhas Integrações"), que tem uma janela de contexto bem
+maior e não sofre desse limite.
+
+Arquivos alterados: `app/utils/ia_local.py` (contagem de tokens do prompt +
+`max_tokens` dinâmico + erro amigável quando não cabe) e
+`app/templates/processos/detalhe.html` (nota explicativa no campo de
+instrução). Testado no sandbox local com um modelo local simulado (3
+cenários: prompt pequeno usa o `max_tokens` pedido normalmente; prompt
+grande tem o `max_tokens` reduzido automaticamente pro espaço disponível;
+prompt gigante demais levanta o aviso amigável em vez de gerar qualquer
+coisa) — sem acesso ao modelo de verdade neste ambiente (sem GPU/o peso do
+modelo não está aqui), mas a lógica de contagem/corte é a mesma
+independente do modelo carregado.
+
 ## -17. "Internal Server Error" ao gerar rascunho de petição com instrução longa — gunicorn matava o worker no meio da geração
 
 **O que foi reportado:** gerar um rascunho de petição com uma instrução bem
