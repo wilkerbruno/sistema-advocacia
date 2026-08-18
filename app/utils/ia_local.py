@@ -143,5 +143,17 @@ def gerar_resposta(system, mensagens_api, max_tokens=None):
         messages=[{"role": "system", "content": system}] + mensagens_api,
         max_tokens=max_tokens,
         temperature=0.3,
+        # repeat_penalty: a biblioteca (llama-cpp-python) usa 1.0 por padrão
+        # quando não é passado explicitamente — ou seja, NENHUMA penalidade
+        # de repetição. Isso já causou um problema real: um rascunho de
+        # petição de um processo com histórico repetitivo (várias
+        # movimentações de texto quase idêntico, ex. vários "Ato
+        # ordinatório") entrou num loop e devolveu a mesma frase repetida
+        # dezenas de vezes até estourar o limite de tokens, em vez de gerar
+        # a peça. 1.2 é um valor padrão bem estabelecido em modelos GGUF
+        # pequenos pra desencorajar esse tipo de loop sem prejudicar
+        # muito a qualidade do texto (valores muito altos, tipo 1.5+,
+        # tendem a deixar o texto estranho/incoerente).
+        repeat_penalty=1.2,
     )
     return resposta["choices"][0]["message"]["content"].strip()

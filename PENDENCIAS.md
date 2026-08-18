@@ -1,5 +1,73 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -19. Rascunho de petição travou num loop repetindo a mesma frase + resumo listou movimentações como se fossem prazos
+
+**O que foi reportado:** depois da correção do estouro de contexto
+(pendência nº -18), um novo teste de rascunho de petição devolveu a mesma
+frase ("O processo foi analisado e concluído em 15 de outubro de 2024, com
+publicação e remessa dos atos.") repetida dezenas de vezes seguidas até
+estourar o limite de tokens — nenhuma petição de verdade foi gerada. Além
+disso, no "Resumo dos autos" do mesmo processo, a seção PRAZOS PENDENTES
+misturou o único prazo de verdade cadastrado com uma lista de
+MOVIMENTAÇÕES (ex.: "15/10/2024: Conclusão", "07/08/2024: Publicação") como
+se todas fossem prazos pendentes — o que é enganoso pra quem lê rápido
+(dá a entender que há 11 prazos vencendo, quando só existe 1 registro real
+de prazo; o resto são só eventos que já aconteceram).
+
+**Causa nº 1 (o loop de repetição):** a biblioteca do modelo local
+(llama-cpp-python) usa `repeat_penalty=1.0` por padrão quando esse parâmetro
+não é passado explicitamente — ou seja, **nenhuma penalidade contra
+repetição**. Confirmei isso direto na assinatura da função na biblioteca
+instalada. Combinado com um processo de histórico repetitivo (várias
+movimentações de texto quase idêntico — muitos "Ato ordinatório" seguidos,
+por exemplo), o modelo pequeno tende a entrar num loop: uma vez que começa
+a repetir uma frase, sem nada desencorajando isso, ele continua repetindo
+até acabar o espaço de tokens da resposta. É um problema bem conhecido em
+modelos GGUF pequenos rodando sem esse parâmetro configurado.
+
+**Causa nº 2 (movimentação virando "prazo"):** o system prompt do resumo
+pedia pra não duplicar listas entre seções (correção da pendência nº -15),
+mas não deixava claro que os itens do bloco "Movimentações capturadas" do
+contexto NUNCA deveriam aparecer na seção PRAZOS PENDENTES — o modelo, ao
+ver várias linhas com data no contexto, colocou algumas na seção errada.
+
+**Correção:**
+1. `app/utils/ia_local.py` agora passa `repeat_penalty=1.2` explicitamente
+   pro modelo (valor padrão bem estabelecido pra esse tipo de modelo pequeno
+   — alto o suficiente pra cortar loops, sem deixar o texto estranho).
+2. `montar_digest_processo` (`app/utils/analise_processo_ia.py`) ganhou uma
+   função nova, `_agrupar_movimentacoes_repetidas`, que colapsa sequências
+   de movimentações CONSECUTIVAS com o mesmo texto numa única linha (ex.:
+   "Ato ordinatório — 5 ocorrências entre 02/08/2024 e 06/08/2024" em vez de
+   5 linhas iguais) — isso ataca o problema por outro ângulo também: um
+   contexto de entrada já repetitivo aumenta a chance do modelo repetir na
+   saída, então reduzir a repetição na ENTRADA ajuda a prevenir o loop, além
+   de economizar espaço no orçamento de caracteres do digest (mais dado de
+   verdade cabe).
+3. O rótulo do bloco de movimentações no digest e o system prompt do resumo
+   (`RESUMO_SYSTEM`) agora deixam explícito: itens de movimentação (mesmo
+   com data) vão SÓ na seção ÚLTIMOS ATOS RELEVANTES, nunca em PRAZOS
+   PENDENTES — só o que vier do bloco "Prazos ainda em aberto" (prazos de
+   verdade, cadastrados na tabela de Prazos) pode aparecer ali.
+
+Como sempre com o modelo local (pequeno, roda de graça, sem GPU): essas
+correções reduzem bastante a CHANCE desses dois problemas, mas não
+eliminam 100% a possibilidade de o modelo cometer erros parecidos em outro
+processo com características diferentes — é uma limitação de tamanho do
+modelo, não algo que dê pra garantir sem trocar de modelo/provedor (modelo
+"grande" local, ou API do Claude BYOK — ambos já documentados como opção em
+rodadas anteriores).
+
+Arquivos alterados: `app/utils/ia_local.py` (`repeat_penalty=1.2`) e
+`app/utils/analise_processo_ia.py` (agrupamento de movimentações repetidas
++ rótulos/instruções mais explícitas sobre qual bloco vai em qual seção).
+Testado no sandbox local: agrupamento de movimentações consecutivas
+repetidas confirmado com um histórico simulado igual ao do processo real
+reportado (várias "Ato ordinatório"/"Publicação" seguidas viram uma linha
+só cada), e `repeat_penalty=1.2` confirmado sendo passado corretamente pra
+chamada do modelo (não dá pra testar a geração de texto de verdade neste
+ambiente sem o modelo/GPU, só a lógica ao redor dela).
+
 ## -18. Rascunho de petição só "ecoava" o próprio pedido de volta, sem gerar a peça — estouro da janela de contexto do modelo local
 
 **O que foi reportado:** depois da correção do timeout (pendência nº -17),

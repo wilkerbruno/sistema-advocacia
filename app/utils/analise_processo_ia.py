@@ -31,6 +31,46 @@ LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões ca
 LIMITE_PADRAO_CHARS = 6000
 
 
+def _agrupar_movimentacoes_repetidas(movs):
+    """
+    Agrupa sequências de movimentações CONSECUTIVAS com o mesmo texto (ex.:
+    vários "Ato ordinatório" seguidos, comum em processos antigos com muito
+    trâmite burocrático repetitivo — ver pendência nº -14 do PENDENCIAS.md)
+    numa única linha ("Ato ordinatório — 5 ocorrências entre X e Y") em vez
+    de uma linha idêntica repetida várias vezes.
+
+    Isso ajuda em duas frentes: economiza espaço no orçamento de caracteres
+    do digest (mais itens de verdade cabem), e reduz o "efeito gatilho" de
+    repetição no modelo local — texto de entrada já repetitivo aumenta a
+    chance dele entrar num loop copiando a mesma frase até estourar o limite
+    de tokens em vez de gerar conteúdo novo (ver `repeat_penalty` em
+    app/utils/ia_local.py, que ataca o mesmo problema por outro ângulo).
+
+    `movs` já vem ordenado mais recente primeiro (ver chamada abaixo) —
+    mantém essa ordem, só colapsa repetições ADJACENTES (não reordena nem
+    agrupa ocorrências que não são seguidas uma da outra, pra não perder o
+    "esse ato aconteceu de novo bem depois" como sinal).
+    """
+    linhas = []
+    i = 0
+    while i < len(movs):
+        texto = movs[i].texto_integral
+        grupo = [movs[i]]
+        j = i + 1
+        while j < len(movs) and movs[j].texto_integral == texto:
+            grupo.append(movs[j])
+            j += 1
+
+        if len(grupo) == 1:
+            linhas.append(f"- {movs[i].data.strftime('%d/%m/%Y')}: {texto}")
+        else:
+            data_mais_recente = grupo[0].data.strftime("%d/%m/%Y")
+            data_mais_antiga = grupo[-1].data.strftime("%d/%m/%Y")
+            linhas.append(f"- {texto} — {len(grupo)} ocorrências entre {data_mais_antiga} e {data_mais_recente}")
+        i = j
+    return linhas
+
+
 RESUMO_SYSTEM = (
     "Você é o assistente de operação jurídica interno de um escritório de advocacia. "
     "Sua tarefa agora é ler os dados reais de UM processo específico (fornecidos abaixo, extraídos "
@@ -47,7 +87,11 @@ RESUMO_SYSTEM = (
     "especial, a seção SITUAÇÃO ATUAL deve ser um parágrafo curto (2 a 4 frases corridas, sem listas e "
     "sem repetir a lista de prazos) descrevendo em que fase o processo está agora; a lista completa de "
     "prazos pendentes (com datas) vai APENAS na seção PRAZOS PENDENTES — se quiser mencionar um prazo em "
-    "SITUAÇÃO ATUAL, cite no máximo o mais próximo, nunca a lista inteira de novo. Seja conciso: cada "
+    "SITUAÇÃO ATUAL, cite no máximo o mais próximo, nunca a lista inteira de novo. IMPORTANTE: PRAZOS "
+    "PENDENTES só pode conter itens que vieram do bloco 'Prazos ainda em aberto' do contexto — nunca "
+    "coloque ali um item do bloco 'Histórico de movimentações', mesmo que ele tenha data; movimentação "
+    "não é a mesma coisa que prazo, e listar uma como se fosse a outra é um erro de informação, não só "
+    "de formatação. Seja conciso: cada "
     "seção deve ter poucas linhas, não parágrafos longos — o objetivo é leitura rápida, não um relatório "
     "completo.\n\n"
     "Use APENAS as informações fornecidas no contexto abaixo — nunca invente fato, data, valor, lei ou "
@@ -115,8 +159,17 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
 
     movs = [m for m in processo.movimentacoes if not m.deletado_em][:limite_itens]
     if movs:
-        linhas = [f"- {m.data.strftime('%d/%m/%Y')}: {m.texto_integral}" for m in movs]
-        partes.append("Movimentações capturadas (mais recente primeiro):\n" + "\n".join(linhas))
+        linhas = _agrupar_movimentacoes_repetidas(movs)
+        # Nome do rótulo evita colidir com o título de seção "ÚLTIMOS ATOS
+        # RELEVANTES" pedido no prompt (mesmo motivo do rótulo de prazos
+        # acima) — e explica de onde cada seção da resposta deve vir, pra
+        # não misturar item de movimentação com item de prazo na resposta
+        # (já aconteceu: o modelo listou movimentações como se fossem
+        # prazos pendentes, com data e tudo, dentro da seção errada).
+        partes.append("Histórico de movimentações capturadas, mais recente primeiro (usar só na seção "
+                       "ÚLTIMOS ATOS RELEVANTES da resposta — isto aqui NÃO são prazos, mesmo tendo "
+                       "data; não colocar nenhum destes itens na seção PRAZOS PENDENTES):\n"
+                       + "\n".join(linhas))
 
     decisoes = list(processo.decisoes)[:limite_itens]
     if decisoes:
