@@ -32,7 +32,7 @@ LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões ca
 # maior (ver PENDENCIAS.md, seção -6), pode valer a pena subir este valor.
 LIMITE_PADRAO_CHARS = 6000
 
-_PADRAO_VALOR_MONETARIO = re.compile(r"R\$\s*[\d][\d.,]*")
+_PADRAO_VALOR_MONETARIO = re.compile(r"R\$\s*\d(?:[\d.,]*\d)?")
 _PADRAO_CITACAO_LEGAL = re.compile(
     r"(?:lei\s+n[ºo°.]?\s*[\d./-]+|artigo\s+\d+|art\.?\s*\d+|súmula\s+n?[ºo°.]?\s*\d+)",
     re.IGNORECASE,
@@ -41,39 +41,77 @@ _PADRAO_CITACAO_LEGAL = re.compile(
 
 def _normalizar_valor_monetario(texto_valor):
     """'R$ 12.768' / 'R$ 10.000,00' / 'R$10000.00' -> float, tolerando os
-    dois formatos de separador (BR com vírgula decimal, ou cru com ponto).
-    Devolve None se não der pra interpretar como número — melhor esforço,
-    não precisa ser perfeito, só precisa servir pra COMPARAR se dois valores
-    batem ou não (ver `_checar_grounding_rascunho` abaixo)."""
+    formatos de separador que aparecem tanto no digest (cru, ponto como
+    decimal — vem de `str(Decimal)`) quanto no que o modelo escreve (BR,
+    ponto como milhar e vírgula como decimal). Devolve None se não der pra
+    interpretar como número — melhor esforço, não precisa ser perfeito, só
+    precisa servir pra COMPARAR se dois valores batem ou não (ver
+    `_checar_grounding` abaixo).
+
+    O caso ambíguo de verdade é um ponto SOZINHO sem vírgula nenhuma (ex.:
+    "10.000") — pode ser "dez mil" (separador de milhar, formato BR sem
+    decimal) ou "dez inteiros e algo" (separador decimal, formato cru). Já
+    aconteceu de dar falso-positivo por causa disso: um valor real (R$
+    10.000 — dez mil, exatamente igual ao cadastrado) foi sinalizado como
+    "não confirmado" só porque "10.000" virou 10.0 em vez de 10000.0.
+    Resolvido com uma regra prática: moeda não costuma ter 3 casas decimais
+    (só 2, tipo "10.000,00" ou "100.00") — então se o(s) grupo(s) depois do
+    último ponto tiverem exatamente 3 dígitos, é separador de milhar
+    (comum em texto gerado sem vírgula BR de verdade); só com 1 ou 2
+    dígitos depois do ponto é que trata como decimal.
+    """
     limpo = re.sub(r"[^\d,.]", "", texto_valor)
     if not limpo:
         return None
     if "," in limpo:
+        # formato BR com decimal explícito: ponto = milhar, vírgula = decimal.
         limpo = limpo.replace(".", "").replace(",", ".")
+    elif "." in limpo:
+        partes = limpo.split(".")
+        if len(partes) > 2 or len(partes[-1]) == 3:
+            # "1.234.567" (vários grupos) ou "10.000" (um grupo de 3 dígitos)
+            # — nenhum dos dois é decimal de moeda (moeda usa 2 casas), então
+            # todo ponto aqui é separador de milhar, não decimal.
+            limpo = "".join(partes)
+        # senão (1-2 dígitos após o único ponto, ex. "100.00" ou "12.7"):
+        # mantém como decimal — não mexe em `limpo`.
     try:
         return round(float(limpo), 2)
     except ValueError:
         return None
 
 
-def _checar_grounding_rascunho(resultado, digest):
+def _checar_grounding(resultado, digest):
     """
     Checagem automática (determinística, não é mais uma pergunta pro
     modelo) DEPOIS da geração: procura valor em R$ ou citação legal
-    (lei/artigo/súmula) escritos no rascunho SEM estarem marcados como
+    (lei/artigo/súmula) escritos na resposta SEM estarem marcados como
     "[REVISAR: ...]" e sem aparecer nos dados reais do processo (`digest`).
 
-    Existe porque o modelo local (pequeno) já demonstrou, num caso real
-    testado nesta rodada, que pode simplesmente IGNORAR a instrução de
+    Existe porque o modelo local (pequeno) já demonstrou, em casos reais
+    testados nesta rodada, que pode simplesmente IGNORAR a instrução de
     "nunca inventar valor/citação, marcar como [REVISAR] em vez disso" —
-    mesmo com essa regra escrita bem explicitamente no system prompt
-    (RASCUNHO_SYSTEM) E no pedido do próprio usuário. Pedir de um jeito
-    melhor não é garantia nenhuma com um modelo desse tamanho; por isso essa
-    checagem não confia na palavra do modelo, ela CONFERE o texto gerado
-    contra o dado real que foi de fato injetado no contexto.
+    mesmo com essa regra escrita bem explicitamente no system prompt E no
+    pedido do próprio usuário. Exemplos reais capturados nos testes desta
+    rodada incluem valores em R$ e citações de lei/artigo que não apareciam
+    em lugar nenhum dos dados do processo. Por isso esta checagem roda para
+    os dois tipos de análise (ver `gerar_analise` abaixo), não só pro
+    rascunho de petição. Pedir de um jeito melhor no prompt não é garantia
+    nenhuma com um modelo desse tamanho; por isso essa checagem não confia
+    na palavra do modelo, ela CONFERE o texto gerado contra o dado real que
+    foi de fato injetado no contexto.
+
+    ⚠️ Atenção ao ler um aviso desta checagem: "não aparece no digest" NÃO
+    é sinônimo de "inventado pelo modelo". Já aconteceu de sinalizar um
+    valor 100% real (cadastrado pelo usuário) por causa de ambiguidade na
+    hora de comparar os números como texto — ver o caso do ponto sozinho em
+    `_normalizar_valor_monetario` acima. Esta checagem é uma checagem
+    MECÂNICA de texto, não semântica: ela compara se os dígitos batem, não
+    se o fato é verdadeiro. Trate cada aviso como "confira este ponto com
+    atenção", nunca como "isto é uma alucinação confirmada".
 
     Devolve uma lista de avisos (strings) — vazia quando nada suspeito foi
-    encontrado. Não impede o rascunho de ser salvo (o advogado que decide o
+    encontrado. Não impede o texto de ser salvo (o advogado que decide o
     que fazer), só chama atenção pra pontos concretos de forma bem visível,
     em vez de deixar tudo misturado no meio do texto como se fosse dado
     confiável.
@@ -310,12 +348,15 @@ def gerar_analise(processo, tipo, instrucao=None):
         empresa, system, [{"role": "user", "content": pedido}], max_tokens=max_tokens
     )
 
-    if tipo == "rascunho_peticao":
-        avisos = _checar_grounding_rascunho(resultado, digest)
-        if avisos:
-            bloco_aviso = ("⚠️ VERIFICAÇÃO AUTOMÁTICA — possíveis dados não confirmados no rascunho abaixo "
-                            "(checagem mecânica contra os dados reais do processo, não é uma opinião do "
-                            "modelo sobre si mesmo):\n" + "\n".join(f"- {a}" for a in avisos))
-            resultado = bloco_aviso + "\n\n" + resultado
+    # Roda pros dois tipos (resumo E rascunho de petição) — um valor em R$
+    # ou citação sem lastro nos dados reais é igualmente enganoso nos dois,
+    # não só na peça (ver docstring de `_checar_grounding` acima: já
+    # aconteceu de verdade no resumo também, não só no rascunho).
+    avisos = _checar_grounding(resultado, digest)
+    if avisos:
+        bloco_aviso = ("⚠️ VERIFICAÇÃO AUTOMÁTICA — possíveis dados não confirmados no texto abaixo "
+                        "(checagem mecânica contra os dados reais do processo, não é uma opinião do "
+                        "modelo sobre si mesmo):\n" + "\n".join(f"- {a}" for a in avisos))
+        resultado = bloco_aviso + "\n\n" + resultado
 
     return resultado, truncado

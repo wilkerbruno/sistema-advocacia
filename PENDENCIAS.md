@@ -1,4 +1,115 @@
-# Status das pendências do briefing (atualizado em 17/08/2026)
+# Status das pendências do briefing (atualizado em 18/08/2026)
+
+## -22. Correção: o valor de R$ 10.000 do relato da pendência nº -21 NÃO era inventado — era o valor real que você mesmo cadastrou, e a checagem automática tinha um falso-positivo por ambiguidade de formato de número
+
+**Correção importante sobre a pendência anterior:** você apontou, com razão,
+que o valor de R$ 10.000 mencionado no relato da pendência nº -21 foi
+digitado por você mesmo no campo "Valor da causa" — não foi inventado pelo
+modelo. Eu tinha concluído o contrário com base numa tela antiga (de antes de
+você preencher o campo) e escrevi isso errado tanto na conversa quanto nos
+comentários do código e na pendência nº -21. Peço desculpa pela confusão:
+a afirmação de que "o campo Valor da causa está vazio e o modelo inventou
+~R$ 10.000" estava incorreta. Deixei uma nota de correção também dentro do
+próprio código (`_checar_grounding`, em `app/utils/analise_processo_ia.py`),
+já que a pendência nº -21 continua registrada abaixo por histórico, mas o
+trecho específico sobre o campo vazio não reflete mais a realidade.
+
+**O bug de verdade, que essa confusão ajudou a descobrir:** a função que
+compara "o valor que o modelo escreveu" com "o valor real cadastrado"
+(`_normalizar_valor_monetario`) tinha uma ambiguidade não tratada: quando o
+modelo escreve um valor com PONTO e sem vírgula nenhuma (ex.: "R$ 10.000",
+do jeito que o modelo local costuma escrever, sem seguir a formatação BR
+completa com vírgula decimal), não dava pra saber se aquele ponto era
+separador de milhar ("dez mil", que é o que o modelo quis dizer) ou separador
+decimal ("dez inteiros e zero-zero-zero", formato cru que vem do banco). A
+função escolhia sempre a leitura decimal — "10.000" virava 10.0 — o que NUNCA
+batia com o valor real de 10000.0 guardado no cadastro, e por isso a checagem
+acusava, errado, que o valor "não aparece nos dados reais do processo".
+
+**Correção aplicada:** já que valor monetário nunca tem 3 casas decimais (só
+0, 1 ou 2), agora a função usa essa regra pra desempatar: se o(s) grupo(s)
+depois do(s) ponto(s) tiverem exatamente 3 dígitos (ou houver mais de um
+ponto), trata todos os pontos como separador de milhar; só com 1 ou 2 dígitos
+depois do único ponto é que continua tratando como decimal. Testei essa regra
+contra uma bateria de casos (incluindo o caso real relatado, "10.000" → deve
+bater com 10000.00 do cadastro; "100.00" com só 2 casas → não pode virar
+100000; "1.234.567" com vários grupos; valores já vistos em relatos
+anteriores como "12.768" e "9.054") e também um teste de ponta a ponta
+simulando o digest real com Valor da causa = R$ 10000.00 e uma resposta da
+IA escrevendo "R$ 10.000" — confirmado que não gera mais aviso de
+falso-positivo, e que um valor genuinamente inventado (ex. "R$ 99.999,99",
+ausente do digest) continua sendo sinalizado normalmente.
+
+Também reforcei o comentário da função `_checar_grounding` deixando
+explícito que ela é uma checagem MECÂNICA de texto (compara dígitos), não
+uma checagem de verdade/mentira — um aviso dela significa "confira este
+ponto", nunca "isto é uma alucinação confirmada". Foi exatamente essa
+diferença que causou a confusão desta rodada.
+
+Arquivo alterado: `app/utils/analise_processo_ia.py`
+(`_normalizar_valor_monetario` com a nova regra de desempate, docstring de
+`_checar_grounding` corrigida e reforçada).
+
+## -21. Checagem automática (pendência nº -20) tinha um bug que deixava passar valor seguido de vírgula de pontuação + estendida também para o Resumo
+
+**O que foi reportado:** testando de novo depois da pendência nº -20, a
+checagem automática funcionou bem para várias citações legais inventadas e
+alguns valores — mas o próprio texto trazia inconsistência forte: o mesmo
+processo apareceu com "R$ 100,00", "R$ 100.00" e "(mil reais)" ao mesmo
+tempo (nem "cem reais" bate com "mil reais" escrito do lado), e depois "R$
+10.000"/"R$ 10,000" mencionados de novo na seção de pedidos — tudo sinalizado
+corretamente como não confirmado, o que já ajudou bastante. Só que ao
+investigar, achei um bug na PRÓPRIA checagem (não no modelo): quando um
+valor real aparece seguido de vírgula de pontuação da frase (ex.: "R$
+10.000,00, em fase..." — a primeira vírgula é decimal, a segunda é só
+pontuação), a expressão regular antiga capturava a vírgula de pontuação
+JUNTO do valor ("R$ 10.000,00,"), o que quebrava a conversão pra número e
+fazia a checagem simplesmente PULAR esse valor em silêncio — um
+falso-negativo, o oposto do que deveria acontecer.
+
+**Correção:** ajustei a expressão regular de valores em R$ pra sempre
+terminar num dígito de verdade (nunca num separador solto), o que resolve
+tanto esse caso (não captura mais a vírgula de pontuação da frase) quanto
+um problema irmão que só apareceu ao testar mais fundo — números de 4+
+dígitos sem nenhum separador (ex.: "R$ 5000", "R$9054") estavam sendo
+CORTADOS no meio pela versão de teste seguinte que eu tentei (virava "R$
+500" ou "R$905", perdendo um dígito) — a versão final captura os dois casos
+corretamente. Testei os dois cenários lado a lado pra não reintroduzir um
+problema tentando corrigir o outro.
+
+**⚠️ Correção (ver pendência nº -22 acima):** o parágrafo abaixo, escrito
+nesta rodada, partiu de uma tela desatualizada e concluiu errado que o
+campo "Valor da causa" estava vazio e que o ~R$ 10.000 mencionado era
+invenção do modelo — na verdade você já tinha preenchido esse campo, o
+valor era real, e o que causou o alarme falso foi um bug separado na própria
+checagem (ambiguidade de formato numérico), corrigido na pendência nº -22.
+Mantido abaixo só por histórico de como o problema foi rastreado.
+
+**Também notei, olhando os dados de novo (texto original, ver correção
+acima):** o campo "Valor da causa" deste processo real está VAZIO no
+cadastro (você mesmo confirmou isso na tela "Editar processo" mais cedo) —
+e mesmo assim, tanto o Resumo quanto o Rascunho de petição mencionaram um
+valor de causa (~R$ 10.000) com confiança, em gerações SEPARADAS. Ou seja,
+esse tipo de invenção não é
+exclusivo do rascunho de petição — o Resumo dos autos também é vulnerável,
+só que a checagem automática da pendência nº -20 só tinha sido ligada pro
+rascunho. Agora ela roda para os DOIS tipos de análise (resumo e rascunho),
+já que o risco de um valor inventado passar despercebido é o mesmo nos
+dois. Vale conferir/preencher o campo "Valor da causa" de verdade neste
+processo, se você tiver esse dado à mão — com o campo preenchido
+corretamente, o modelo tem a informação real disponível e não precisa mais
+"adivinhar".
+
+Arquivo alterado: `app/utils/analise_processo_ia.py` (regex de valor
+monetário corrigida, checagem de grounding passou a rodar pros dois tipos
+de análise, função renomeada de `_checar_grounding_rascunho` para
+`_checar_grounding` já que não é mais exclusiva do rascunho). Testado no
+sandbox: valor seguido de pontuação de frase agora é capturado
+corretamente (era o falso-negativo relatado), múltiplas variantes malformadas
+continuam sendo pegas, valor real (em formato diferente do texto gerado)
+continua sem gerar falso-positivo, e o Resumo dos autos agora também exibe
+o aviso quando aplicável — reproduzindo o cenário exato relatado (valor de
+causa vazio no cadastro, modelo inventa um valor mesmo assim).
 
 ## -20. Rascunho de petição inventou valores em R$ e uma citação legal, sem marcar nada como [REVISAR] — checagem automática pós-geração
 
