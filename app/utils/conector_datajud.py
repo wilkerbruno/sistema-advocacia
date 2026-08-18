@@ -214,6 +214,14 @@ class ConectorDataJud(ConectorCaptura):
             "grau": origem.get("grau"),
             "instancia": rotulo_grau(origem.get("grau")),
             "comarca": ibge.nome_municipio(codigo_municipio),
+            # Guarda o código cru mesmo quando a comarca não foi resolvida,
+            # pra dar pra distinguir os dois motivos possíveis de vir vazia:
+            # (a) este tribunal/registro não devolveu codigoMunicipioIBGE
+            # nenhum (comum — nem todo tribunal preenche esse campo em todo
+            # processo), de (b) o código veio, mas a consulta à API do IBGE
+            # falhou ou não achou o nome (aí sim vale tentar de novo depois).
+            # Ver aviso montado em app/routes/governanca.py::consultar_cnj_preview.
+            "comarca_codigo_ibge": codigo_municipio,
             # Sistema/formato/sigilo — dados que não têm campo próprio no
             # cadastro, então viram nota na Descrição/objeto (ver
             # app/utils/captura_pipeline.py::montar_nota_datajud) em vez de

@@ -166,6 +166,20 @@ def consultar_cnj_preview():
     except ConexaoDataJudError as e:
         return jsonify(valido=True, encontrado=False, motivo=str(e))
 
+    # Comarca veio vazia — explica qual dos dois motivos foi (ver comentário
+    # em conector_datajud.py sobre "comarca_codigo_ibge"), em vez de deixar
+    # o campo simplesmente em branco sem explicação nenhuma.
+    comarca_aviso = None
+    if not dados.get("comarca"):
+        codigo_municipio = dados.get("comarca_codigo_ibge")
+        if codigo_municipio:
+            comarca_aviso = (f"O DataJud indicou o código de município IBGE {codigo_municipio} para "
+                              "este processo, mas não consegui confirmar o nome agora (falha ao consultar "
+                              "a API do IBGE) — tente de novo em instantes, ou preencha a comarca à mão.")
+        else:
+            comarca_aviso = ("O DataJud não informou o código do município para este processo/tribunal "
+                              "— preencha a comarca à mão.")
+
     return jsonify(
         valido=True, encontrado=True,
         tribunal_slug=dados["tribunal_slug"],
@@ -187,6 +201,7 @@ def consultar_cnj_preview():
         # todo tribunal/processo devolve esses dois; ficam None quando não dá.
         instancia=dados.get("instancia"),
         comarca=dados.get("comarca"),
+        comarca_aviso=comarca_aviso,
         # Nota com o que não tem campo próprio no cadastro (mais de um
         # assunto, sistema/formato, sigilo) — ver
         # app/utils/captura_pipeline.py::montar_nota_datajud. None quando

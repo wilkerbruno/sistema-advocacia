@@ -1,5 +1,55 @@
 # Status das pendências do briefing (atualizado em 17/08/2026)
 
+## -16. Comarca vinha em branco em alguns processos (TJSP) sem nenhuma explicação — agora mostra o motivo
+
+**O que foi reportado:** testando um processo do TJSP (0043162-08.2001.8.26.0100),
+a busca automática encontrou 347 movimentações e preencheu Área do direito,
+Tipo de ação, Instância, Vara/Tribunal e Data de distribuição — mas Comarca e
+Valor da causa ficaram em branco, diferente de um teste anterior (processo do
+TJMS) em que a Comarca tinha vindo preenchida.
+
+**Diagnóstico:** eu não tenho acesso ao JSON de resposta real que o DataJud
+devolveu pra esse processo específico (ambiente onde eu trabalho não alcança
+a API do DataJud nem os logs do servidor em produção), então não dá pra
+cravar a causa exata sem isso. O que dá pra afirmar com o código: a Comarca
+depende de DOIS passos em sequência — (1) o DataJud precisa devolver
+`orgaoJulgador.codigoMunicipioIBGE` na resposta, e (2) o sistema consulta a
+API pública do IBGE com esse código pra descobrir o nome da cidade. Cada
+tribunal/vara do país preenche os campos da própria resposta de um jeito
+levemente diferente — nem todos preenchem esse código sempre —, e antes
+dessa correção, se qualquer um dos dois passos falhasse, o campo ficava em
+branco em silêncio, sem indicar qual dos dois foi. Já o Valor da causa é mais
+simples: o campo `valorCausa` frequentemente não vem na resposta do DataJud
+mesmo (é opcional/tribunal-dependente) — não tem outro dado equivalente pra
+tentar de novo, então quando falta, falta mesmo, sem jeito de "descobrir".
+
+**O que foi corrigido:** a pré-visualização (tanto em "Novo processo"/"Editar
+processo" quanto ao salvar) agora MOSTRA o motivo específico embaixo do
+campo Comarca quando ele fica em branco, em vez de só deixar vazio sem
+explicação: "o DataJud não informou o código do município" (passo 1 falhou —
+provavelmente esse tribunal/registro específico não preenche esse dado) ou
+"o DataJud indicou o código X, mas não consegui confirmar o nome agora"
+(passo 2 falhou — vale tentar de novo, pode ter sido instabilidade pontual
+da API do IBGE). Também adicionei uma notinha fixa explicando que "Valor da
+causa" nem sempre vem do DataJud (não é bug, é limitação de dado na fonte) e
+uma nota em "Advogado da parte contrária" avisando que o DataJud também não
+expõe isso (mesma restrição de LGPD que já existia só na Parte contrária).
+
+Se depois de testar mais processos a Comarca continuar vindo em branco com o
+aviso "não informou o código do município" (passo 1), é sinal de que aquele
+tribunal específico realmente não preenche esse dado no DataJud — nesse caso
+não tem solução automática (o dado simplesmente não existe na fonte pública).
+Se aparecer com frequência o aviso "não consegui confirmar o nome agora"
+(passo 2), me avise — pode ser algo na consulta ao IBGE que vale eu olhar
+com mais calma.
+
+Arquivos alterados: `app/utils/conector_datajud.py` (guarda o código IBGE
+cru mesmo quando não resolve o nome), `app/routes/governanca.py` (monta o
+aviso na pré-visualização) e `app/templates/processos/form.html` (mostra o
+aviso, e as duas notas fixas novas). Testado no sandbox local simulando os
+três cenários (sem código nenhum / código presente mas IBGE fora do ar /
+tudo funcionando) — cada um devolve o aviso certo.
+
 ## -15. Resumo do Agente de IA repetia a lista de prazos duas vezes e cortava no meio da frase — corrigido nesta rodada
 
 **O que foi reportado:** no "Resumo dos autos" de um processo real (execução
