@@ -88,6 +88,64 @@
   </div>
 </div>
 
+<div class="card-doc tab p-0 mt-3">
+  <div class="p-3 pb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <strong>API de integração (Data Lake)</strong>
+      <div class="small text-muted-doc">
+        Token de leitura pra essa empresa sincronizar os próprios dados
+        (processos, movimentações, decisões, prazos) num Data Lake externo —
+        ver <code>/api/v1/*</code>. Cada empresa só enxerga os próprios dados
+        com o próprio token.
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('plataforma.gerar_token_integracao', empresa_id=empresa.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-brass btn-sm">Gerar novo token</button>
+    </form>
+  </div>
+
+  {% if token_novo %}
+  <div class="p-3">
+    <div class="alert alert-warning py-2 px-3 small">
+      <strong>Copie agora — este valor não vai ser mostrado de novo:</strong>
+      <div class="mt-2" style="word-break: break-all; font-family: monospace; user-select: all;">{{ token_novo }}</div>
+    </div>
+  </div>
+  {% endif %}
+
+  <table class="table-doc mb-0">
+    <thead><tr><th>Token</th><th>Criado em</th><th>Último uso</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for t in tokens_integracao %}
+      <tr>
+        <td><code>{{ t.prefixo }}…</code></td>
+        <td>{{ t.criado_em|data_hora_br if t.criado_em else "—" }}</td>
+        <td>{{ t.ultimo_uso_em|data_hora_br if t.ultimo_uso_em else "nunca usado" }}</td>
+        <td>
+          {% if t.ativo %}
+            <span class="badge-status badge-cumprido">ativo</span>
+          {% else %}
+            <span class="badge-status badge-cancelada">revogado</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if t.ativo %}
+          <form method="post" action="{{ url_for('plataforma.revogar_token_integracao', empresa_id=empresa.id, token_id=t.id) }}"
+                onsubmit="return confirm('Revogar este token? Qualquer integração usando esse valor para de funcionar imediatamente.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Revogar</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-muted-doc small">Nenhum token gerado ainda para esta empresa.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 <div class="mt-3">
   <a href="{{ url_for('plataforma.empresas') }}" class="linha-link small">← Voltar para empresas clientes</a>
 </div>

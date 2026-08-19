@@ -34,6 +34,7 @@
 </div>
 
 <form method="post" action="{{ url_for('agente_ia.enviar_mensagem', conversa_id=conversa.id) }}" class="d-flex gap-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
   <textarea name="mensagem" class="form-control" rows="2" placeholder="Escreva sua pergunta..." required></textarea>
   <button type="submit" class="btn btn-brass">Enviar</button>
 </form>

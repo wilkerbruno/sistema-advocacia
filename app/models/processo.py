@@ -107,6 +107,14 @@ class Processo(db.Model):
     senha_processo = db.relationship("SenhaProcesso", back_populates="processo",
                                       uselist=False, cascade="all, delete-orphan")
 
+    # Lista de acesso explícita para processo sigiloso (segredo_justica=True)
+    # — ver ProcessoAcessoRestrito abaixo e app/utils/acesso.py::
+    # usuario_pode_ver_processo. Só é consultada quando segredo_justica é
+    # True; num processo normal não tem efeito nenhum (acesso continua só
+    # por unidade, como sempre).
+    acessos_restritos = db.relationship("ProcessoAcessoRestrito", back_populates="processo",
+                                         cascade="all, delete-orphan")
+
     @property
     def percentual_provisionamento_efetivo(self):
         """Percentual usado no cálculo da provisão: o valor definido manualmente
@@ -236,3 +244,36 @@ class Documento(db.Model):
 
     enviado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
     enviado_por = db.relationship("Usuario")
+
+
+class ProcessoAcessoRestrito(db.Model):
+    """
+    Lista de acesso de um processo marcado como sigiloso
+    (`Processo.segredo_justica=True`) — correção de segurança (ver
+    PENDENCIAS.md seção -28 e AUDITORIA_GRANDE_PORTE.md item 1.3):
+    `segredo_justica` antes era só um rótulo visual, sem nenhum efeito
+    real sobre quem conseguia abrir o processo — qualquer usuário da
+    mesma unidade via.
+
+    Cada linha aqui é "usuário X pode ver o processo Y", ALÉM das pessoas
+    que já têm acesso automaticamente mesmo sem estar nesta lista: admin
+    da empresa (admin sempre vê tudo da própria empresa, sigiloso ou não
+    — mesma regra que já vale hoje pra qualquer outro dado), o
+    responsável pelo processo (`Processo.responsavel_id`) e quem cadastrou
+    (`Processo.criado_por_id`). Um processo SEM `segredo_justica` nunca
+    consulta esta tabela — continua valendo só a regra de unidade de
+    sempre.
+    """
+    __tablename__ = "processos_acesso_restrito"
+    __table_args__ = (db.UniqueConstraint("processo_id", "usuario_id", name="uq_processo_usuario_acesso"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    processo_id = db.Column(db.Integer, db.ForeignKey("processos.id"), nullable=False)
+    processo = db.relationship("Processo", back_populates="acessos_restritos")
+
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    usuario = db.relationship("Usuario", foreign_keys=[usuario_id])
+
+    concedido_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
+    concedido_por = db.relationship("Usuario", foreign_keys=[concedido_por_id])
+    concedido_em = db.Column(db.DateTime, default=datetime.utcnow)

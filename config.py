@@ -52,10 +52,15 @@ class Config:
     # mínimo necessário para nunca gravar a senha em texto puro no banco.
     COFRE_SENHA_PROCESSO_KEY = os.environ.get("COFRE_SENHA_PROCESSO_KEY", "")
 
-    # API de leitura autenticada para o Data Lake do escritório (seção 12).
-    # Sem essa variável definida, a API /api/v1/* responde 503 (nunca abre
-    # os dados sem token configurado).
-    DATALAKE_API_TOKEN = os.environ.get("DATALAKE_API_TOKEN", "")
+    # ⚠️ DEPRECATED (correção de segurança, ver PENDENCIAS.md seção -28):
+    # a API de leitura /api/v1/* (app/routes/api_integracao.py) usava um
+    # único token global aqui, que dava acesso aos dados de TODAS as
+    # empresas clientes da plataforma, sem filtro por empresa nenhum —
+    # vazamento de dados entre clientes. Essa variável NÃO É MAIS LIDA em
+    # lugar nenhum do código; os tokens agora são um por empresa,
+    # gerados em /plataforma/empresas/<id> (tabela `tokens_integracao`).
+    # Mantida aqui só como lembrete para você remover do .env quando
+    # puder — não faz mais nada.
 
     # Envio do relatório semanal por e-mail (seção 10). Sem essas variáveis,
     # o script enviar_relatorio_semanal.py avisa e não tenta enviar.

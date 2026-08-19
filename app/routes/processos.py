@@ -7,8 +7,14 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
-from app.models import Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento, Movimentacao, AnaliseProcessoIA, LogCaptura
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
+from app.models import (
+    Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
+    Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito,
+)
+from app.utils.acesso import (
+    aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
+    unidades_do_escopo, usuarios_do_escopo, checar_acesso_processo_ou_403, filtrar_processos_visiveis,
+)
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils import tribunais_datajud, agente_ia_router
 from app.utils.analise_processo_ia import gerar_analise
@@ -119,7 +125,7 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
 @processos_bp.route("/")
 @login_required
 def listar():
-    query = aplicar_escopo_unidade(Processo.query, Processo)
+    query = filtrar_processos_visiveis(aplicar_escopo_unidade(Processo.query, Processo))
 
     status = request.args.get("status")
     area = request.args.get("area")
@@ -224,7 +230,7 @@ def novo():
 @login_required
 def detalhe(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
     from app.models import RegraProximaAcao
     regras_ativas = RegraProximaAcao.query.filter_by(ativo=True).order_by(RegraProximaAcao.ato_capturado).all()
     analises_ia = AnaliseProcessoIA.query.filter_by(processo_id=processo.id) \
@@ -239,7 +245,7 @@ def detalhe(processo_id):
 @login_required
 def editar(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
     unidades = unidades_do_escopo() if current_user.is_admin else None
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).order_by(Cliente.nome).all()
     responsaveis = Usuario.query.filter_by(unidade_id=processo.unidade_id, ativo=True).all()
@@ -268,6 +274,24 @@ def editar(processo_id):
         processo.responsavel_id = request.form.get("responsavel_id") or processo.responsavel_id
         if current_user.is_admin and request.form.get("unidade_id"):
             processo.unidade_id = int(request.form["unidade_id"])
+
+        # Lista de acesso explícita para processo sigiloso (ver
+        # app/models/processo.py::ProcessoAcessoRestrito e
+        # app/utils/acesso.py::usuario_pode_ver_processo) — só admin
+        # gerencia quem entra na lista, e o campo só é enviado pelo form
+        # quando quem está editando é admin (ver processos/form.html).
+        if current_user.is_admin:
+            ids_marcados = {int(v) for v in request.form.getlist("acesso_usuario_ids") if v.isdigit()}
+            ids_atuais = {a.usuario_id for a in processo.acessos_restritos}
+            for usuario_id in ids_marcados - ids_atuais:
+                db.session.add(ProcessoAcessoRestrito(
+                    processo_id=processo.id, usuario_id=usuario_id, concedido_por_id=current_user.id,
+                ))
+            if ids_atuais - ids_marcados:
+                ProcessoAcessoRestrito.query.filter(
+                    ProcessoAcessoRestrito.processo_id == processo.id,
+                    ProcessoAcessoRestrito.usuario_id.in_(ids_atuais - ids_marcados),
+                ).delete(synchronize_session=False)
 
         # Risco / contingenciamento / desfecho (BI e paridade — só chega aqui
         # quando o processo já existe, o form de criação não expõe esses campos)
@@ -317,9 +341,13 @@ def editar(processo_id):
             flash("Processo atualizado com sucesso.", "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
+    usuarios_para_acesso = usuarios_do_escopo() if current_user.is_admin else []
+    usuarios_com_acesso_ids = {a.usuario_id for a in processo.acessos_restritos}
     return render_template("processos/form.html", processo=processo, unidades=unidades,
                             clientes=clientes, responsaveis=responsaveis,
-                            tribunais_datajud=tribunais_datajud.TODOS)
+                            tribunais_datajud=tribunais_datajud.TODOS,
+                            usuarios_para_acesso=usuarios_para_acesso,
+                            usuarios_com_acesso_ids=usuarios_com_acesso_ids)
 
 
 # ---------- Andamentos (linha do tempo) ----------
@@ -328,7 +356,7 @@ def editar(processo_id):
 @login_required
 def add_andamento(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     andamento = Andamento(
         processo_id=processo.id,
@@ -350,7 +378,7 @@ def add_andamento(processo_id):
 @login_required
 def add_prazo(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     responsavel_id = request.form.get("responsavel_id") or current_user.id
     prazo = Prazo(
@@ -387,7 +415,7 @@ def atualizar_status_prazo(prazo_id):
     `cumprir_prazo_com_evidencia`, que exige evidência.
     """
     prazo = db.get_or_404(Prazo, prazo_id)
-    checar_acesso_unidade_ou_403(prazo.processo.unidade_id)
+    checar_acesso_processo_ou_403(prazo.processo)
     novo_status = request.form.get("status")
 
     if novo_status == "cumprido":
@@ -413,7 +441,7 @@ def cumprir_prazo_com_evidencia(prazo_id):
     já anexado ao processo, ex: comprovante de protocolo).
     """
     prazo = db.get_or_404(Prazo, prazo_id)
-    checar_acesso_unidade_ou_403(prazo.processo.unidade_id)
+    checar_acesso_processo_ou_403(prazo.processo)
 
     evidencia_mov_id = request.form.get("evidencia_movimentacao_id") or None
     evidencia_doc_id = request.form.get("evidencia_documento_id") or None
@@ -451,7 +479,7 @@ def cumprir_prazo_com_evidencia(prazo_id):
 @login_required
 def add_audiencia(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     data_str = f"{request.form['data']} {request.form['hora']}"
     audiencia = Audiencia(
@@ -475,7 +503,7 @@ def add_audiencia(processo_id):
 @login_required
 def atualizar_status_audiencia(audiencia_id):
     audiencia = db.get_or_404(Audiencia, audiencia_id)
-    checar_acesso_unidade_ou_403(audiencia.processo.unidade_id)
+    checar_acesso_processo_ou_403(audiencia.processo)
     novo_status = request.form.get("status")
     audiencia.status = novo_status
     db.session.commit()
@@ -489,7 +517,7 @@ def atualizar_status_audiencia(audiencia_id):
 @login_required
 def add_documento(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     arquivo = request.files.get("arquivo")
     if not arquivo or arquivo.filename == "":
@@ -527,7 +555,7 @@ def add_documento(processo_id):
 @login_required
 def baixar_documento(documento_id):
     doc = db.get_or_404(Documento, documento_id)
-    checar_acesso_unidade_ou_403(doc.processo.unidade_id)
+    checar_acesso_processo_ou_403(doc.processo)
     pasta_processo = os.path.join(current_app.config["UPLOAD_FOLDER"], str(doc.processo_id))
     return send_from_directory(pasta_processo, doc.nome_arquivo,
                                 as_attachment=True, download_name=doc.nome_original)
@@ -537,7 +565,7 @@ def baixar_documento(documento_id):
 @login_required
 def excluir_documento(documento_id):
     doc = db.get_or_404(Documento, documento_id)
-    checar_acesso_unidade_ou_403(doc.processo.unidade_id)
+    checar_acesso_processo_ou_403(doc.processo)
     processo_id = doc.processo_id
     caminho = os.path.join(current_app.config["UPLOAD_FOLDER"], str(processo_id), doc.nome_arquivo)
     if os.path.exists(caminho):
@@ -559,7 +587,7 @@ def excluir_documento(documento_id):
 @login_required
 def gerar_analise_ia(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     tipo = request.form.get("tipo")
     instrucao = request.form.get("instrucao", "").strip()
@@ -598,7 +626,7 @@ def gerar_analise_ia(processo_id):
 @login_required
 def excluir_analise_ia(analise_id):
     analise = db.get_or_404(AnaliseProcessoIA, analise_id)
-    checar_acesso_unidade_ou_403(analise.processo.unidade_id)
+    checar_acesso_processo_ou_403(analise.processo)
     processo_id = analise.processo_id
     db.session.delete(analise)
     registrar_log(current_user, "excluiu_analise_ia", "Processo", processo_id, analise.tipo)

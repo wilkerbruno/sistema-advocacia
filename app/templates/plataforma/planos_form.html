@@ -23,6 +23,7 @@
   {% endif %}
 
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-12">
         <label class="form-label">Mensal (R$) *</label>

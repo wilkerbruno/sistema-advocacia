@@ -1,5 +1,165 @@
 # Status das pendências do briefing (atualizado em 19/08/2026)
 
+## -28. Corrigidos os 3 achados críticos da auditoria (-27): token do Data Lake por empresa, proteção CSRF em todo o sistema, e sigilo de processo agora bloqueia acesso de verdade
+
+**O que foi pedido:** você pediu pra começar pelos 3 itens críticos da
+seção 1 do `AUDITORIA_GRANDE_PORTE.md` — falhas de segurança já ativas em
+produção, não melhorias futuras. Os três foram corrigidos e testados
+nesta rodada.
+
+### 1) API do Data Lake (`/api/v1/*`) — token por empresa, não mais um único token global
+
+**Como era:** um único `DATALAKE_API_TOKEN` no `.env` dava acesso de
+leitura aos processos/movimentações/decisões/prazos de **todas** as
+empresas clientes da plataforma, sem filtro nenhum por empresa.
+
+**Como ficou:** tabela nova `tokens_integracao` (`TokenIntegracao`, ver
+`app/models/token_integracao.py`) — um token por empresa, gerado e
+revogado na tela `/plataforma/empresas/<id>` (nova seção "API de
+integração (Data Lake)"). Só o HASH do token é guardado; o valor puro só
+aparece uma vez, no momento em que é gerado. Toda consulta em
+`app/routes/api_integracao.py` agora filtra pela empresa dona do token
+(mesma função `aplicar_escopo_unidade`/`ids_unidades_da_empresa` que o
+resto do sistema já usa). **`DATALAKE_API_TOKEN` no `.env` não faz mais
+nada** — se você tinha alguma integração usando o token antigo, ela parou
+de funcionar; gere um token novo pela tela pra empresa certa e atualize a
+configuração do lado do Data Lake.
+
+### 2) Proteção CSRF ativada em todo o sistema
+
+**Como era:** `Flask-WTF` estava instalado mas `CSRFProtect` nunca era
+chamado — nenhum formulário do sistema tinha proteção contra CSRF.
+
+**Como ficou:** `CSRFProtect(app)` ativado em `app/__init__.py` (objeto
+`csrf` em `app/extensions.py`). Adicionei `<input type="hidden"
+name="csrf_token" value="{{ csrf_token() }}">` em todo formulário POST
+que eu tinha uma cópia local pra editar (28 arquivos de template — lista
+completa no fim desta seção) e um `<meta name="csrf-token">` em
+`base.html` pras duas chamadas `fetch(...POST...)` em JavaScript
+(notificações). O webhook do Mercado Pago (`/webhooks/mercadopago`) foi
+isentado de propósito (`@csrf.exempt`) — é uma chamada servidor-a-servidor
+externa, sem cookie de sessão nem token CSRF pra enviar.
+
+**⚠️ Isto é importante — meu ambiente de testes está incompleto (ver seção
+-26 mais abaixo), então NÃO tenho certeza de ter coberto 100% dos
+formulários do seu projeto real.** Durante os testes desta rodada eu
+mesmo descobri três templates que meu sandbox não tinha
+(`auth/login.html`, `processos/listar.html`, `admin/unidades.html`) —
+`login.html` eu isentei de CSRF temporariamente (ver `app/routes/auth.py`,
+`@csrf.exempt` na view `login`, com um comentário explicando) porque não
+tive como confirmar/editar esse template sem risco de sobrescrever algo
+que já existe de forma diferente no seu projeto de verdade.
+
+**Depois de subir esta versão, rode este comando no seu projeto real**
+pra achar qualquer formulário POST que eu não tenha coberto (o comando
+lista todo template com `method="post"` que AINDA NÃO tem `csrf_token`):
+
+```bash
+grep -rL "csrf_token" $(grep -rl 'method="post"' app/templates -i) 2>/dev/null
+```
+
+Se aparecer algum arquivo na lista (além de `auth/login.html`, que já
+sei que falta), me avise qual — eu adiciono o campo nesse template
+específico. Sem isso, esse formulário específico vai passar a responder
+`400 Bad Request` ao tentar salvar, até o campo ser adicionado (nenhum
+dado é perdido, o formulário só não salva até o campo existir).
+
+### 3) `segredo_justica` agora bloqueia acesso de verdade (antes era só um rótulo visual)
+
+**Como era:** marcar um processo como sigiloso não tinha nenhum efeito
+sobre quem conseguia abri-lo — testei na prática e confirmei que
+qualquer usuário da mesma unidade via normalmente.
+
+**Como ficou:** tabela nova `processos_acesso_restrito`
+(`ProcessoAcessoRestrito`, ver `app/models/processo.py`) — lista explícita
+de quem mais pode ver um processo sigiloso, além de quem já tem acesso
+automaticamente (admin da empresa, o responsável pelo processo, quem
+cadastrou). Nova função `usuario_pode_ver_processo`/
+`checar_acesso_processo_ou_403` em `app/utils/acesso.py`, aplicada em
+TODAS as rotas que abrem um processo ou algo vinculado a ele (detalhe,
+edição, andamentos, prazos, audiências, documentos — incluindo download —,
+análises de IA, cofre de senha do processo, movimentações, captura),
+tanto em `app/routes/processos.py` quanto em `app/routes/governanca.py`.
+Também criei `filtrar_processos_visiveis`, aplicada nas listagens/painéis
+principais (`processos.listar`, `governanca.painel`,
+`governanca.fila_intimacoes`) — um processo sigiloso sem permissão nem
+aparece mais nessas telas, não só fica bloqueado se você tentar abrir
+direto pela URL.
+
+Na tela de edição do processo (`processos/form.html`), quando quem edita
+é admin e o processo já existe, aparece uma lista de checkboxes "Quem mais
+pode ver este processo" — só tem efeito quando "Processo em segredo de
+justiça" está marcado.
+
+**Não cobri nesta rodada** (documentando pra não esconder, não porque
+esqueci): os painéis de estatística puramente agregada
+(`governanca.metricas`, `governanca.produtividade`,
+`governanca.contingenciamento`, `governanca.relatorio_semanal_preview`)
+ainda incluem processos sigilosos nos números/médias agregados — não
+identificam qual processo é qual nessas telas, então achei um risco bem
+menor que os itens já corrigidos, mas é um gap real que fica pra uma
+próxima rodada se você quiser fechar também.
+
+**Testado no sandbox:** os três itens foram testados de ponta a ponta
+(token isolando dados entre duas empresas diferentes, geração/revogação
+pela tela real; POST sem token CSRF bloqueado com 400 e com token
+passando, header `X-CSRFToken` funcionando pras chamadas fetch, webhook
+isento continuando a funcionar; funcionário sem relação com um processo
+sigiloso tomando 403 e sumindo da listagem, responsável e admin sempre
+com acesso, acesso concedido pela tela de edição liberando o funcionário
+imediatamente).
+
+**Como isso chega em produção:** as duas tabelas novas
+(`tokens_integracao`, `processos_acesso_restrito`) são criadas
+automaticamente na próxima vez que você rodar `python
+sincronizar_schema.py` (mesmo passo de sempre, testei contra um banco
+"antigo" simulado e a sincronização detectou exatamente as 2 tabelas
+faltando, sem mexer em mais nada). Depois disso, gere os tokens de
+integração novos pela tela `/plataforma/empresas/<id>` pra quem precisar
+da API do Data Lake, e rode o `grep` acima pra achar qualquer formulário
+que eu não tenha coberto com CSRF.
+
+<details>
+<summary>Lista completa dos 28 templates com csrf_token adicionado</summary>
+
+admin/unidade_form.html, admin/usuario_form.html,
+agenda/compromisso_form.html, agente_ia/conversa.html,
+agente_ia/index.html, auth/cadastro_empresa.html, clientes/form.html,
+financeiro/listar.html, governanca/mapa_estado_form.html,
+governanca/mapa_estado_lista.html, governanca/novo_por_cnj.html,
+governanca/regra_proxima_acao_form.html,
+governanca/regras_proxima_acao_lista.html,
+integracoes/minhas_integracoes.html, licenciamento/minha_licenca.html,
+licenciamento/modulos.html, plataforma/empresa_detalhe.html,
+plataforma/empresa_form.html, plataforma/licenca_form.html,
+plataforma/modulo_form.html, plataforma/modulos_empresa.html,
+plataforma/modulos_lista.html, plataforma/painel_licencas.html,
+plataforma/planos_form.html, processos/detalhe.html, processos/form.html,
+tarefas/form.html, tarefas/listar.html, timesheet/form.html,
+timesheet/listar.html.
+
+</details>
+
+## -27. Auditoria completa do sistema como escritório de grande porte — ver `AUDITORIA_GRANDE_PORTE.md`
+
+**O que foi pedido:** analisar o projeto inteiro e testar como se fosse um
+escritório de advocacia real, apontando o que falta implementar ou
+melhorar para atividades reais de um escritório de **grande porte**.
+
+**Como ficou:** rodei seis auditorias independentes (gestão processual,
+financeiro/faturamento, clientes/documentos/LGPD, segurança/permissões/
+auditoria, agente de IA/automações, infraestrutura/escala/integrações),
+cada uma lendo o código e testando no meu ambiente local. Os achados
+completos, organizados por prioridade, estão em `AUDITORIA_GRANDE_PORTE.md`
+(arquivo novo, na raiz do projeto). Resumo rápido: os três achados mais
+graves são falhas de segurança **já ativas** hoje em produção — a API do
+Data Lake (`/api/v1/*`) vaza dados de todas as empresas clientes, não só
+da dona do token; não existe proteção CSRF em nenhum formulário apesar do
+Flask-WTF estar instalado; e o campo `segredo_justica` não restringe
+acesso de verdade (confirmado testando na prática). Nada disso foi
+corrigido ainda — o arquivo é só o mapa do que existe e do que falta, para
+você decidir prioridade.
+
 ## -26. ALERTA IMPORTANTE: descobri que meu ambiente de testes (sandbox) está incompleto — pode ter sobrescrito arquivo(s) de verdade no seu computador na pendência nº -24. Preciso que você confira.
 
 **O que descobri:** ao testar a funcionalidade de preços padrão (pendência

@@ -22,6 +22,7 @@
       {% endwith %}
 
       <form method="post" class="mt-4">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="mb-3">
           <label class="form-label">Nome da empresa *</label>
           <input type="text" name="empresa_nome" class="form-control" required value="{{ form.empresa_nome or '' }}">

@@ -23,6 +23,7 @@
 
         {% if not licenca.esta_ativa() %}
         <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-brass">Pagar agora (Mercado Pago)</button>
         </form>
         {% else %}

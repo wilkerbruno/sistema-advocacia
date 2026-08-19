@@ -6,6 +6,7 @@
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 720px;">
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-md-8">
         <label class="form-label">Nome da empresa *</label>

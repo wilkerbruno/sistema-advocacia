@@ -26,7 +26,8 @@ from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, De
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
                          MapaEstadoTPU, RegraProximaAcao)
 from app.utils.acesso import (aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
-                               unidades_do_escopo, usuarios_do_escopo, apenas_admin)
+                               unidades_do_escopo, usuarios_do_escopo, apenas_admin,
+                               checar_acesso_processo_ou_403, filtrar_processos_visiveis)
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
@@ -283,7 +284,7 @@ def importar_lote():
 @login_required
 def cadastrar_senha_processo(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     valor = request.form.get("valor")
     tribunal = request.form.get("tribunal")
@@ -323,7 +324,7 @@ def cadastrar_senha_processo(processo_id):
 @login_required
 def ver_senha_processo(processo_id):
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     senha = SenhaProcesso.query.filter_by(processo_id=processo.id).first()
     if not senha:
@@ -361,7 +362,7 @@ def nova_movimentacao(processo_id):
     o mesmo pipeline que rodaria automaticamente quando o conector existir.
     """
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     data_str = request.form.get("data")
     codigo_tpu = request.form.get("codigo_tpu") or None
@@ -414,7 +415,7 @@ def nova_movimentacao(processo_id):
 def marcar_nao_monitoravel(processo_id):
     """3º caminho da seção 5.1: marcação explícita, nunca buraco silencioso."""
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
     motivo = request.form.get("motivo", "").strip() or "Motivo não informado"
     processo.forma_acompanhamento = "nao_monitoravel"
     processo.monitoravel = False
@@ -439,7 +440,7 @@ def tentar_captura(processo_id):
     precisar, nunca duplica nem sobrescreve o que já foi preenchido à mão.
     """
     processo = db.get_or_404(Processo, processo_id)
-    checar_acesso_unidade_ou_403(processo.unidade_id)
+    checar_acesso_processo_ou_403(processo)
 
     tribunal_hint = request.form.get("tribunal_datajud") or processo.tribunal_datajud
     if not processo.numero_processo:
@@ -495,6 +496,7 @@ def fila_intimacoes():
     )
     if not current_user.is_admin:
         query = query.filter(Processo.unidade_id == current_user.unidade_id)
+    query = filtrar_processos_visiveis(query)
 
     prazos = query.order_by(Prazo.data_vencimento).all()
     hoje = date.today()
@@ -512,7 +514,7 @@ def painel():
         prazos_base = Prazo.query.join(Processo).filter(Processo.unidade_id == current_user.unidade_id)
     else:
         prazos_base = Prazo.query.join(Processo)
-    prazos_base = prazos_base.filter(Prazo.deletado_em.is_(None))
+    prazos_base = filtrar_processos_visiveis(prazos_base).filter(Prazo.deletado_em.is_(None))
 
     prazos_7d = prazos_base.filter(
         Prazo.status != "cumprido", Prazo.data_vencimento.between(hoje, hoje + timedelta(days=7))

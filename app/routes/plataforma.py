@@ -10,7 +10,10 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from app.extensions import db
-from app.models import Empresa, Unidade, Usuario, Licenca, Pagamento, Modulo, EmpresaModulo, ConfiguracaoPlataforma
+from app.models import (
+    Empresa, Unidade, Usuario, Licenca, Pagamento, Modulo, EmpresaModulo,
+    ConfiguracaoPlataforma, TokenIntegracao,
+)
 from app.utils.acesso import apenas_admin_desenvolvedor
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils.modulos import (
@@ -196,10 +199,67 @@ def detalhe_empresa(empresa_id):
         .count()
     )
     pedidos_pendentes = EmpresaModulo.query.filter_by(empresa_id=empresa.id, status="solicitado").count()
+    tokens_integracao = (
+        TokenIntegracao.query.filter_by(empresa_id=empresa.id)
+        .order_by(TokenIntegracao.criado_em.desc()).all()
+    )
     return render_template(
         "plataforma/empresa_detalhe.html", empresa=empresa, unidades=unidades, usuarios=usuarios,
         modulos_ativos=modulos_ativos, pedidos_pendentes=pedidos_pendentes,
+        tokens_integracao=tokens_integracao, token_novo=None,
     )
+
+
+# ---------------------- Tokens da API de integração (Data Lake) ----------------------
+# Cada empresa tem os próprios tokens, isolados das demais (ver
+# app/models/token_integracao.py e app/routes/api_integracao.py — correção
+# de segurança do token único global antigo, PENDENCIAS.md seção -28).
+
+@plataforma_bp.route("/empresas/<int:empresa_id>/tokens/novo", methods=["POST"])
+@login_required
+@apenas_admin_desenvolvedor
+def gerar_token_integracao(empresa_id):
+    empresa = db.get_or_404(Empresa, empresa_id)
+    token, valor_puro = TokenIntegracao.emitir_para(empresa, current_user)
+    registrar_log(current_user, "gerou_token_integracao", "Empresa", empresa.id, empresa.nome)
+    db.session.commit()
+
+    # Renderiza direto (sem redirect) pra poder mostrar o valor puro do
+    # token UMA ÚNICA VEZ nesta resposta — depois disso, só o hash fica
+    # salvo, e não tem como recuperar o valor de novo (nem pelo próprio
+    # admin), só revogar e gerar outro.
+    unidades = Unidade.query.filter_by(empresa_id=empresa.id).all()
+    usuarios = Usuario.query.join(Unidade).filter(Unidade.empresa_id == empresa.id).order_by(Usuario.nome).all()
+    modulos_ativos = (
+        EmpresaModulo.query.filter_by(empresa_id=empresa.id)
+        .filter(EmpresaModulo.status.in_(("incluido_inicial", "ativo")))
+        .count()
+    )
+    pedidos_pendentes = EmpresaModulo.query.filter_by(empresa_id=empresa.id, status="solicitado").count()
+    tokens_integracao = (
+        TokenIntegracao.query.filter_by(empresa_id=empresa.id)
+        .order_by(TokenIntegracao.criado_em.desc()).all()
+    )
+    return render_template(
+        "plataforma/empresa_detalhe.html", empresa=empresa, unidades=unidades, usuarios=usuarios,
+        modulos_ativos=modulos_ativos, pedidos_pendentes=pedidos_pendentes,
+        tokens_integracao=tokens_integracao, token_novo=valor_puro,
+    )
+
+
+@plataforma_bp.route("/empresas/<int:empresa_id>/tokens/<int:token_id>/revogar", methods=["POST"])
+@login_required
+@apenas_admin_desenvolvedor
+def revogar_token_integracao(empresa_id, token_id):
+    token = db.get_or_404(TokenIntegracao, token_id)
+    if token.empresa_id != empresa_id:
+        flash("Token não pertence a esta empresa.", "danger")
+        return redirect(url_for("plataforma.detalhe_empresa", empresa_id=empresa_id))
+    token.revogar()
+    registrar_log(current_user, "revogou_token_integracao", "Empresa", empresa_id, str(token.id))
+    db.session.commit()
+    flash("Token revogado — qualquer integração usando esse valor para de funcionar imediatamente.", "success")
+    return redirect(url_for("plataforma.detalhe_empresa", empresa_id=empresa_id))
 
 
 @plataforma_bp.route("/empresas/<int:empresa_id>/editar", methods=["GET", "POST"])

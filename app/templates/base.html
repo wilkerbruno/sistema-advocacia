@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block titulo %}Sistema de Advocacia{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -201,6 +202,17 @@
   const badge = document.getElementById("badge-avisos");
   if (!botao || !lista) return;
 
+  // Token CSRF (ver <meta name="csrf-token"> no <head>) — necessário em
+  // toda chamada fetch com method POST/PUT/PATCH/DELETE, senão o
+  // Flask-WTF recusa com 400 (ver app/__init__.py, CSRFProtect).
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+  function marcarLida(id) {
+    return fetch(`/api/notificacoes/${id}/marcar-lida`, {
+      method: "POST",
+      headers: { "X-CSRFToken": csrfToken },
+    }).catch(function () {});
+  }
+
   function escaparHtml(texto) {
     const div = document.createElement("div");
     div.textContent = texto == null ? "" : String(texto);
@@ -253,7 +265,7 @@
       lista.querySelectorAll(".item-aviso").forEach(function (el) {
         el.addEventListener("click", function (ev) {
           if (el.dataset.temLink !== "1") ev.preventDefault();
-          fetch(`/api/notificacoes/${el.dataset.id}/marcar-lida`, { method: "POST" }).catch(function () {});
+          marcarLida(el.dataset.id);
         });
       });
 
@@ -262,7 +274,7 @@
           ev.preventDefault();
           ev.stopPropagation();
           btn.disabled = true;
-          fetch(`/api/notificacoes/${btn.dataset.id}/marcar-lida`, { method: "POST" }).catch(function () {});
+          marcarLida(btn.dataset.id);
 
           const linha = btn.closest(".item-aviso-linha");
           if (linha) linha.remove();

@@ -6,6 +6,7 @@
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 760px;">
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-md-8">
         <label class="form-label">Nome do compromisso *</label>
@@ -106,6 +107,7 @@
   {% if compromisso and compromisso.id and compromisso.status != "cancelado" %}
   <form method="post" action="{{ url_for('agenda.cancelar_compromisso', compromisso_id=compromisso.id) }}"
         onsubmit="return confirm('Cancelar este compromisso?');" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-outline-doc text-danger btn-sm">Cancelar compromisso</button>
   </form>
   {% endif %}

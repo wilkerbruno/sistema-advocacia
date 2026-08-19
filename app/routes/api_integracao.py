@@ -2,10 +2,24 @@
 API de leitura autenticada para integração com o Data Lake do escritório
 (seção 12 do briefing: "o sistema deve ser fonte, não ilha").
 
-Autenticação: header `Authorization: Bearer <token>`, comparado com a
-variável de ambiente `DATALAKE_API_TOKEN`. Sem essa variável configurada,
-a API responde 503 em vez de deixar passar sem autenticação — nunca abre
-os dados por engano.
+Autenticação: header `Authorization: Bearer <token>`. Cada token pertence
+a UMA empresa (`TokenIntegracao`, ver app/models/token_integracao.py) e
+gerado pelo admin desenvolvedor em `/plataforma/empresas/<id>` — não existe
+mais um único token global (`DATALAKE_API_TOKEN`) que dava acesso aos
+dados de TODAS as empresas clientes. TODA consulta abaixo é filtrada pela
+empresa dona do token recebido, do mesmo jeito que a API interna
+(app/routes/api.py) filtra pela unidade do usuário logado.
+
+⚠️ Correção de segurança (ver PENDENCIAS.md seção -28 e
+AUDITORIA_GRANDE_PORTE.md item 1.1): antes desta versão, um único token
+global em `DATALAKE_API_TOKEN` dava acesso de leitura aos processos,
+movimentações, decisões e prazos de QUALQUER empresa cliente da
+plataforma, não só da empresa dona da integração — vazamento de dados
+entre clientes (cross-tenant). Se você já tinha um `DATALAKE_API_TOKEN`
+configurado no `.env` para alguma integração em uso, ele PAROU DE
+FUNCIONAR nesta versão — gere um token novo, específico da empresa
+correta, em `/plataforma/empresas/<id>` (seção "API de integração / Data
+Lake") e atualize a configuração do lado do Data Lake com o valor novo.
 
 Suporta sincronização incremental via `?desde=AAAA-MM-DDTHH:MM:SS`
 (devolve só registros criados/atualizados a partir daquele instante), para
@@ -20,9 +34,11 @@ de campo diferentes), é só ajustar o `to_dict` de cada rota.
 from datetime import datetime
 from functools import wraps
 
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, g
 
-from app.models import Processo, Movimentacao, Publicacao, Decisao, Prazo
+from app.extensions import db
+from app.models import Processo, Movimentacao, Decisao, Prazo, TokenIntegracao
+from app.utils.acesso import ids_unidades_da_empresa
 
 api_integracao_bp = Blueprint("api_integracao", __name__)
 
@@ -30,16 +46,28 @@ api_integracao_bp = Blueprint("api_integracao", __name__)
 def exige_token(f):
     @wraps(f)
     def decorado(*args, **kwargs):
-        token_esperado = current_app.config.get("DATALAKE_API_TOKEN")
-        if not token_esperado:
-            return jsonify(erro="API de integração não configurada (DATALAKE_API_TOKEN ausente no .env)."), 503
-
         auth = request.headers.get("Authorization", "")
         token_recebido = auth[7:] if auth.startswith("Bearer ") else None
-        if not token_recebido or token_recebido != token_esperado:
-            return jsonify(erro="Token inválido ou ausente."), 401
+
+        token = TokenIntegracao.validar(token_recebido)
+        if token is None:
+            return jsonify(erro="Token inválido, ausente ou revogado."), 401
+
+        token.ultimo_uso_em = datetime.utcnow()
+        db.session.commit()
+
+        # Empresa dona do token — toda consulta desta requisição é
+        # filtrada por ela (ver _ids_unidades_da_requisicao abaixo).
+        g.empresa_integracao_id = token.empresa_id
         return f(*args, **kwargs)
     return decorado
+
+
+def _ids_unidades_da_requisicao():
+    """Unidades da empresa dona do token autenticado nesta requisição —
+    todo filtro de escopo desta API passa por aqui, nunca por consulta
+    sem filtro nenhum."""
+    return ids_unidades_da_empresa(g.empresa_integracao_id)
 
 
 def _filtrar_desde(query, modelo, desde_str):
@@ -56,7 +84,8 @@ def _filtrar_desde(query, modelo, desde_str):
 @api_integracao_bp.route("/processos")
 @exige_token
 def processos():
-    query = _filtrar_desde(Processo.query, Processo, request.args.get("desde"))
+    query = Processo.query.filter(Processo.unidade_id.in_(_ids_unidades_da_requisicao()))
+    query = _filtrar_desde(query, Processo, request.args.get("desde"))
     pagina = request.args.get("pagina", 1, type=int)
     resultado = query.order_by(Processo.id).paginate(page=pagina, per_page=200, error_out=False)
     return jsonify(
@@ -77,7 +106,12 @@ def processos():
 @api_integracao_bp.route("/movimentacoes")
 @exige_token
 def movimentacoes():
-    query = _filtrar_desde(Movimentacao.query, Movimentacao, request.args.get("desde"))
+    query = (
+        Movimentacao.query
+        .join(Processo, Movimentacao.processo_id == Processo.id)
+        .filter(Processo.unidade_id.in_(_ids_unidades_da_requisicao()))
+    )
+    query = _filtrar_desde(query, Movimentacao, request.args.get("desde"))
     pagina = request.args.get("pagina", 1, type=int)
     resultado = query.order_by(Movimentacao.id).paginate(page=pagina, per_page=200, error_out=False)
     return jsonify(
@@ -94,7 +128,12 @@ def movimentacoes():
 @api_integracao_bp.route("/decisoes")
 @exige_token
 def decisoes():
-    query = _filtrar_desde(Decisao.query, Decisao, request.args.get("desde"))
+    query = (
+        Decisao.query
+        .join(Processo, Decisao.processo_id == Processo.id)
+        .filter(Processo.unidade_id.in_(_ids_unidades_da_requisicao()))
+    )
+    query = _filtrar_desde(query, Decisao, request.args.get("desde"))
     pagina = request.args.get("pagina", 1, type=int)
     resultado = query.order_by(Decisao.id).paginate(page=pagina, per_page=200, error_out=False)
     return jsonify(
@@ -111,7 +150,12 @@ def decisoes():
 @api_integracao_bp.route("/prazos")
 @exige_token
 def prazos():
-    query = Prazo.query.filter(Prazo.deletado_em.is_(None))
+    query = (
+        Prazo.query
+        .join(Processo, Prazo.processo_id == Processo.id)
+        .filter(Processo.unidade_id.in_(_ids_unidades_da_requisicao()))
+        .filter(Prazo.deletado_em.is_(None))
+    )
     query = _filtrar_desde(query, Prazo, request.args.get("desde"))
     pagina = request.args.get("pagina", 1, type=int)
     resultado = query.order_by(Prazo.id).paginate(page=pagina, per_page=200, error_out=False)

@@ -23,6 +23,7 @@
       <div class="small text-muted-doc mb-2">Para {{ p.publico }}</div>
       <p class="small mb-3 flex-grow-1">{{ p.descricao }}</p>
       <form method="post" action="{{ url_for('agente_ia.nova_conversa') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="persona" value="{{ chave }}">
         <button class="btn btn-brass btn-sm w-100">Nova conversa</button>
       </form>
@@ -44,6 +45,7 @@
         <td>{{ c.atualizado_em|data_hora_br }}</td>
         <td>
           <form method="post" action="{{ url_for('agente_ia.excluir_conversa', conversa_id=c.id) }}" onsubmit="return confirm('Excluir esta conversa?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-outline-doc btn-sm">Excluir</button>
           </form>
         </td>

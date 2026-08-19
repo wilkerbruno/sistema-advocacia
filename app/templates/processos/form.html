@@ -6,6 +6,7 @@
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 900px;">
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-md-4">
         <label class="form-label">Nº do processo (CNJ)</label>
@@ -146,7 +147,34 @@
           <input class="form-check-input" type="checkbox" name="segredo_justica" id="segredo" {{ "checked" if processo and processo.segredo_justica }}>
           <label class="form-check-label small" for="segredo">Processo em segredo de justiça</label>
         </div>
+        <div class="small text-muted-doc mt-1">
+          Restringe de verdade quem consegue abrir este processo: só admins,
+          o responsável, quem cadastrou, e quem estiver marcado abaixo em
+          "Quem mais pode ver este processo" — os demais usuários da
+          unidade não conseguem mais abrir (nem ver na listagem), mesmo
+          estando na mesma unidade.
+        </div>
       </div>
+
+      {% if processo and current_user.is_admin %}
+      <div class="col-12">
+        <label class="form-label">Quem mais pode ver este processo (além de admin/responsável/quem cadastrou)</label>
+        <div class="row g-1" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--linha-doc, #ddd); border-radius: .25rem; padding: .5rem;">
+          {% for u in usuarios_para_acesso %}
+          <div class="col-md-6">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" name="acesso_usuario_ids" id="acesso-{{ u.id }}"
+                     value="{{ u.id }}" {{ "checked" if u.id in usuarios_com_acesso_ids }}>
+              <label class="form-check-label small" for="acesso-{{ u.id }}">{{ u.nome }} <span class="text-muted-doc">({{ u.papel }})</span></label>
+            </div>
+          </div>
+          {% else %}
+          <div class="small text-muted-doc">Nenhum outro usuário nesta unidade.</div>
+          {% endfor %}
+        </div>
+        <div class="small text-muted-doc mt-1">Só tem efeito quando "Processo em segredo de justiça" está marcado acima.</div>
+      </div>
+      {% endif %}
     </div>
 
     {% if processo %}

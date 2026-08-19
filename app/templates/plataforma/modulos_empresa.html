@@ -43,12 +43,14 @@
           {% if a and a.esta_liberado() %}
           <form method="post" action="{{ url_for('plataforma.modulos_empresa', empresa_id=empresa.id) }}"
                 onsubmit="return confirm('Remover o módulo {{ l.modulo.nome }} desta empresa?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="modulo_id" value="{{ l.modulo.id }}">
             <input type="hidden" name="acao" value="cancelar">
             <button type="submit" class="btn btn-outline-doc btn-sm">Remover</button>
           </form>
           {% else %}
           <form method="post" action="{{ url_for('plataforma.modulos_empresa', empresa_id=empresa.id) }}" class="d-flex gap-1 align-items-center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="modulo_id" value="{{ l.modulo.id }}">
             <input type="hidden" name="acao" value="ativar">
             <input type="text" name="valor_adicional" class="form-control form-control-sm" style="width:100px;"

@@ -46,6 +46,7 @@
         <td>
           {% if t.status not in ["concluida","cancelada"] %}
           <form method="post" action="{{ url_for('tarefas.atualizar_status', tarefa_id=t.id) }}" class="d-flex gap-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             {% if t.status == "pendente" %}<button name="status" value="em_andamento" class="btn btn-outline-doc btn-sm">Iniciar</button>{% endif %}
             <button name="status" value="concluida" class="btn btn-outline-doc btn-sm">Concluir</button>
           </form>

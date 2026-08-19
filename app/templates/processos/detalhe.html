@@ -38,11 +38,13 @@
       {% endif %}
       {% if not processo.monitoravel %}
       <form method="post" action="{{ url_for('governanca.marcar_nao_monitoravel', processo_id=processo.id) }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="motivo" class="form-control form-control-sm mb-1" placeholder="Atualizar motivo (opcional)">
         <button class="btn btn-outline-doc btn-sm w-100">Atualizar marcação</button>
       </form>
       {% if processo.numero_processo %}
       <form method="post" action="{{ url_for('governanca.tentar_captura', processo_id=processo.id) }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label class="form-label small mb-1">Tribunal (DataJud)</label>
         <select name="tribunal_datajud" class="form-select form-select-sm mb-1">
           <option value="">— (não sei / é da Justiça do Trabalho)</option>
@@ -79,6 +81,7 @@
       <div class="tab-pane fade show active" id="andamentos">
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_andamento', processo_id=processo.id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-3">
               <select name="tipo" class="form-select form-select-sm">
                 <option value="movimentacao">Movimentação</option>
@@ -112,6 +115,7 @@
       <div class="tab-pane fade" id="prazos">
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_prazo', processo_id=processo.id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-5"><input type="text" name="descricao" class="form-control form-control-sm" placeholder="Descrição do prazo" required></div>
             <div class="col-md-3"><input type="date" name="data_vencimento" class="form-control form-control-sm" required></div>
             <div class="col-md-2">
@@ -144,12 +148,14 @@
               <td>
                 {% if p.status not in ("cumprido",) %}
                 <form method="post" action="{{ url_for('processos.atualizar_status_prazo', prazo_id=p.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button name="status" value="perdido" class="btn btn-outline-doc btn-sm">Marcar perdido</button>
                 </form>
                 <details class="d-inline-block ms-1">
                   <summary class="btn btn-outline-doc btn-sm">Fechar com evidência</summary>
                   <form method="post" action="{{ url_for('processos.cumprir_prazo_com_evidencia', prazo_id=p.id) }}"
                         class="card-doc p-2 mt-1" style="min-width:260px;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <label class="form-label small mb-1">Movimentação capturada (protocolo)</label>
                     <select name="evidencia_movimentacao_id" class="form-select form-select-sm mb-2">
                       <option value="">— nenhuma —</option>
@@ -182,6 +188,7 @@
       <div class="tab-pane fade" id="audiencias">
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_audiencia', processo_id=processo.id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-3"><input type="text" name="tipo" class="form-control form-control-sm" placeholder="Tipo de audiência"></div>
             <div class="col-md-2"><input type="date" name="data" class="form-control form-control-sm" required></div>
             <div class="col-md-2"><input type="time" name="hora" class="form-control form-control-sm" required></div>
@@ -209,6 +216,7 @@
               <td>
                 {% if a.status == "agendada" %}
                 <form method="post" action="{{ url_for('processos.atualizar_status_audiencia', audiencia_id=a.id) }}" class="d-flex gap-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button name="status" value="realizada" class="btn btn-outline-doc btn-sm">Realizada</button>
                   <button name="status" value="cancelada" class="btn btn-outline-doc btn-sm">Cancelar</button>
                 </form>
@@ -227,6 +235,7 @@
       <div class="tab-pane fade" id="documentos">
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_documento', processo_id=processo.id) }}" enctype="multipart/form-data" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-5"><input type="file" name="arquivo" class="form-control form-control-sm" required></div>
             <div class="col-md-4">
               <select name="categoria" class="form-select form-select-sm">
@@ -252,6 +261,7 @@
               <td>
                 <a href="{{ url_for('processos.baixar_documento', documento_id=d.id) }}" class="btn btn-outline-doc btn-sm">Baixar</a>
                 <form method="post" action="{{ url_for('processos.excluir_documento', documento_id=d.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-outline-doc btn-sm">Excluir</button>
                 </form>
               </td>
@@ -273,6 +283,7 @@
             ação que rodariam automaticamente com uma fonte real (ver README).
           </p>
           <form method="post" action="{{ url_for('governanca.nova_movimentacao', processo_id=processo.id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-3"><input type="datetime-local" name="data" class="form-control form-control-sm"></div>
             <div class="col-md-2"><input type="text" name="codigo_tpu" class="form-control form-control-sm" placeholder="Código TPU"></div>
             <div class="col-md-5"><input type="text" name="texto_integral" class="form-control form-control-sm" placeholder="Texto da movimentação" list="lista-atos" required></div>
@@ -333,12 +344,14 @@
           <p class="small mb-1"><strong>Cadastrada por:</strong> {{ processo.senha_processo.cadastrado_por.nome }} em {{ processo.senha_processo.cadastrado_em|data_hora_br }}</p>
           <p class="small text-muted-doc mb-3">Último acesso: {{ processo.senha_processo.ultimo_acesso_em|data_hora_br if processo.senha_processo.ultimo_acesso_em else "nunca" }}{% if processo.senha_processo.ultimo_acesso_por %} — {{ processo.senha_processo.ultimo_acesso_por.nome }}{% endif %}</p>
           <form method="post" action="{{ url_for('governanca.ver_senha_processo', processo_id=processo.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn btn-outline-doc btn-sm">Ver senha (registra acesso)</button>
           </form>
           <hr class="divider-doc">
           <p class="small mb-2">Atualizar senha:</p>
           {% endif %}
           <form method="post" action="{{ url_for('governanca.cadastrar_senha_processo', processo_id=processo.id) }}" class="row g-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="col-md-4"><input type="text" name="tribunal" class="form-control form-control-sm" placeholder="Tribunal (ex: e-SAJ TJSP)" value="{{ processo.senha_processo.tribunal if processo.senha_processo else '' }}"></div>
             <div class="col-md-5"><input type="password" name="valor" class="form-control form-control-sm" placeholder="Senha do processo" required></div>
             <div class="col-md-3"><button class="btn btn-brass btn-sm w-100">{{ "Atualizar" if processo.senha_processo else "Cadastrar no cofre" }}</button></div>
@@ -364,6 +377,7 @@
             nunca texto pronto para protocolar sem conferência de um advogado.</strong>
           </p>
           <form method="post" action="{{ url_for('processos.gerar_analise_ia', processo_id=processo.id) }}" id="form-analise-ia">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2 align-items-start">
               <div class="col-md-4">
                 <select name="tipo" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)');">
@@ -414,6 +428,7 @@
             </div>
             <form method="post" action="{{ url_for('processos.excluir_analise_ia', analise_id=a.id) }}"
                   onsubmit="return confirm('Excluir esta análise?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <button type="submit" class="btn btn-outline-doc btn-sm text-danger">Excluir</button>
             </form>
           </div>

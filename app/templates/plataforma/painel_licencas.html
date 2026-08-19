@@ -81,6 +81,7 @@
       </td>
       <td>
         <form method="post" action="{{ url_for('plataforma.atualizar_licenca_rapido', empresa_id=l.empresa.id) }}" class="d-flex gap-1 flex-wrap align-items-center">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <select name="plano" class="form-select form-select-sm" style="width:auto;">
             {% for p in ["mensal", "trimestral", "anual"] %}
             <option value="{{ p }}" {{ "selected" if l.licenca and l.licenca.plano == p }}>{{ p|capitalize }}</option>

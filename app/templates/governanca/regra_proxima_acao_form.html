@@ -13,6 +13,7 @@
     revisão manual em vez de calcular sozinha.
   </p>
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-12">
         <label class="form-label">Ato capturado (texto a procurar na movimentação) *</label>

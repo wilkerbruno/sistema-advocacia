@@ -31,6 +31,7 @@
         <td>
           {% if not a or a.status not in ("incluido_inicial", "ativo", "solicitado") %}
           <form method="post" action="{{ url_for('licenciamento.solicitar_modulo', modulo_id=l.modulo.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-brass btn-sm">Solicitar</button>
           </form>
           {% endif %}

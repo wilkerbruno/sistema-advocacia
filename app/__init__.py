@@ -3,7 +3,7 @@ import uuid
 from flask import Flask
 from werkzeug.middleware.proxy_fix import ProxyFix
 from config import Config
-from app.extensions import db, login_manager
+from app.extensions import db, login_manager, csrf
 
 NOME_COOKIE_DISPOSITIVO = "jc_device_id"
 DURACAO_COOKIE_DISPOSITIVO = 60 * 60 * 24 * 730  # ~2 anos
@@ -25,6 +25,7 @@ def create_app(config_class=Config):
 
     db.init_app(app)
     login_manager.init_app(app)
+    csrf.init_app(app)
 
     from app.models import Usuario
 
@@ -91,6 +92,14 @@ def create_app(config_class=Config):
     app.register_blueprint(timesheet_bp, url_prefix="/timesheet")
     app.register_blueprint(agente_ia_bp, url_prefix="/agente-ia")
     app.register_blueprint(integracoes_bp)
+
+    # A API de integração (/api/v1/*) é autenticada por token Bearer, não
+    # por cookie de sessão — CSRF protege contra um navegador enviar um
+    # cookie de sessão automaticamente sem o usuário perceber, o que não
+    # se aplica aqui (não há cookie nenhum envolvido). Isenta a mais por
+    # segurança: mesmo se um POST for adicionado aqui no futuro, não faz
+    # sentido exigir token CSRF de quem já está autenticado por token.
+    csrf.exempt(api_integracao_bp)
 
     # ---------------------- Bloqueio por licença vencida ----------------------
     # Admin desenvolvedor e a empresa dona da plataforma nunca são bloqueados.

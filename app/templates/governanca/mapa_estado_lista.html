@@ -42,6 +42,7 @@
         <td class="d-flex gap-1">
           <a href="{{ url_for('governanca.editar_mapa_estado', item_id=i.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
           <form method="post" action="{{ url_for('governanca.alternar_mapa_estado', item_id=i.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if i.ativo else "Ativar" }}</button>
           </form>
         </td>

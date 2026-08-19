@@ -48,6 +48,7 @@
         <td class="d-flex gap-1">
           <a href="{{ url_for('governanca.editar_regra_proxima_acao', regra_id=r.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
           <form method="post" action="{{ url_for('governanca.alternar_regra_proxima_acao', regra_id=r.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if r.ativo else "Ativar" }}</button>
           </form>
         </td>

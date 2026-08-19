@@ -68,6 +68,7 @@
         <td>
           {% if l.status == "pendente" %}
           <form method="post" action="{{ url_for('financeiro.atualizar_status', lancamento_id=l.id) }}" class="d-flex gap-1">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button name="status" value="pago" class="btn btn-outline-doc btn-sm">Marcar pago</button>
           </form>
           {% endif %}

@@ -6,6 +6,7 @@
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 640px;">
   <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-md-5">
         <label class="form-label">Código TPU {{ "" if item and not item.codigo_tpu else "(pelo menos um dos dois é obrigatório: código ou texto)" }}</label>

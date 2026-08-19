@@ -21,6 +21,7 @@
       </p>
 
       <form method="post" action="{{ url_for('integracoes.salvar_ia') }}" id="form-ia">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="form-check mb-2">
           <input class="form-check-input" type="radio" name="provedor" id="ia-local" value="local"
                  {{ "checked" if ia_provedor == "local" }} onchange="atualizarCamposIA()">
@@ -69,6 +70,7 @@
 
       {% if ia_tem_chave %}
       <form method="post" action="{{ url_for('integracoes.remover_chave_ia') }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave e voltar ao modelo local</button>
       </form>
       {% endif %}
@@ -94,6 +96,7 @@
       {% elif whatsapp_erro %}
       <div class="alert alert-warning py-2 px-3 small">Não foi possível consultar o WAHA agora: {{ whatsapp_erro }}</div>
       <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-doc btn-sm">Tentar novamente</button>
       </form>
 
@@ -104,6 +107,7 @@
         {% if empresa.dono_da_plataforma %}<div class="text-muted-doc mt-1">Sessão padrão da plataforma.</div>{% endif %}
       </div>
       <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-doc btn-sm">Desconectar</button>
       </form>
 
@@ -116,6 +120,7 @@
            style="width:220px; height:220px; border:1px solid var(--brass-200); border-radius:6px;">
       <div id="whatsapp-status-msg" class="small text-muted-doc mt-2">Aguardando leitura do QR code…</div>
       <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-outline-doc btn-sm">Cancelar</button>
       </form>
       <script>iniciarPollingWhatsApp();</script>
@@ -125,12 +130,14 @@
         {{ "Sessão parou/falhou." if whatsapp_status != "NAO_ENCONTRADA" else "A sessão salva não foi encontrada no servidor (pode ter sido removida manualmente)." }}
       </div>
       <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-brass btn-sm">Reconectar</button>
       </form>
 
       {% else %}
       <div class="small text-muted-doc mb-2">Nenhum número conectado ainda.</div>
       <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit" class="btn btn-brass btn-sm">Conectar WhatsApp</button>
       </form>
       {% endif %}

@@ -2,7 +2,7 @@ from .empresa import Empresa
 from .unidade import Unidade
 from .usuario import Usuario
 from .cliente import Cliente
-from .processo import Processo, Andamento, Prazo, Audiencia, Documento
+from .processo import Processo, Andamento, Prazo, Audiencia, Documento, ProcessoAcessoRestrito
 from .financeiro import Lancamento
 from .tarefa import Tarefa
 from .log import LogAtividade
@@ -17,6 +17,7 @@ from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA
 from .compromisso import Compromisso
 from .modulo import Modulo, EmpresaModulo
 from .configuracao import ConfiguracaoPlataforma
+from .token_integracao import TokenIntegracao
 
 __all__ = [
     "Empresa",
@@ -28,6 +29,7 @@ __all__ = [
     "Prazo",
     "Audiencia",
     "Documento",
+    "ProcessoAcessoRestrito",
     "Lancamento",
     "Tarefa",
     "LogAtividade",
@@ -51,4 +53,5 @@ __all__ = [
     "Modulo",
     "EmpresaModulo",
     "ConfiguracaoPlataforma",
+    "TokenIntegracao",
 ]

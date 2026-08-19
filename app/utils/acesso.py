@@ -22,6 +22,7 @@ em uma tela nova.
 from functools import wraps
 from flask import abort, request
 from flask_login import current_user
+from app.extensions import db
 
 
 def login_papel_requerido(*papeis):
@@ -55,6 +56,14 @@ def apenas_admin_desenvolvedor(f):
 def _ids_unidades_da_empresa(empresa_id):
     from app.models import Unidade
     return [u.id for u in Unidade.query.filter_by(empresa_id=empresa_id).all()]
+
+
+def ids_unidades_da_empresa(empresa_id):
+    """Versão pública de `_ids_unidades_da_empresa`, para uso fora do
+    contexto de `current_user` (ex: app/routes/api_integracao.py, onde o
+    "usuário" autenticado é um TokenIntegracao de uma empresa, não uma
+    sessão de login)."""
+    return _ids_unidades_da_empresa(empresa_id)
 
 
 def aplicar_escopo_unidade(query, modelo, unidade_field="unidade_id"):
@@ -93,6 +102,75 @@ def unidade_permitida(unidade_id):
 def checar_acesso_unidade_ou_403(unidade_id):
     if not unidade_permitida(unidade_id):
         abort(403)
+
+
+def usuario_pode_ver_processo(processo):
+    """
+    Regra de acesso a UM processo específico — vai além da checagem de
+    unidade de sempre quando o processo está marcado como sigiloso
+    (`segredo_justica=True`). Correção de segurança: antes, esse campo
+    não tinha nenhum efeito real de acesso (ver PENDENCIAS.md seção -28).
+
+    - Processo normal (não sigiloso): só a regra de unidade de sempre.
+    - Processo sigiloso: além de estar na unidade certa, precisa ser
+      admin (desenvolvedor ou da própria empresa — mesma regra que já
+      vale pra qualquer outro dado), OU o responsável pelo processo, OU
+      quem cadastrou, OU estar na lista explícita de acesso
+      (ProcessoAcessoRestrito).
+    """
+    if not unidade_permitida(processo.unidade_id):
+        return False
+    if not processo.segredo_justica:
+        return True
+    if current_user.is_admin_desenvolvedor or current_user.is_admin:
+        return True
+    if processo.responsavel_id == current_user.id:
+        return True
+    if processo.criado_por_id == current_user.id:
+        return True
+    from app.models import ProcessoAcessoRestrito
+    return (
+        ProcessoAcessoRestrito.query
+        .filter_by(processo_id=processo.id, usuario_id=current_user.id)
+        .first() is not None
+    )
+
+
+def checar_acesso_processo_ou_403(processo):
+    if not usuario_pode_ver_processo(processo):
+        abort(403)
+
+
+def filtrar_processos_visiveis(query):
+    """
+    Complementa `aplicar_escopo_unidade(query, Processo)`: filtra pra fora
+    da listagem qualquer processo sigiloso (segredo_justica=True) que o
+    usuário logado não teria permissão de abrir (ver
+    usuario_pode_ver_processo) — sem isso, mesmo bloqueando o acesso ao
+    detalhe, o número do processo e o nome do cliente continuariam
+    aparecendo pra qualquer um em listagens e painéis, o que já vaza
+    informação que o sigilo deveria proteger.
+
+    Aplicado só nas listagens/painéis que mostram processo por processo
+    (ex: processos.listar, governanca.painel, governanca.fila_intimacoes)
+    — telas de estatística puramente agregada (contagens, médias, sem
+    identificar qual processo é qual) não precisam disso.
+    """
+    from app.models import Processo, ProcessoAcessoRestrito
+
+    if current_user.is_admin_desenvolvedor or current_user.is_admin:
+        return query
+
+    ids_liberados = db.session.query(ProcessoAcessoRestrito.processo_id).filter_by(usuario_id=current_user.id)
+    return query.filter(
+        db.or_(
+            db.not_(Processo.segredo_justica),
+            Processo.segredo_justica.is_(None),
+            Processo.responsavel_id == current_user.id,
+            Processo.criado_por_id == current_user.id,
+            Processo.id.in_(ids_liberados),
+        )
+    )
 
 
 def unidades_do_escopo(apenas_ativas=True):

@@ -9,7 +9,7 @@ from datetime import date, timedelta
 from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 
-from app.extensions import db
+from app.extensions import db, csrf
 from app.models import Licenca, Pagamento, Empresa, Unidade, Usuario, EmpresaModulo
 from app.utils.acesso import apenas_admin
 from app.utils.notificacoes import registrar_log, notificar
@@ -167,6 +167,7 @@ def solicitar_modulo(modulo_id):
 
 
 @licenciamento_bp.route("/webhooks/mercadopago", methods=["POST"])
+@csrf.exempt
 def webhook_mercadopago():
     """
     Notificação assíncrona do Mercado Pago. Formato oficial: querystring
@@ -174,6 +175,12 @@ def webhook_mercadopago():
     Sem login — o Mercado Pago chama isso diretamente. A validação de
     autenticidade é feita consultando o próprio pagamento de volta na API
     (com nosso Access Token) em vez de confiar no corpo da notificação.
+
+    @csrf.exempt: é uma chamada servidor-a-servidor do Mercado Pago, sem
+    cookie de sessão nem token CSRF nenhum pra enviar — CSRF protege
+    contra o NAVEGADOR de um usuário logado ser induzido a enviar uma
+    requisição sem perceber; não se aplica a uma notificação de um
+    serviço externo.
     """
     payload = request.get_json(silent=True) or {}
     tipo = request.args.get("type") or payload.get("type") or payload.get("topic")
