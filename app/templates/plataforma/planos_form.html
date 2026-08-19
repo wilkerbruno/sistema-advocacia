@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block titulo %}Preços padrão — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Preços padrão do cadastro público{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 640px;">
+  Valores mostrados em <code>/cadastrar-empresa</code> (cadastro público
+  self-service, sem falar com você antes) para cada ciclo de cobrança.
+  Alterar aqui NÃO muda o valor de nenhuma empresa já cadastrada — o valor
+  de cada empresa (<code>Licenca.valor_negociado</code>) continua sendo
+  negociado individualmente por você em cada empresa, mesmo que ela tenha
+  se cadastrado sozinha usando o preço padrão da época.
+</p>
+
+<div class="card-doc tab p-4" style="max-width: 480px;">
+  {% if config.atualizado_em %}
+  <div class="small text-muted-doc mb-3">
+    Última alteração: {{ config.atualizado_em|data_hora_br }}{% if config.atualizado_por %} por {{ config.atualizado_por.nome }}{% endif %}
+  </div>
+  {% else %}
+  <div class="small text-muted-doc mb-3">Ainda usando os valores padrão de fábrica (nunca foi salvo por aqui).</div>
+  {% endif %}
+
+  <form method="post">
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label">Mensal (R$) *</label>
+        <input type="text" name="preco_padrao_mensal" class="form-control" required
+               value="{{ config.preco_padrao_mensal }}">
+      </div>
+      <div class="col-12">
+        <label class="form-label">Trimestral (R$) *</label>
+        <input type="text" name="preco_padrao_trimestral" class="form-control" required
+               value="{{ config.preco_padrao_trimestral }}">
+      </div>
+      <div class="col-12">
+        <label class="form-label">Anual (R$) *</label>
+        <input type="text" name="preco_padrao_anual" class="form-control" required
+               value="{{ config.preco_padrao_anual }}">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Salvar preços</button>
+      <a href="{{ url_for('auth.cadastrar_empresa') }}" class="btn btn-outline-doc" target="_blank">Ver cadastro público</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -1,5 +1,95 @@
 # Status das pendências do briefing (atualizado em 19/08/2026)
 
+## -26. ALERTA IMPORTANTE: descobri que meu ambiente de testes (sandbox) está incompleto — pode ter sobrescrito arquivo(s) de verdade no seu computador na pendência nº -24. Preciso que você confira.
+
+**O que descobri:** ao testar a funcionalidade de preços padrão (pendência
+nº -25, logo abaixo), percebi que meu ambiente de testes local NÃO TEM o
+arquivo `app/templates/auth/login.html` — a tela de login. Isso é
+impossível de ser verdade em produção (você loga no sistema de verdade há
+várias rodadas de testes nesta conversa), então a única explicação é: meu
+"espelho" local do seu projeto está incompleto — ele só tem os arquivos
+que eu efetivamente abri/editei ao longo desta conversa, não uma cópia
+completa e fiel de tudo que existe no seu computador.
+
+**Por que isso importa de verdade:** na pendência nº -24 (sistema de
+módulos), eu afirmei que várias telas do painel administrativo — 
+`plataforma/empresas.html`, `plataforma/empresa_form.html`,
+`plataforma/empresa_detalhe.html`, `plataforma/licenca_form.html` e a
+pasta inteira `licenciamento/` (incluindo `minha_licenca.html`) —
+"não existiam" e por isso eu as criei do zero e ENVIEI DIRETO PRO SEU
+COMPUTADOR (sobrescrevendo qualquer arquivo que já estivesse nesses
+caminhos exatos). Diante do que acabei de descobrir sobre meu ambiente
+estar incompleto, agora não tenho mais certeza de que essa afirmação
+estava certa — é bem possível que esses arquivos JÁ EXISTISSEM de verdade
+no seu projeto (com conteúdo customizado ou diferente do que eu escrevi),
+e que eu simplesmente não tinha uma cópia deles no meu lado pra saber
+disso, e os substitui sem querer.
+
+**O que peço que você faça:** se você usa Git (ou qualquer controle de
+versão) nesse projeto, rode `git status` e `git diff` nesses arquivos
+específicos:
+- `app/templates/plataforma/empresas.html`
+- `app/templates/plataforma/empresa_form.html`
+- `app/templates/plataforma/empresa_detalhe.html`
+- `app/templates/plataforma/licenca_form.html`
+- `app/templates/licenciamento/minha_licenca.html`
+
+Se o diff mostrar que esses arquivos JÁ TINHAM conteúdo antes (e não
+apareciam como arquivo novo/untracked), isso confirma que eu sobrescrevi
+algo que já existia — me avise imediatamente com o que você vê, e me
+mande o conteúdo anterior (ex.: `git show HEAD~1:caminho/do/arquivo` ou o
+que o histórico tiver) que eu reaplico minhas mudanças (o sistema de
+módulos) em cima do que já existia, em vez de substituir. Se você não usa
+Git, ou se esses arquivos aparecem como novos/nunca versionados, é sinal
+de que minha suspeita não se confirma nesse caso — mas ainda vale
+verificar visualmente se as telas "Empresas clientes" e "Minha licença"
+continuam funcionando como você esperava antes desta rodada.
+
+Sinto muito pela confusão — devia ter sinalizado a limitação do meu
+ambiente de testes antes de assumir que "não encontrei o arquivo" queria
+dizer "o arquivo não existe em lugar nenhum". A partir de agora vou tratar
+qualquer arquivo que eu não consiga localizar no meu sandbox como
+"desconhecido pra mim", não como "inexistente", e vou perguntar antes de
+criar/substituir um arquivo em um caminho que eu mesmo não escrevi nesta
+conversa.
+
+## -25. Preços padrão do cadastro público agora são gerenciáveis pelo admin desenvolvedor (antes só mudavam editando .env e reiniciando o servidor)
+
+**O que foi pedido:** uma área pros admins desenvolvedores gerenciarem os
+valores dos planos (mensal/trimestral/anual) mostrados no cadastro
+público self-service (`/cadastrar-empresa`) — antes esses valores vinham
+fixos de `PRECO_PADRAO_MENSAL`/`TRIMESTRAL`/`ANUAL` no `.env`, só mudando
+com uma edição manual do arquivo e reinício do servidor.
+
+**Como ficou:** nova tela `/plataforma/planos` (menu lateral, seção
+"Plataforma" → "Preços padrão"), só pro admin desenvolvedor, com um
+formulário simples pros três valores. Guardado numa tabela nova de
+configuração única (`ConfiguracaoPlataforma`, sempre uma linha só) — 
+enquanto ninguém salva nada por essa tela, o sistema continua caindo nos
+valores de `.env`/`config.py` de sempre (sem quebrar nada em produção
+antes de rodar a sincronização de schema). Importante: mudar aqui só
+afeta o preço mostrado pra quem se cadastra sozinho DAQUI PRA FRENTE —
+empresas já cadastradas continuam com o valor negociado que já tinham
+(`Licenca.valor_negociado`), sem mudar sozinho.
+
+Arquivos novos: `app/models/configuracao.py` (`ConfiguracaoPlataforma`),
+`app/templates/plataforma/planos_form.html`. Alterados:
+`app/models/__init__.py`, `app/routes/plataforma.py` (rota
+`editar_planos`), `app/routes/auth.py` (`cadastrar_empresa` agora lê o
+preço de `ConfiguracaoPlataforma.obter()` em vez de direto do config),
+`app/templates/base.html` (link no menu).
+
+**Testado no sandbox:** leitura sem nenhuma configuração salva ainda cai
+no fallback do `.env` sem gravar nada sozinha; salvar pela tela persiste
+os três valores; salvar de novo atualiza a mesma linha (não duplica);
+cadastro público reflete o valor novo tanto na tela quanto no valor
+realmente gravado na licença da empresa criada.
+
+**Como isso chega em produção:** a tabela nova (`configuracoes_plataforma`)
+é criada automaticamente na próxima vez que você rodar
+`python sincronizar_schema.py` (mesmo passo de sempre — pode rodar junto
+com a sincronização da pendência nº -24, é a mesma execução).
+
 ## -24. Sistema de módulos vendidos separadamente — cada empresa cliente pode ter um pacote diferente de telas liberadas
 
 **O que foi pedido:** separar o sistema em módulos, de forma que o admin

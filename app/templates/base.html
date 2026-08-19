@@ -130,6 +130,9 @@
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.modulo') and request.endpoint != 'plataforma.modulos_empresa' }}" href="{{ url_for('plataforma.modulos_lista') }}">
         <span class="tab-index">P3</span> Catálogo de módulos
       </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.editar_planos' }}" href="{{ url_for('plataforma.editar_planos') }}">
+        <span class="tab-index">P4</span> Preços padrão
+      </a>
       {% endif %}
     </nav>
 

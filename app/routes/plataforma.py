@@ -10,7 +10,7 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from app.extensions import db
-from app.models import Empresa, Unidade, Usuario, Licenca, Pagamento, Modulo, EmpresaModulo
+from app.models import Empresa, Unidade, Usuario, Licenca, Pagamento, Modulo, EmpresaModulo, ConfiguracaoPlataforma
 from app.utils.acesso import apenas_admin_desenvolvedor
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils.modulos import (
@@ -255,6 +255,35 @@ def licenca_empresa(empresa_id):
         return redirect(url_for("plataforma.detalhe_empresa", empresa_id=empresa.id))
 
     return render_template("plataforma/licenca_form.html", empresa=empresa, licenca=licenca)
+
+
+# ---------------------- Preços padrão (cadastro público self-service) ----------------------
+# Ver app/models/configuracao.py — só afeta o preço de TABELA mostrado em
+# /cadastrar-empresa; o valor negociado de cada empresa já cadastrada
+# (Licenca.valor_negociado) nunca muda sozinho quando isso é editado aqui.
+
+@plataforma_bp.route("/planos", methods=["GET", "POST"])
+@login_required
+@apenas_admin_desenvolvedor
+def editar_planos():
+    config = ConfiguracaoPlataforma.obter()
+
+    if request.method == "POST":
+        config.preco_padrao_mensal = Decimal(request.form["preco_padrao_mensal"].replace(",", "."))
+        config.preco_padrao_trimestral = Decimal(request.form["preco_padrao_trimestral"].replace(",", "."))
+        config.preco_padrao_anual = Decimal(request.form["preco_padrao_anual"].replace(",", "."))
+        config.atualizado_por_id = current_user.id
+        if config.id is None or db.session.get(ConfiguracaoPlataforma, 1) is None:
+            db.session.add(config)
+        registrar_log(current_user, "editou", "ConfiguracaoPlataforma", 1,
+                      f"mensal R${config.preco_padrao_mensal} / trimestral R${config.preco_padrao_trimestral} / "
+                      f"anual R${config.preco_padrao_anual}")
+        db.session.commit()
+        flash("Preços padrão atualizados — valem a partir do próximo cadastro público. "
+              "Empresas já cadastradas não são afetadas.", "success")
+        return redirect(url_for("plataforma.editar_planos"))
+
+    return render_template("plataforma/planos_form.html", config=config)
 
 
 # ---------------------- Catálogo de módulos ----------------------

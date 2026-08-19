@@ -1,10 +1,9 @@
 from datetime import datetime, date, timedelta
-from decimal import Decimal
 
-from flask import Blueprint, render_template, redirect, url_for, request, flash, current_app
+from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
 from app.extensions import db
-from app.models import Usuario, Empresa, Unidade, Licenca
+from app.models import Usuario, Empresa, Unidade, Licenca, ConfiguracaoPlataforma
 from app.utils.notificacoes import registrar_log
 
 auth_bp = Blueprint("auth", __name__)
@@ -46,11 +45,10 @@ def cadastrar_empresa():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.index"))
 
-    precos = {
-        "mensal": Decimal(current_app.config["PRECO_PADRAO_MENSAL"]),
-        "trimestral": Decimal(current_app.config["PRECO_PADRAO_TRIMESTRAL"]),
-        "anual": Decimal(current_app.config["PRECO_PADRAO_ANUAL"]),
-    }
+    # Preço de tabela gerenciável pelo admin desenvolvedor em
+    # /plataforma/planos (ver app/models/configuracao.py) — cai pro valor
+    # de config.py/.env só enquanto ninguém salvou nada por essa tela ainda.
+    precos = ConfiguracaoPlataforma.obter().como_dict_precos()
 
     if request.method == "POST":
         nome_empresa = request.form.get("empresa_nome", "").strip()
