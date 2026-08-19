@@ -2,18 +2,36 @@ FROM python:3.12-slim
 
 WORKDIR /app
 
-# g++ e cmake: necessários pra compilar o llama-cpp-python (motor do modelo
-# de IA local do Agente de IA, ver app/utils/ia_local.py) caso não exista um
-# wheel pré-compilado pra esta combinação exata de SO/Python/arquitetura.
-# cron: roda a recaptura diária de movimentações via DataJud dentro do
-# próprio container (ver docker/capturar-movimentacoes.cron e PENDENCIAS.md,
-# seção -3) — não depende de nenhum recurso externo de agendamento.
+# g++ e cmake: ficam só como rede de segurança pro pip conseguir compilar
+# o llama-cpp-python do zero SE um dia a versão travada em requirements.txt
+# mudar e o wheel pré-compilado (ver linha do pip install abaixo) não
+# acompanhar a mudança — não é mais o caminho principal (ver comentário
+# abaixo). cron: roda a recaptura diária de movimentações via DataJud
+# dentro do próprio container (ver docker/capturar-movimentacoes.cron e
+# PENDENCIAS.md, seção -3) — não depende de nenhum recurso externo de
+# agendamento.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev pkg-config gcc g++ cmake cron \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# --extra-index-url: o llama-cpp-python (motor do modelo de IA local, ver
+# app/utils/ia_local.py) não tem wheel pré-compilada no PyPI normal pra
+# esta combinação de SO/Python — sem isso, o pip compila o llama.cpp
+# inteiro (C++) na hora do build, o que já travou o servidor de produção
+# por esgotar toda a RAM disponível durante o build (ver PENDENCIAS.md,
+# seção -29). Este índice extra (mantido pelo próprio autor do
+# llama-cpp-python) publica uma wheel pré-compilada pra CPU — confirmei
+# que existe uma build pra exatamente a versão presa em requirements.txt
+# (llama_cpp_python-0.3.34-py3-none-manylinux2014_x86_64...whl) antes de
+# aplicar esta mudança. Com isso, o pip só baixa o binário pronto, sem
+# compilar nada — build muito mais rápido e sem risco de derrubar o
+# servidor de novo. Se um dia atualizar a versão do llama-cpp-python no
+# requirements.txt, confira antes se existe wheel pra essa versão nova em
+# https://abetlen.github.io/llama-cpp-python/whl/cpu/llama-cpp-python/ —
+# se não existir, o pip cai de volta pra compilar do zero (por isso
+# gcc/g++/cmake continuam instalados acima, só como plano B).
+RUN pip install --no-cache-dir --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu -r requirements.txt
 
 # Agendamento da recaptura diária e dos lembretes de compromisso da Agenda
 # (ver comentários nos próprios arquivos .cron). Copiados antes do resto do

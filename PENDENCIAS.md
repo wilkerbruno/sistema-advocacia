@@ -1,5 +1,40 @@
 # Status das pendências do briefing (atualizado em 19/08/2026)
 
+## -29. Build travando o servidor inteiro (RAM 99%, CPU 100%) — `Dockerfile` ajustado pra não compilar mais o llama-cpp-python do zero
+
+**O que aconteceu:** ao tentar subir a versão com as correções de segurança
+(seção -28 abaixo), o build ficou preso muito tempo compilando o
+`llama-cpp-python` (motor do modelo de IA local) a partir do código-fonte
+— e isso derrubou o servidor inteiro (painel do EasyPanel e até o SSH
+pararam de responder), porque o servidor de produção tem só 2 núcleos e
+~7,8 GB de RAM, e o gráfico de recursos confirmou RAM em 99% e CPU em
+100% durante o build. Precisou de um reboot forçado pelo painel da
+hospedagem (fora do EasyPanel) pra voltar.
+
+**Causa raiz:** o `llama-cpp-python` não vem com uma wheel pré-compilada
+no PyPI normal pra esta combinação de SO/Python — sem uma, o `pip`
+compila o `llama.cpp` (código C++) inteiro na hora do build, o que é
+pesado o bastante pra estourar a RAM de um servidor deste porte.
+
+**Correção:** `Dockerfile` alterado pra instalar as dependências
+apontando também pro índice de wheels pré-compiladas que o próprio autor
+do `llama-cpp-python` mantém
+(`--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu`).
+Confirmei que existe uma wheel pronta pra exatamente a versão presa em
+`requirements.txt` (0.3.34, Linux x86_64) antes de aplicar — com isso o
+`pip` baixa o binário já compilado em vez de compilar do zero, o que deve
+tornar o build bem mais rápido e tirar esse risco de derrubar o servidor
+de novo. `gcc`/`g++`/`cmake` continuam instalados no `Dockerfile` só como
+plano B, caso um dia a versão do `llama-cpp-python` mude pra uma sem
+wheel pronta nesse índice.
+
+**Não testei este ajuste rodando o build de verdade** (não tenho como
+reproduzir a compilação pesada nem o servidor de produção por aqui) — é
+uma mudança de uma linha, documentada e usando o caminho oficial do
+próprio projeto `llama-cpp-python` pra evitar compilação, mas vale
+acompanhar o próximo build com atenção pra confirmar que ficou rápido
+mesmo.
+
 ## -28. Corrigidos os 3 achados críticos da auditoria (-27): token do Data Lake por empresa, proteção CSRF em todo o sistema, e sigilo de processo agora bloqueia acesso de verdade
 
 **O que foi pedido:** você pediu pra começar pelos 3 itens críticos da
