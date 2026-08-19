@@ -1,22 +1,21 @@
 {% extends "base.html" %}
 {% block titulo %}Licença — {{ empresa.nome }}{% endblock %}
 {% block eyebrow %}Plataforma{% endblock %}
-{% block cabecalho %}Licença — {{ empresa.nome }}{% endblock %}
+{% block cabecalho %}Licença de {{ empresa.nome }}{% endblock %}
 
 {% block conteudo %}
-<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
-  <p class="small mb-0">
-    Este valor é o que fica combinado só com esta empresa. A empresa nunca
-    vê uma "tabela de preços" — só o próprio valor. Pode negociar livremente
-    entre clientes diferentes.
-  </p>
-</div>
-
 <div class="card-doc tab p-4" style="max-width: 560px;">
+  {% if licenca %}
+  <div class="mb-3 small text-muted-doc">
+    Status atual: <span class="badge-status {{ 'badge-cumprido' if licenca.esta_ativa() else 'badge-pendente' }}">{{ licenca.status.replace("_", " ") }}</span>
+    {% if licenca.data_fim %} — vence em {{ licenca.data_fim|data_br }}{% endif %}
+  </div>
+  {% endif %}
+
   <form method="post">
     <div class="row g-3">
       <div class="col-md-6">
-        <label class="form-label">Plano</label>
+        <label class="form-label">Plano (ciclo de cobrança)</label>
         <select name="plano" class="form-select">
           {% for p in ["mensal", "trimestral", "anual"] %}
           <option value="{{ p }}" {{ "selected" if licenca and licenca.plano == p }}>{{ p|capitalize }}</option>
@@ -24,49 +23,24 @@
         </select>
       </div>
       <div class="col-md-6">
-        <label class="form-label">Valor por ciclo (R$) *</label>
+        <label class="form-label">Valor negociado (R$) *</label>
         <input type="text" name="valor_negociado" class="form-control" required
-               value="{{ licenca.valor_negociado if licenca else '' }}">
+               value="{{ licenca.valor_negociado if licenca else '' }}" placeholder="Ex.: 350,00">
       </div>
-      {% if licenca %}
-      <div class="col-12">
-        <p class="small text-muted-doc mb-1">Status atual: <strong>{{ licenca.status }}</strong>
-          {% if licenca.data_fim %}— vence em {{ licenca.data_fim|data_br }}{% endif %}
-        </p>
-      </div>
-      {% endif %}
       <div class="col-12">
         <div class="form-check">
-          <input class="form-check-input" type="checkbox" name="marcar_paga_manualmente" id="mp">
-          <label class="form-check-label small" for="mp">
-            Marcar como paga agora manualmente (pagamento combinado fora do sistema — ativa a licença por um ciclo a partir de hoje)
+          <input class="form-check-input" type="checkbox" name="marcar_paga_manualmente" id="marcar_paga_manualmente">
+          <label class="form-check-label small" for="marcar_paga_manualmente">
+            Marcar como paga agora (pagamento combinado fora do sistema) — ativa a licença a partir de hoje pelo ciclo escolhido.
           </label>
         </div>
       </div>
     </div>
+
     <div class="d-flex gap-2 mt-4">
       <button type="submit" class="btn btn-brass">Salvar</button>
-      <a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=empresa.id) }}" class="btn btn-outline-doc">Voltar</a>
+      <a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=empresa.id) }}" class="btn btn-outline-doc">Cancelar</a>
     </div>
   </form>
 </div>
-
-{% if licenca and licenca.pagamentos %}
-<div class="card-doc tab p-3 mt-3">
-  <p class="small text-muted-doc mb-2"><strong>Histórico de pagamentos</strong></p>
-  <table class="table-doc">
-    <thead><tr><th>Data</th><th>Plano</th><th>Valor</th><th>Status</th></tr></thead>
-    <tbody>
-      {% for p in licenca.pagamentos %}
-      <tr>
-        <td>{{ p.criado_em|data_hora_br }}</td>
-        <td>{{ p.plano }}</td>
-        <td>{{ p.valor|moeda }}</td>
-        <td>{{ p.status }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
-{% endif %}
 {% endblock %}

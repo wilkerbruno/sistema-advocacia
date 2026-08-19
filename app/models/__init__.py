@@ -15,6 +15,7 @@ from .licenca import Licenca, Pagamento
 from .apontamento import Apontamento
 from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA
 from .compromisso import Compromisso
+from .modulo import Modulo, EmpresaModulo
 
 __all__ = [
     "Empresa",
@@ -46,4 +47,6 @@ __all__ = [
     "MensagemAgenteIA",
     "AnaliseProcessoIA",
     "Compromisso",
+    "Modulo",
+    "EmpresaModulo",
 ]

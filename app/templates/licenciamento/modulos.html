@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Módulos — JusControl{% endblock %}
+{% block eyebrow %}Gestão{% endblock %}
+{% block cabecalho %}Módulos da sua empresa{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 640px;">
+  Além do que já vem incluído, você pode solicitar outros módulos a
+  qualquer momento — cada um soma um valor adicional na sua mensalidade,
+  combinado com você antes de ser ativado.
+</p>
+
+<div class="card-doc tab p-0">
+  <table class="table-doc mb-0">
+    <thead>
+      <tr><th>Módulo</th><th>Status</th><th style="min-width:160px;"></th></tr>
+    </thead>
+    <tbody>
+      {% for l in linhas %}
+      {% set a = l.associacao %}
+      <tr>
+        <td>
+          <div class="fw-medium">{{ l.modulo.nome }}</div>
+          {% if l.modulo.descricao %}<div class="small text-muted-doc">{{ l.modulo.descricao }}</div>{% endif %}
+        </td>
+        <td>
+          {% if a and a.esta_liberado() %}<span class="badge-status badge-cumprido">ativo</span>
+          {% elif a and a.status == "solicitado" %}<span class="badge-status badge-pendente">pedido em análise</span>
+          {% else %}<span class="badge-status badge-arquivado">não contratado</span>{% endif %}
+        </td>
+        <td>
+          {% if not a or a.status not in ("incluido_inicial", "ativo", "solicitado") %}
+          <form method="post" action="{{ url_for('licenciamento.solicitar_modulo', modulo_id=l.modulo.id) }}">
+            <button type="submit" class="btn btn-brass btn-sm">Solicitar</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="3" class="text-muted-doc small">Nenhum módulo adicional disponível no momento.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-3">
+  <a href="{{ url_for('licenciamento.minha_licenca') }}" class="linha-link small">← Voltar para minha licença</a>
+</div>
+{% endblock %}

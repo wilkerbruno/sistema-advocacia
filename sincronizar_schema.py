@@ -23,6 +23,14 @@ continua satisfazendo "opcional" sem qualquer mudança de valor) — o
 oposto (tornar uma coluna opcional em obrigatória) exigiria decidir o que
 fazer com linhas que já estão nulas, e ESSE caso continua fora do escopo
 deste script de propósito.
+
+Segunda e última exceção à regra "nunca mexe em dado": o catálogo inicial
+de módulos (ver app/utils/modulos.py::MODULOS_CATALOGO_INICIAL) — só
+INSERE as linhas de módulo que ainda não existem (procurando por `chave`),
+nunca atualiza uma linha já existente. Depois que o admin desenvolvedor
+mexer em preço/obrigatorio/ativo de um módulo pela tela
+/plataforma/modulos, rodar este script de novo não desfaz essa edição —
+só preenche módulos novos que ainda não têm linha nenhuma.
 """
 import sys
 
@@ -98,11 +106,31 @@ with app.app_context():
             print(f"  - {tabela}.{coluna} -> passa a permitir nulo")
     print()
 
+    # Catálogo inicial de módulos (ver docstring do módulo, segunda
+    # exceção) — só dá pra checar o que falta se a tabela `modulos` já
+    # existir; se ela está em tabelas_faltando, o catálogo inteiro entra
+    # junto assim que a tabela for criada, mais abaixo.
+    from app.utils.modulos import MODULOS_CATALOGO_INICIAL
+    if "modulos" in tabelas_faltando:
+        modulos_novos_previstos = [chave for chave, *_ in MODULOS_CATALOGO_INICIAL]
+    else:
+        from app.models import Modulo
+        chaves_existentes = {c for (c,) in db.session.query(Modulo.chave).all()}
+        modulos_novos_previstos = [chave for chave, *_ in MODULOS_CATALOGO_INICIAL if chave not in chaves_existentes]
+
+    if modulos_novos_previstos:
+        print("Módulos do catálogo inicial que serão ADICIONADOS (nunca sobrescreve um já existente):")
+        for chave in modulos_novos_previstos:
+            print(f"  - {chave}")
+    else:
+        print("Catálogo de módulos já tem todos os módulos iniciais (ou a tabela ainda não existe e será criada agora).")
+    print()
+
     if SOMENTE_CHECAR:
         print("Modo --checar: nada foi alterado no banco.")
         sys.exit(0)
 
-    if not tabelas_faltando and not colunas_faltando and not colunas_para_afrouxar:
+    if not tabelas_faltando and not colunas_faltando and not colunas_para_afrouxar and not modulos_novos_previstos:
         print("Banco já está sincronizado com o código atual. Nada a fazer.")
         sys.exit(0)
 
@@ -133,4 +161,11 @@ with app.app_context():
                 conexao.execute(text(sql))
         print(f"{len(colunas_para_afrouxar)} coluna(s) afrouxada(s) (passam a aceitar nulo).")
 
-    print("\nSincronização concluída. Nenhum dado existente foi alterado ou removido.")
+    if modulos_novos_previstos:
+        from app.utils.modulos import semear_catalogo_inicial
+        criados = semear_catalogo_inicial()
+        db.session.commit()
+        print(f"{criados} módulo(s) novo(s) adicionados ao catálogo (editáveis em /plataforma/modulos).")
+
+    print("\nSincronização concluída. Nenhum dado existente foi alterado ou removido "
+          "(só módulos novos do catálogo inicial foram inseridos, se algum faltava).")

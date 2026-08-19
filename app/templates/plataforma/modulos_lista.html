@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Catálogo de módulos — Plataforma{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Catálogo de módulos{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+    Cada módulo controla o acesso a um bloco do sistema (mesmo nome do menu
+    lateral correspondente). Módulos marcados "obrigatório" ficam liberados
+    para toda empresa automaticamente — os demais só ficam disponíveis para
+    uma empresa através da tela "Gerenciar módulos" dela (ver
+    <a href="{{ url_for('plataforma.empresas') }}">Empresas clientes</a>).
+  </p>
+  <a href="{{ url_for('plataforma.novo_modulo') }}" class="btn btn-brass ms-auto">+ Novo módulo</a>
+</div>
+
+<div class="card-doc tab p-0">
+  {% if itens %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr><th>Chave</th><th>Nome</th><th>Preço sugerido</th><th>Obrigatório</th><th>Status</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for i in itens %}
+      <tr class="{{ '' if i.ativo else 'text-muted-doc' }}">
+        <td><code>{{ i.chave }}</code></td>
+        <td>{{ i.nome }}</td>
+        <td>{{ i.preco_sugerido|moeda if i.preco_sugerido is not none else "—" }}</td>
+        <td>{{ "Sim" if i.obrigatorio else "—" }}</td>
+        <td><span class="badge-status {{ 'badge-cumprido' if i.ativo else 'badge-cancelada' }}">{{ "no catálogo" if i.ativo else "retirado" }}</span></td>
+        <td class="d-flex gap-1">
+          <a href="{{ url_for('plataforma.editar_modulo', item_id=i.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+          <form method="post" action="{{ url_for('plataforma.alternar_modulo_ativo', item_id=i.id) }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Retirar do catálogo" if i.ativo else "Reativar" }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum módulo cadastrado</div>
+    <p class="mb-0">Cadastre pelo menos os módulos correspondentes às telas que existem hoje no sistema.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -105,8 +105,11 @@
       {% endif %}
 
       {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.') }}" href="{{ url_for('licenciamento.minha_licenca') }}">
+      <a class="nav-item {{ 'active' if request.endpoint == 'licenciamento.minha_licenca' or request.endpoint == 'licenciamento.pagamento_retorno' }}" href="{{ url_for('licenciamento.minha_licenca') }}">
         <span class="tab-index">10</span> Minha licença
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.modulos') or request.endpoint == 'licenciamento.solicitar_modulo' }}" href="{{ url_for('licenciamento.modulos') }}">
+        <span class="tab-index">10b</span> Módulos
       </a>
       {% endif %}
       {% if current_user.is_admin %}
@@ -121,8 +124,11 @@
       <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.painel_licencas' }}" href="{{ url_for('plataforma.painel_licencas') }}">
         <span class="tab-index">P1</span> Painel de licenças
       </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.') and request.endpoint != 'plataforma.painel_licencas' and request.endpoint != 'plataforma.atualizar_licenca_rapido' }}" href="{{ url_for('plataforma.empresas') }}">
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.empresa') or request.endpoint == 'plataforma.empresas' or request.endpoint == 'plataforma.modulos_empresa' or request.endpoint == 'plataforma.licenca_empresa' }}" href="{{ url_for('plataforma.empresas') }}">
         <span class="tab-index">P2</span> Empresas clientes
+      </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.modulo') and request.endpoint != 'plataforma.modulos_empresa' }}" href="{{ url_for('plataforma.modulos_lista') }}">
+        <span class="tab-index">P3</span> Catálogo de módulos
       </a>
       {% endif %}
     </nav>

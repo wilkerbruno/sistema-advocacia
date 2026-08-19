@@ -130,6 +130,47 @@ def create_app(config_class=Config):
         return rt("erro.html", codigo=402,
                    mensagem="A licença da sua empresa está vencida. Fale com o administrador da sua conta."), 402
 
+    # ---------------------- Bloqueio por módulo não contratado ----------------------
+    # Complementa o bloqueio de licença acima: aquele trava a empresa
+    # INTEIRA quando a licença não está em dia; este trava só as telas de
+    # um módulo específico que a empresa não contratou, mesmo com a
+    # licença ativa (ver app/models/modulo.py e app/utils/modulos.py).
+    # Roda DEPOIS do bloqueio de licença de propósito (mesma ordem de
+    # registro = mesma ordem de execução no Flask) — não faz sentido
+    # avisar "módulo não contratado" pra quem nem tem licença ativa.
+    #
+    # Todo blueprint que NÃO está cadastrado no catálogo de módulos (login,
+    # painel, admin, api, plataforma, licenciamento, integrações) nunca é
+    # bloqueado aqui — só telas de blueprints com uma linha correspondente
+    # em Modulo (chave == nome do blueprint) entram nessa checagem.
+    @app.before_request
+    def bloquear_modulo_nao_contratado():
+        from flask import request as req, redirect as redir, url_for as urlf, flash as fl
+        from flask_login import current_user as cu
+        from app.utils.modulos import modulo_da_tela_atual, modulo_liberado_para
+
+        if req.endpoint in ENDPOINTS_SEMPRE_LIBERADOS or req.endpoint is None:
+            return None
+        if not cu.is_authenticated or cu.is_admin_desenvolvedor:
+            return None
+
+        empresa = cu.empresa
+        if empresa is None or empresa.dono_da_plataforma:
+            return None
+
+        modulo = modulo_da_tela_atual(req.blueprint)
+        if modulo_liberado_para(empresa, modulo):
+            return None
+
+        if cu.is_admin:
+            fl(f"O módulo \"{modulo.nome}\" não está contratado pela sua empresa. "
+               "Solicite a liberação na área de módulos.", "warning")
+            return redir(urlf("licenciamento.modulos"))
+        from flask import render_template as rt
+        return rt("erro.html", codigo=403,
+                   mensagem=f"O módulo \"{modulo.nome}\" não está contratado pela sua empresa. "
+                            "Fale com o administrador da sua conta."), 403
+
     from app.utils.notificacoes import contar_notificacoes_nao_lidas
 
     @app.context_processor

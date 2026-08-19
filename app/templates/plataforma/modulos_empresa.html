@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block titulo %}Módulos — {{ empresa.nome }}{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Módulos de {{ empresa.nome }}{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 640px;">
+  Módulos obrigatórios não aparecem aqui — já ficam liberados sempre. Pedidos
+  feitos pela própria empresa (status "solicitado") ficam pendentes até você
+  definir o valor adicional e ativar.
+</p>
+
+<div class="card-doc tab p-0">
+  <table class="table-doc mb-0">
+    <thead>
+      <tr><th>Módulo</th><th>Status</th><th>Valor adicional</th><th>Detalhe</th><th style="min-width:260px;">Ação</th></tr>
+    </thead>
+    <tbody>
+      {% for l in linhas %}
+      {% set a = l.associacao %}
+      <tr>
+        <td>
+          <div class="fw-medium">{{ l.modulo.nome }}</div>
+          {% if l.modulo.descricao %}<div class="small text-muted-doc">{{ l.modulo.descricao }}</div>{% endif %}
+        </td>
+        <td>
+          {% if not a %}<span class="badge-status badge-arquivado">não contratado</span>
+          {% elif a.status == "solicitado" %}<span class="badge-status badge-pendente">solicitado</span>
+          {% elif a.status in ("incluido_inicial", "ativo") %}<span class="badge-status badge-cumprido">ativo</span>
+          {% else %}<span class="badge-status badge-cancelada">cancelado</span>{% endif %}
+        </td>
+        <td>{{ a.valor_adicional|moeda if a and a.valor_adicional is not none else "—" }}</td>
+        <td class="small text-muted-doc">
+          {% if a and a.status == "solicitado" %}
+            pedido em {{ a.solicitado_em|data_hora_br }}{% if a.solicitado_por %} por {{ a.solicitado_por.nome }}{% endif %}
+          {% elif a and a.status in ("incluido_inicial", "ativo") and a.ativado_em %}
+            ativo desde {{ a.ativado_em|data_hora_br }}
+          {% elif a and a.status == "cancelado" and a.cancelado_em %}
+            cancelado em {{ a.cancelado_em|data_hora_br }}{% if a.observacao %} — {{ a.observacao }}{% endif %}
+          {% else %}—{% endif %}
+        </td>
+        <td>
+          {% if a and a.esta_liberado() %}
+          <form method="post" action="{{ url_for('plataforma.modulos_empresa', empresa_id=empresa.id) }}"
+                onsubmit="return confirm('Remover o módulo {{ l.modulo.nome }} desta empresa?')">
+            <input type="hidden" name="modulo_id" value="{{ l.modulo.id }}">
+            <input type="hidden" name="acao" value="cancelar">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Remover</button>
+          </form>
+          {% else %}
+          <form method="post" action="{{ url_for('plataforma.modulos_empresa', empresa_id=empresa.id) }}" class="d-flex gap-1 align-items-center">
+            <input type="hidden" name="modulo_id" value="{{ l.modulo.id }}">
+            <input type="hidden" name="acao" value="ativar">
+            <input type="text" name="valor_adicional" class="form-control form-control-sm" style="width:100px;"
+                   placeholder="R$" value="{{ l.modulo.preco_sugerido or '' }}">
+            <button type="submit" class="btn btn-brass btn-sm">{{ "Aprovar e ativar" if a and a.status == "solicitado" else "Ativar" }}</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="mt-3">
+  <a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=empresa.id) }}" class="linha-link small">← Voltar para {{ empresa.nome }}</a>
+</div>
+{% endblock %}

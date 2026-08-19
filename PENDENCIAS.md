@@ -1,4 +1,123 @@
-# Status das pendências do briefing (atualizado em 18/08/2026)
+# Status das pendências do briefing (atualizado em 19/08/2026)
+
+## -24. Sistema de módulos vendidos separadamente — cada empresa cliente pode ter um pacote diferente de telas liberadas
+
+**O que foi pedido:** separar o sistema em módulos, de forma que o admin
+desenvolvedor consiga gerenciar quais módulos cada empresa cliente tem,
+o cliente escolhendo os módulos desejados ANTES do primeiro pagamento, e
+podendo pedir módulos adicionais DEPOIS, com custo a mais.
+
+**Como ficou (decisões tomadas, todas ajustáveis depois):**
+
+- Um módulo por blueprint já existente (Processos, Clientes, Financeiro,
+  Tarefas, Agenda, Timesheet, Governança de carteira, Agente de IA) — não
+  pacotes agrupados. Cadastrado em `Modulo` (tabela nova `modulos`), com a
+  `chave` de cada um batendo exatamente com o nome do blueprint no código
+  (é assim que o sistema descobre a que módulo uma tela pertence, sem
+  precisar de nenhum mapa manual redundante).
+- "Clientes" e "Processos" marcados como `obrigatorio=True` no catálogo
+  inicial (semeado automaticamente, ver abaixo) — toda empresa tem os
+  dois sempre, sem precisar de nenhuma seleção, porque são a base mínima
+  do produto (sem cadastro de cliente/processo não tem o que os outros
+  módulos operarem em cima). Os demais seis ficam opcionais por padrão.
+  Essa é uma decisão de PRODUTO, não técnica — totalmente reversível (ou
+  extensível pra outros módulos) depois, direto pela tela
+  `/plataforma/modulos`, sem precisar mexer em código.
+- Seleção ANTES do primeiro pagamento: ao cadastrar uma empresa nova em
+  `/plataforma/empresas/nova` (você, admin desenvolvedor, no painel — foi
+  a opção que você escolheu, em vez de um formulário público de
+  orçamento), agora aparecem checkboxes dos módulos opcionais com um
+  campo de valor adicional por módulo, somando um total sugerido pra
+  `Licenca.valor_negociado` (o valor final continua sempre editável — a
+  soma é só uma referência, igual ao preço sugerido de cada módulo nunca
+  ser mostrado como "tabela de preços" pra nenhuma empresa).
+- Pedido DEPOIS do primeiro pagamento, com custo a mais: a própria
+  empresa cliente (usuário admin dela) agora tem uma tela "Módulos" (menu
+  lateral, "Minha licença" → "Módulos") onde vê o que já tem e pode
+  clicar "Solicitar" num módulo novo. Isso cria um pedido pendente
+  (status "solicitado") e avisa você (notificação, o sininho "Avisos" no
+  topo) — você define o valor adicional e ativa em
+  `/plataforma/empresas/<id>/modulos`. Não tem checkout automático nem
+  preço público — mesmo espírito de "sempre negociado por você" que já
+  existia pra Licenca (ver pendência antiga sobre `valor_negociado`).
+  Se um dia isso incomodar na prática (muitos pedidos, você preferir um
+  preço fixo com pagamento automático via Mercado Pago), dá pra evoluir
+  reaproveitando a integração que já existe em `Pagamento` — ficou fora
+  do escopo desta rodada de propósito, pra não versionar processo de
+  cobrança sem ter certeza de como você quer que funcione.
+- Bloqueio de acesso: nova função `bloquear_modulo_nao_contratado` em
+  `app/__init__.py`, rodando LOGO DEPOIS do bloqueio de licença que já
+  existia (`bloquear_empresa_sem_licenca_ativa`) — sequência importa:
+  não faz sentido avisar "módulo não contratado" pra quem nem tem licença
+  ativa. Admin desenvolvedor e a empresa dona da plataforma nunca são
+  bloqueados por módulo (mesmo bypass de sempre). Uma tela de um
+  blueprint SEM módulo cadastrado no catálogo (login, painel, admin,
+  api, plataforma, licenciamento, integrações) nunca é bloqueada — só
+  entra nessa checagem quem tem uma linha correspondente em `Modulo`.
+
+**Gap real encontrado no caminho (não criado por mim, já existia):**
+ao testar o fluxo de ponta a ponta, descobri que várias telas que este
+sistema de módulos precisava pra funcionar de verdade simplesmente NÃO
+EXISTIAM ainda — os templates `plataforma/empresas.html`,
+`plataforma/empresa_form.html`, `plataforma/empresa_detalhe.html`,
+`plataforma/licenca_form.html` e a pasta inteira `licenciamento/`
+(incluindo `minha_licenca.html`) estavam faltando, apesar das ROTAS já
+existirem no código. Ou seja: hoje em produção, `/plataforma/empresas`
+(cadastrar/ver/editar empresa cliente), o link "Minha licença" que todo
+admin de empresa cliente vê no menu, e o cadastro público self-service em
+`/cadastrar-empresa` (que redireciona pra "Minha licença" assim que
+termina) provavelmente estão devolvendo erro 500 pra quem clica. Como
+essas telas são exatamente onde o sistema de módulos precisava viver,
+construí todas elas nesta rodada (estilo consistente com o resto do
+sistema, mesmas classes CSS/padrões de formulário já usados em
+Governança) — então isso sai já corrigido junto, mas vale você testar
+esse fluxo específico (cadastro público de empresa nova) num teste real,
+já que eu não tenho como simular o Mercado Pago de verdade no sandbox.
+
+**Arquivos novos:**
+- `app/models/modulo.py` (`Modulo`, `EmpresaModulo`)
+- `app/utils/modulos.py` (regras de negócio: catálogo, liberar/solicitar/
+  aprovar/cancelar módulo, seed inicial `MODULOS_CATALOGO_INICIAL`)
+- Templates: `plataforma/empresas.html`, `empresa_form.html`,
+  `empresa_detalhe.html`, `licenca_form.html`, `modulos_lista.html`,
+  `modulo_form.html`, `modulos_empresa.html`; `licenciamento/minha_licenca.html`,
+  `licenciamento/modulos.html`.
+
+**Arquivos alterados:**
+- `app/models/empresa.py` (relacionamento `modulos_associados`)
+- `app/models/__init__.py` (registro dos models novos)
+- `app/__init__.py` (novo `before_request` de bloqueio por módulo)
+- `app/routes/plataforma.py` (CRUD do catálogo, seleção de módulos no
+  cadastro de empresa nova, gestão de módulos por empresa)
+- `app/routes/licenciamento.py` (tela do cliente pra ver/solicitar módulos)
+- `app/templates/base.html` (menu: "Módulos" pro cliente, "Catálogo de
+  módulos" pro admin desenvolvedor)
+- `sincronizar_schema.py` e `criar_tabelas.py` (seed automático e
+  idempotente do catálogo inicial — ver próxima seção)
+
+**Como isso chega em produção:** as tabelas `modulos` e `empresa_modulos`
+são criadas automaticamente na próxima vez que você rodar
+`python sincronizar_schema.py` no servidor (mesmo processo de sempre) —
+e, PELA PRIMEIRA VEZ, esse script também semeia dados (só linhas NOVAS,
+identificadas por `chave`; nunca sobrescreve o que você já tiver editado
+manualmente pela tela `/plataforma/modulos` numa execução anterior — ver
+a segunda exceção documentada no topo do próprio arquivo). Rode o script,
+confira o catálogo em `/plataforma/modulos`, e ajuste preços/obrigatório
+como fizer sentido pro seu negócio antes de cadastrar a próxima empresa.
+
+**Testado no sandbox** (Flask test_client simulando login de admin
+desenvolvedor e de admin de empresa cliente, banco sqlite descartável):
+catálogo inicial semeado corretamente e de forma idempotente; CRUD
+completo do catálogo de módulos; cadastro de empresa nova com módulos
+selecionados virando `incluido_inicial` com o valor certo; módulo
+obrigatório liberado mesmo sem nenhuma linha em `EmpresaModulo`; bloqueio
+de acesso funcionando nos três estados (não contratado, solicitado,
+ativo) com o redirecionamento certo em cada caso; fluxo completo de
+solicitação pelo cliente → notificação pro admin desenvolvedor → aprovação
+→ acesso liberado; admin desenvolvedor nunca bloqueado por módulo, mesmo
+em blueprint sem nenhum módulo incluído. Não testado (sem como simular no
+sandbox): o Mercado Pago de verdade no cadastro público self-service —
+peço que você valide esse fluxo específico com um pagamento real de teste.
 
 ## -23. Mesmo bug da pendência nº -22, só que com vírgula em vez de ponto — a checagem de valor voltou a sinalizar o R$ 10.000 real, agora escrito "R$ 10,000"
 

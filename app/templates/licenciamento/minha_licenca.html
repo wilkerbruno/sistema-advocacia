@@ -1,33 +1,45 @@
 {% extends "base.html" %}
 {% block titulo %}Minha licença — JusControl{% endblock %}
-{% block eyebrow %}Minha empresa{% endblock %}
-{% block cabecalho %}Licença{% endblock %}
+{% block eyebrow %}Gestão{% endblock %}
+{% block cabecalho %}Minha licença{% endblock %}
 
 {% block conteudo %}
-<div class="card-doc tab p-4" style="max-width: 560px;">
-  {% if not licenca %}
-  <p class="text-muted-doc">Sua empresa ainda não tem um plano definido. Entre em contato com o suporte.</p>
-  {% else %}
-  <p class="small mb-1"><strong>Plano:</strong> {{ licenca.plano|capitalize }}</p>
-  <p class="small mb-1"><strong>Valor:</strong> {{ licenca.valor_negociado|moeda }} / {{ licenca.plano }}</p>
-  <p class="small mb-3">
-    <strong>Status:</strong>
-    {% if licenca.esta_ativa() %}
-      <span class="badge-status badge-cumprido">ativa até {{ licenca.data_fim|data_br }}</span>
-    {% else %}
-      <span class="badge-status badge-perdido">{{ "pendente de pagamento" if licenca.status == "pendente_pagamento" else licenca.status }}</span>
-    {% endif %}
-  </p>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card-doc tab p-4">
+      {% if licenca %}
+        <div class="small text-muted-doc">Plano atual</div>
+        <div class="fs-4 mb-2">{{ licenca.plano|capitalize }} — {{ licenca.valor_negociado|moeda }}</div>
+        <div class="mb-3">
+          <span class="badge-status {{ 'badge-cumprido' if licenca.esta_ativa() else 'badge-pendente' }}">
+            {{ "ativa" if licenca.esta_ativa() else licenca.status.replace("_", " ") }}
+          </span>
+          {% if licenca.data_fim %}
+            <span class="small text-muted-doc ms-2">
+              {{ "vence em" if licenca.esta_ativa() else "venceu em" }} {{ licenca.data_fim|data_br }}
+            </span>
+          {% endif %}
+        </div>
 
-  {% if not licenca.esta_ativa() %}
-  <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
-    <button class="btn btn-brass">Pagar {{ licenca.valor_negociado|moeda }} via Mercado Pago</button>
-  </form>
-  {% else %}
-  <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
-    <button class="btn btn-outline-doc btn-sm">Renovar antecipadamente</button>
-  </form>
-  {% endif %}
-  {% endif %}
+        {% if not licenca.esta_ativa() %}
+        <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
+          <button type="submit" class="btn btn-brass">Pagar agora (Mercado Pago)</button>
+        </form>
+        {% else %}
+        <p class="small text-muted-doc mb-0">Sua licença está em dia — nada a fazer por agora.</p>
+        {% endif %}
+      {% else %}
+        <p class="text-muted-doc mb-0">Sua empresa ainda não tem um plano definido. Entre em contato com o suporte.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-md-6">
+    <div class="card-doc tab p-4">
+      <div class="small text-muted-doc">Módulos contratados</div>
+      <p class="small text-muted-doc">Veja o que sua empresa já tem liberado e peça módulos adicionais.</p>
+      <a href="{{ url_for('licenciamento.modulos') }}" class="btn btn-outline-doc">Ver módulos</a>
+    </div>
+  </div>
 </div>
 {% endblock %}

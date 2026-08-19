@@ -140,8 +140,12 @@ def popular_tabelas_referencia():
                 unidade_prazo=unidade, observacao_prazo=obs, responsavel_sugerido_papel=papel,
             ))
 
+    from app.utils.modulos import semear_catalogo_inicial
+    qtd_modulos = semear_catalogo_inicial()
+
     db.session.commit()
-    print(f"Tabelas de referência populadas: {len(mapa_estados)} estados TPU, {len(regras)} regras de próxima ação.")
+    print(f"Tabelas de referência populadas: {len(mapa_estados)} estados TPU, {len(regras)} regras de próxima ação, "
+          f"{qtd_modulos} módulo(s) no catálogo inicial (ver app/utils/modulos.py).")
 
 
 def main():

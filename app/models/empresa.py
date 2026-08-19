@@ -59,6 +59,11 @@ class Empresa(db.Model):
 
     unidades = db.relationship("Unidade", back_populates="empresa", lazy="dynamic")
     licenca = db.relationship("Licenca", back_populates="empresa", uselist=False)
+    # Módulos vendidos separadamente (ver app/models/modulo.py e
+    # app/utils/modulos.py) — associação com status próprio (incluído no
+    # pacote inicial / solicitado / ativo / cancelado), não é só uma lista
+    # simples de módulos "ligados".
+    modulos_associados = db.relationship("EmpresaModulo", back_populates="empresa", lazy="dynamic")
 
     @property
     def agente_ia_provedor_efetivo(self):
