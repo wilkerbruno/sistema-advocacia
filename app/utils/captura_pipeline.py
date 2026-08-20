@@ -106,37 +106,63 @@ def aplicar_carga_inicial(processo, dados_capturados):
         processo.segredo_justica = True
 
 
+JANELA_DIAS_MOVIMENTACAO_RECENTE = 60
+# Ver PENDENCIAS.md, seção -34. Uma movimentação SEM regra cadastrada só
+# pode gerar o prazo genérico "Análise necessária" quando aconteceu há no
+# máximo essa janela de dias (contados de hoje, não da data de cadastro do
+# processo) — qualquer coisa mais antiga que isso é, por definição,
+# histórico, nunca um prazo de verdade em aberto. Folga generosa acima do
+# maior prazo processual comum (30 dias) de propósito, pra nunca suprimir
+# um alerta genuinamente recente.
+
+
 def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captura_inicial=False):
     """
     Persiste uma lista de MovimentacaoCapturada (dataclass de
     captura_conectores.py) como registros de Movimentacao, deduplicando
     por hash, rodando a máquina de estados e o motor de próxima ação.
 
-    `captura_inicial=True`: use quando este lote é a PRIMEIRA carga de
-    histórico de um processo (cadastro por CNJ, cadastro manual com busca
-    automática, ou o botão "Tentar captura automática" — ver
-    app/routes/governanca.py e app/routes/processos.py). O DataJud devolve
-    o histórico inteiro do processo de uma vez, que pode ter anos (ou
-    décadas) de movimentações antigas; sem essa flag, cada uma delas que
-    não bater com nenhuma regra cadastrada geraria um prazo "genérico" de
-    análise com vencimento já vencido há anos, inundando a tela de Prazos
-    com dezenas de alarmes falsos (foi exatamente o que aconteceu num
-    processo real de 2002 usado nos testes). Com `captura_inicial=True`,
-    só a movimentação mais RECENTE do lote pode gerar esse prazo genérico
-    (se nenhuma regra específica bater) — o resto fica visível do mesmo
-    jeito na aba Governança (badge "triagem pendente"), só não vira tarefa
-    de prazo. Em captura periódica (captura_inicial=False, padrão — ver
-    capturar_movimentacoes.py) o comportamento não muda: toda movimentação
-    nova de verdade continua gerando seu prazo genérico normalmente.
+    Uma movimentação SEM regra cadastrada só gera o prazo genérico de
+    "Análise necessária" quando é RECENTE (ver JANELA_DIAS_MOVIMENTACAO_RECENTE
+    acima) — decidido pela data real do ato, não por esta função ter sido
+    chamada com `captura_inicial=True` ou não (ver PENDENCIAS.md, seção -34
+    para o histórico da mudança). Isso importa em dois casos, não só um:
+
+    1) Cadastro por CNJ (captura_inicial=True): o DataJud devolve o
+       histórico inteiro do processo de uma vez, que pode ter anos (ou
+       décadas) de movimentações antigas — sem esse filtro, cada uma delas
+       que não bater com nenhuma regra cadastrada geraria um prazo
+       "genérico" com vencimento já vencido há anos, inundando a tela de
+       Prazos com dezenas de alarmes falsos (foi exatamente o que
+       aconteceu num processo real de 2002 usado nos testes).
+    2) Captura periódica (captura_inicial=False, padrão — ver
+       capturar_movimentacoes.py): o DataJud pode indexar/expor uma
+       movimentação ANTIGA só depois (defasagem de indexação do próprio
+       tribunal, às vezes de meses, especialmente em processos migrados de
+       físico pra eletrônico) — nesse caso ela chega "nova" pro nosso hash
+       de deduplicação mesmo sendo de anos atrás, e caía no mesmo problema
+       do item 1 mesmo fora da carga inicial (é o que gerou a avalanche de
+       "Análise necessária" de 2002/2003/2012 num processo real reportado
+       pelo usuário — a captura funcionou certo, o problema era só este
+       filtro não cobrir esse caminho).
+
+    Em ambos os casos a movimentação continua registrada e visível do
+    mesmo jeito (aba Governança, badge "triagem pendente" quando sem
+    mapa) — o filtro só evita virar uma tarefa de prazo fantasma; uma
+    movimentação recente de verdade (dentro da janela) sempre gera seu
+    prazo genérico normalmente, capturada na carga inicial ou depois.
+
+    `captura_inicial` é mantido como parâmetro só para os chamadores
+    documentarem a intenção da chamada (cadastro/CNJ vs. cron periódico) e
+    para diferenciar a mensagem de LogCaptura em quem o usa — não influencia
+    mais esta decisão.
 
     Devolve o número de movimentações NOVAS persistidas (as já existentes
     são silenciosamente ignoradas — é o comportamento normal em recaptura
     periódica, onde a maioria já foi vista antes). Não faz commit — quem
     chama decide.
     """
-    data_mais_recente_do_lote = max(
-        (c.data for c in movimentacoes_capturadas if c.data), default=None
-    )
+    hoje = datetime.utcnow()
 
     novas = 0
     for capturada in movimentacoes_capturadas:
@@ -157,7 +183,7 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captu
         if historico:
             db.session.add(historico)
 
-        permitir_generico = (not captura_inicial) or (capturada.data == data_mais_recente_do_lote)
+        permitir_generico = (hoje - capturada.data).days <= JANELA_DIAS_MOVIMENTACAO_RECENTE
         prazo_gerado = aplicar_regra_proxima_acao(mov, permitir_generico=permitir_generico)
         if prazo_gerado:
             db.session.add(prazo_gerado)

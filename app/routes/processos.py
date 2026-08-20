@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from decimal import Decimal
 from flask import (Blueprint, render_template, request, redirect, url_for,
                     flash, current_app, send_from_directory, abort)
@@ -236,11 +236,21 @@ def detalhe(processo_id):
     regras_ativas = RegraProximaAcao.query.filter_by(ativo=True).order_by(RegraProximaAcao.ato_capturado).all()
     analises_ia = AnaliseProcessoIA.query.filter_by(processo_id=processo.id) \
         .order_by(AnaliseProcessoIA.criado_em.desc()).all()
+    prazos_historico = prazos_historico_elegiveis(processo)
+    # Sugestão automática de evidência (assistida — ver PENDENCIAS.md, seção
+    # -35): só computada pros prazos históricos elegíveis, que são justamente
+    # os que geram trabalho manual de "abrir um por um" hoje. dict prazo_id
+    # -> Movimentacao sugerida (só entra quando achou algo plausível).
+    sugestoes_evidencia = {
+        p.id: sugerir_evidencia_historica(p) for p in prazos_historico
+    }
+    sugestoes_evidencia = {k: v for k, v in sugestoes_evidencia.items() if v is not None}
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
                             tribunais_datajud=tribunais_datajud.TODOS,
-                            prazos_historico=prazos_historico_elegiveis(processo))
+                            prazos_historico=prazos_historico,
+                            sugestoes_evidencia=sugestoes_evidencia)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -495,6 +505,90 @@ def prazos_historico_elegiveis(processo):
         p for p in processo.prazos
         if p.status == "pendente" and p.data_vencimento and p.data_vencimento < data_cadastro
     ]
+
+
+# Palavras que, no texto de uma movimentação POSTERIOR à data de início do
+# prazo, sugerem que a parte respondeu/protocolou algo (ver
+# sugerir_evidencia_historica abaixo, PENDENCIAS.md seção -35).
+_PALAVRAS_POSITIVAS_EVIDENCIA = (
+    "contestação", "contestacao", "manifestação", "manifestacao", "petição", "peticao",
+    "protocolo", "protocolado", "recurso", "embargos", "agravo", "réplica", "replica",
+    "tréplica", "treplica", "alegações finais", "alegacoes finais", "cumprimento de",
+    "impugnação", "impugnacao", "defesa apresentada", "razões", "razoes", "resposta apresentada",
+)
+# Palavras que indicam o CONTRÁRIO — a parte ficou em silêncio/o prazo
+# correu sem manifestação — nunca sugerir uma movimentação assim como
+# evidência de cumprimento, mesmo que também contenha uma palavra positiva.
+_PALAVRAS_NEGATIVAS_EVIDENCIA = (
+    "decurso de prazo", "decurso do prazo", "certidão de decurso", "certidao de decurso",
+    "prazo decorrido", "decorreu o prazo", "sem manifestação", "sem manifestacao",
+    "ausência de manifestação", "ausencia de manifestacao", "silêncio da parte", "silencio da parte",
+)
+
+# Até quantos dias após o início do prazo a busca por uma movimentação de
+# resposta ainda faz sentido — sem esse limite, um processo de décadas
+# poderia "achar" uma petição de um capítulo totalmente diferente do caso,
+# anos depois, e sugerir errado. Folga generosa (~6 meses) acima de
+# qualquer prazo processual comum, pra cobrir tribunal lento sem virar
+# risco de casar movimentação errada.
+_LIMITE_DIAS_BUSCA_EVIDENCIA = 180
+
+
+def sugerir_evidencia_historica(prazo):
+    """
+    Sugestão automática ASSISTIDA (ver PENDENCIAS.md, seção -35) de qual
+    movimentação capturada provavelmente corresponde ao cumprimento de um
+    prazo histórico — nunca fecha nada sozinha, só pré-preenche o
+    formulário "Fechar com evidência" pra o usuário revisar e confirmar
+    com um clique, em vez de caçar a movimentação certa manualmente no
+    meio de décadas de andamento.
+
+    Só tenta quando o prazo tem `regra_aplicada_id` (veio de uma
+    RegraProximaAcao cadastrada, ex: "Citação para contestar" -> ação
+    exigida "Apresentar contestação") — prazos genéricos ("Análise
+    necessária — ato sem regra cadastrada") NÃO têm uma ação exigida
+    definida, então não há o que provar como "cumprimento": não são
+    elegíveis pra esta sugestão, só pra regularizar_prazos_historico.
+
+    Procura, entre as movimentações do MESMO processo posteriores à data de
+    início do prazo (ordem cronológica, limitadas a
+    _LIMITE_DIAS_BUSCA_EVIDENCIA dias — ver constante acima, pra não casar
+    com uma petição de anos depois, de um capítulo totalmente diferente do
+    caso), a primeira que contém uma palavra-chave de resposta/protocolo.
+    Se a primeira movimentação candidata (a mais próxima no tempo) contiver
+    um sinal do CONTRÁRIO (certidão de decurso de prazo, silêncio da
+    parte), a busca PARA ali e devolve None — esse sinal é justamente o
+    registro de que a parte não respondeu naquele período, então nada
+    depois dele nesta janela deveria ser oferecido como se fosse a resposta
+    a este prazo.
+
+    Isto é heurística por palavra-chave sobre o texto do ato, não uma
+    prova jurídica — por isso nunca fecha o prazo sozinha (ver
+    processos.cumprir_prazo_com_evidencia: fechamento como "cumprido"
+    sempre exige confirmação humana, governança central do projeto).
+    Devolve a Movimentacao sugerida, ou None quando não achou nada
+    plausível (nesse caso a única opção continua sendo
+    regularizar_prazos_historico ou fechar manualmente sem sugestão).
+    """
+    if not prazo.regra_aplicada_id or not prazo.data_inicial:
+        return None
+
+    inicio = datetime.combine(prazo.data_inicial, datetime.min.time())
+    limite = inicio + timedelta(days=_LIMITE_DIAS_BUSCA_EVIDENCIA)
+    candidatas = (
+        Movimentacao.query
+        .filter(Movimentacao.processo_id == prazo.processo_id,
+                Movimentacao.data > inicio, Movimentacao.data <= limite)
+        .order_by(Movimentacao.data.asc())
+        .all()
+    )
+    for mov in candidatas:
+        texto = (mov.texto_integral or "").lower()
+        if any(neg in texto for neg in _PALAVRAS_NEGATIVAS_EVIDENCIA):
+            return None
+        if any(pos in texto for pos in _PALAVRAS_POSITIVAS_EVIDENCIA):
+            return mov
+    return None
 
 
 @processos_bp.route("/<int:processo_id>/prazos/regularizar-historico", methods=["POST"])

@@ -89,17 +89,21 @@ def aplicar_regra_proxima_acao(movimentacao, publicacao=None, permitir_generico=
     "Ato sem regra cadastrada gera tarefa genérica de análise, nunca é
     ignorado."
 
-    `permitir_generico=False`: usado só na captura inicial em lote de
-    histórico antigo (ver captura_pipeline.registrar_movimentacoes_capturadas)
-    para NÃO criar o prazo genérico de "análise necessária" pra atos antigos
-    sem regra — um processo de 20 anos capturado de uma vez pode trazer
-    dezenas desses, cada um com vencimento já expirado há anos, o que só
-    cria ruído/alarme falso na tela de Prazos (o ato mais antigo sem regra
-    já foi sucedido por outros atos depois — quem precisa de atenção é o
-    mais recente). A movimentação continua registrada e visível (aba
-    Governança, badge "triagem pendente") de qualquer forma — isso aqui só
-    evita virar uma tarefa de prazo fantasma; quando HÁ regra cadastrada
-    (por código ou por texto) o prazo sempre é gerado, não importa a data.
+    `permitir_generico=False`: usado pra atos ANTIGOS sem regra cadastrada
+    (ver critério de "antigo" — janela de dias — em
+    captura_pipeline.JANELA_DIAS_MOVIMENTACAO_RECENTE e o motivo completo no
+    docstring de captura_pipeline.registrar_movimentacoes_capturadas, seção
+    -34 do PENDENCIAS.md) para NÃO criar o prazo genérico de "análise
+    necessária" — um processo antigo capturado de uma vez (ou uma
+    movimentação antiga só indexada tarde pelo tribunal, numa captura
+    periódica) pode trazer dezenas desses, cada um com vencimento já
+    expirado há anos, o que só cria ruído/alarme falso na tela de Prazos (o
+    ato mais antigo sem regra já foi sucedido por outros atos depois — quem
+    precisa de atenção é o mais recente). A movimentação continua
+    registrada e visível (aba Governança, badge "triagem pendente") de
+    qualquer forma — isso aqui só evita virar uma tarefa de prazo fantasma;
+    quando HÁ regra cadastrada (por código ou por texto) o prazo sempre é
+    gerado, não importa a data.
 
     Retorna o Prazo criado (não commitado — quem chama decide o commit).
     """

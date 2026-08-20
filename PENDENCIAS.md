@@ -1,5 +1,133 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -35. Sugestão automática de evidência para prazos históricos (assistida — sempre com confirmação humana)
+
+**O que foi pedido:** depois da seção -33 (regularização em lote pro
+status neutro "histórico anterior", sem evidência) e do diagnóstico do bug
+da seção -34, você perguntou se dava pra ir além: os prazos históricos já
+virem com evidência de cumprimento de verdade, fechando como "cumprido"
+igual a qualquer prazo normal, em vez de só sumir da contagem como
+"histórico anterior".
+
+**Por que não é uma automação total (sem clique nenhum):** o próprio
+projeto já define isso como governança central — "o prazo só fecha como
+cumprido quando há evidência real, marcar 'feito' no botão sozinho não
+fecha o prazo" (ver docstring de `Prazo`, seção 7.2 do briefing). Pra um
+prazo genérico ("Análise necessária — ato sem regra cadastrada") isso é
+ainda mais delicado: como o próprio sistema não identificou qual ação era
+exigida por aquele ato, não existe "isto prova que a obrigação foi
+cumprida" nenhum pra procurar — não é uma limitação técnica que dê pra
+contornar, é a natureza do prazo genérico. Fechar isso sozinho, sem
+revisão humana, criaria exatamente o risco que a governança do projeto foi
+desenhada pra evitar: um prazo marcado como cumprido sem ninguém nunca ter
+conferido se aconteceu de verdade — problema sério numa ferramenta de
+controle de prazo jurídico.
+
+**O que foi construído (versão assistida):** `sugerir_evidencia_historica`
+(nova função em `app/routes/processos.py`) — só atua em prazos históricos
+que TÊM uma `RegraProximaAcao` cadastrada (ex: "Citação para contestar" →
+ação exigida "Apresentar contestação"), porque só nesses há uma obrigação
+definida pra verificar. Procura, entre as movimentações do mesmo processo
+nos 180 dias seguintes ao início do prazo, a primeira que contém uma
+palavra-chave de resposta/protocolo ("contestação", "manifestação",
+"recurso", "embargos" etc.). Se a movimentação mais próxima no tempo for,
+em vez disso, uma certidão de decurso de prazo/silêncio da parte, a busca
+para ali e NÃO sugere nada — esse é o próprio registro de que a parte não
+respondeu naquele período.
+
+Quando acha uma correspondência plausível, a aba Prazos do processo mostra
+um selo "sugestão encontrada" no botão "Fechar com evidência" desse prazo,
+o formulário já abre expandido com a movimentação pré-selecionada e um
+aviso explicando que é uma heurística por palavra-chave, não uma prova —
+revise o teor antes de confirmar. O fechamento em si continua sendo a
+mesma rota de sempre (`cumprir_prazo_com_evidencia`), exigindo o clique em
+"Confirmar cumprimento" — nada fecha sozinho, só ficou mais rápido revisar
+e confirmar do que caçar a movimentação certa manualmente em décadas de
+andamento.
+
+**Testado:** três cenários (prazo com regra + resposta plausível depois →
+sugere certo; prazo com regra + só certidão de decurso de prazo depois →
+não sugere nada; prazo genérico sem regra → nunca sugere, mesmo com uma
+movimentação boa depois) e um teste end-to-end renderizando a aba Prazos
+de verdade (via `test_request_context` + login simulado) confirmando que o
+selo aparece e a movimentação certa vem pré-selecionada no formulário.
+
+**Não precisa rodar `sincronizar_schema.py` para esta entrega** — não foi
+criada nenhuma coluna nova no banco, a sugestão é calculada na hora, sem
+persistir nada. Só precisa do `git push` de sempre pra ir pro ar.
+
+**Arquivos alterados:** `app/routes/processos.py` (função
+`sugerir_evidencia_historica` + wiring na rota `detalhe`),
+`app/templates/processos/detalhe.html` (selo, aviso e pré-seleção no
+formulário "Fechar com evidência").
+
+## -34. Bug corrigido: captura periódica gerava prazos genéricos "fantasma" para movimentações antigas indexadas tarde pelo tribunal
+
+**O que aconteceu:** você reportou um processo real com 105 prazos atrasados,
+a maioria "Análise necessária — ato sem regra de próxima ação cadastrada"
+com datas de 2002, 2003 e 2012, e perguntou se o sistema "não buscou as
+informações" desse processo.
+
+**Diagnóstico:** a captura funcionou certo — o histórico completo do
+processo (2002 a hoje) está de fato no sistema, vindo do DataJud. O
+problema era outro: a proteção contra "avalanche de prazos genéricos
+antigos" (ver seção -3/prazos_engine.py, "ato sem regra cadastrada gera
+tarefa genérica, nunca é ignorado, mas não pode virar alarme falso pra ato
+de 20 anos atrás") só cobria a carga INICIAL do processo (`captura_inicial=
+True`, cadastro por CNJ). Ela não cobria a captura periódica diária (o
+cron `capturar_movimentacoes.py`, que roda com `captura_inicial=False`).
+
+Tribunais mais antigos (ou processos migrados de físico pra eletrônico)
+frequentemente indexam o histórico completo no DataJud aos poucos, não
+tudo de uma vez — então uma movimentação de 2003 pode aparecer como "nova"
+pro sistema só meses depois do cadastro, capturada por um desses ciclos
+diários do cron. Como essa captura não é a inicial, o filtro antigo deixava
+passar, e cada uma dessas movimentações "descobertas tarde" sem regra
+cadastrada virava um prazo genérico com vencimento já vencido há anos —
+foi exatamente isso que inundou a aba Prazos desse processo.
+
+**Correção aplicada (`app/utils/captura_pipeline.py`):** o critério pra
+permitir o prazo genérico "Análise necessária" deixou de depender de
+`captura_inicial` (se é a carga inicial ou não) e passou a depender só da
+DATA REAL do ato: só gera esse prazo genérico quando o ato aconteceu nos
+últimos 60 dias (constante `JANELA_DIAS_MOVIMENTACAO_RECENTE`), contados
+de hoje — folga generosa acima do maior prazo processual comum (30 dias),
+pra nunca engolir um alerta genuinamente recente. Vale tanto pra carga
+inicial (cadastro por CNJ) quanto pra captura periódica — mesma regra nos
+dois caminhos, sem duplicar lógica. Testado com um cenário simulando
+exatamente o caminho do cron periódico (lote com 3 atos antigos sem regra
+de 2002/2003/2012 + 1 ato recente sem regra de 5 dias atrás): só o ato
+recente gerou prazo; os 3 antigos ficaram registrados e visíveis (aba
+Governança, badge "triagem pendente"), sem virar alarme falso.
+
+**Importante — o que NÃO muda:** quando HÁ uma regra cadastrada
+(`RegraProximaAcao`) que bate com o ato, o prazo sempre é gerado,
+independente da idade — isso é intencional e continua igual (é assim que
+um prazo processual de verdade, mesmo antigo, nunca é "ignorado
+silenciosamente"). Testado também.
+
+**O que fazer com os 105 já existentes neste processo:** eles não somem
+sozinhos com esta correção (ela só evita gerar NOVOS prazos-fantasma
+daqui pra frente). Pra regularizar os que já existem, use a ação
+"Regularizar prazos anteriores ao cadastro" no topo da aba Prazos do
+processo (seção -33 abaixo) — ela pega exatamente esse padrão (prazo
+pendente com vencimento antes da data em que você cadastrou o processo no
+sistema) e fecha todos de uma vez com o status neutro "histórico
+anterior" (não conta mais como atrasado/perdido nos painéis, mas também
+não finge ter evidência de cumprimento — ver seção -33). **Só funciona
+depois de rodar `python sincronizar_schema.py` no terminal do container —
+se você ainda não confirmou ter rodado esse comando após o último deploy,
+rode agora antes de tentar usar o botão.**
+
+**Sobre pedir evidência de cumprimento automática (sua pergunta mais
+recente):** ver resposta detalhada na conversa — em resumo, não é seguro
+fechar como "cumprido" automaticamente pra esses prazos antigos porque o
+sistema não tem como saber com confiança qual movimentação posterior
+efetivamente satisfez cada obrigação específica (mais ainda pros de
+"Análise necessária", que por definição não têm uma ação exigida
+identificada). Ficou combinado avaliar uma versão assistida (sistema
+sugere, humano confirma) como próximo passo, se você quiser.
+
 ## -33. Regularização em lote de prazos "perdidos" vindos do histórico anterior ao cadastro no sistema
 
 **O que foi pedido:** você registrou um processo público pelo número CNJ e

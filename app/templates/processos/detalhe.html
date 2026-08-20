@@ -121,7 +121,9 @@
             automaticamente ao cadastrar pelo CNJ (ver aba Andamentos), não de um prazo em aberto hoje.
             Sem evidência real de cumprimento (o escritório não usava o sistema na época), mas contam
             como "perdido" no painel do jeito que estão. Se o processo seguiu tramitando normalmente,
-            regularize todos de uma vez em vez de marcar prazo por prazo:
+            regularize todos de uma vez em vez de marcar prazo por prazo — ou, pros que já têm uma
+            sugestão automática de evidência (veja abaixo, na lista, o selo "sugestão encontrada"),
+            revise e confirme prazo por prazo pra fechar como cumprido de verdade, com evidência real:
           </p>
           <details>
             <summary class="btn btn-outline-doc btn-sm">Regularizar {{ prazos_historico|length }} prazo(s) anterior(es) ao cadastro</summary>
@@ -178,16 +180,28 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button name="status" value="perdido" class="btn btn-outline-doc btn-sm">Marcar perdido</button>
                 </form>
-                <details class="d-inline-block ms-1">
-                  <summary class="btn btn-outline-doc btn-sm">Fechar com evidência</summary>
+                <details class="d-inline-block ms-1"{% if p.id in sugestoes_evidencia %} open{% endif %}>
+                  <summary class="btn btn-outline-doc btn-sm">
+                    Fechar com evidência
+                    {% if p.id in sugestoes_evidencia %}<span class="badge-status badge-alta">sugestão encontrada</span>{% endif %}
+                  </summary>
                   <form method="post" action="{{ url_for('processos.cumprir_prazo_com_evidencia', prazo_id=p.id) }}"
                         class="card-doc p-2 mt-1" style="min-width:260px;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {% if p.id in sugestoes_evidencia %}
+                    <p class="small mb-2" style="border-left: 3px solid var(--status-warn); padding-left: 6px;">
+                      💡 Sugestão automática: a movimentação já pré-selecionada abaixo
+                      (<strong>{{ sugestoes_evidencia[p.id].data|data_hora_br }}</strong> —
+                      {{ sugestoes_evidencia[p.id].texto_integral[:80] }}) parece corresponder ao
+                      cumprimento deste prazo. É uma heurística por palavra-chave, não uma prova —
+                      confira o teor antes de confirmar.
+                    </p>
+                    {% endif %}
                     <label class="form-label small mb-1">Movimentação capturada (protocolo)</label>
                     <select name="evidencia_movimentacao_id" class="form-select form-select-sm mb-2">
                       <option value="">— nenhuma —</option>
                       {% for m in processo.movimentacoes %}
-                      <option value="{{ m.id }}">{{ m.data|data_hora_br }} — {{ m.texto_integral[:60] }}</option>
+                      <option value="{{ m.id }}"{% if sugestoes_evidencia.get(p.id) and sugestoes_evidencia[p.id].id == m.id %} selected{% endif %}>{{ m.data|data_hora_br }} — {{ m.texto_integral[:60] }}</option>
                       {% endfor %}
                     </select>
                     <label class="form-label small mb-1">Ou documento comprobatório</label>
