@@ -124,7 +124,7 @@
       <tr>
         <td><a href="{{ url_for('processos.detalhe', processo_id=m.processo_id) }}">{{ m.processo.numero_processo or m.processo.numero_interno }}</a></td>
         <td>{{ m.data|data_hora_br }}</td>
-        <td>{{ m.texto_integral[:120] }}</td>
+        <td>{{ m.texto_integral[:120] }}{% if m.complemento %} <span class="text-muted-doc small">— {{ m.complemento }}</span>{% endif %}</td>
       </tr>
       {% endfor %}
     </tbody>

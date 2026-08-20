@@ -205,9 +205,16 @@ class Prazo(db.Model):
     status = db.Column(db.String(30), default="pendente")
     observacoes = db.Column(db.Text)
 
-    # Evidência de cumprimento — mecanismo central de governança (seção 7.2)
+    # Evidência de cumprimento — mecanismo central de governança (seção 7.2).
+    # Relationships (não são coluna nova, só leitura conveniente do que já
+    # existe — não precisa de sincronizar_schema.py) adicionadas pra exibir
+    # a evidência completa (data/texto da movimentação, ou nome/data do
+    # documento) na aba Prazos, em vez de só o status "cumprido" sem
+    # detalhe nenhum — ver PENDENCIAS.md, seção -36.
     evidencia_movimentacao_id = db.Column(db.Integer, db.ForeignKey("movimentacoes.id"), nullable=True)
+    evidencia_movimentacao = db.relationship("Movimentacao", foreign_keys=[evidencia_movimentacao_id])
     evidencia_documento_id = db.Column(db.Integer, db.ForeignKey("documentos.id"), nullable=True)
+    evidencia_documento = db.relationship("Documento", foreign_keys=[evidencia_documento_id])
     cumprido_em = db.Column(db.DateTime)
 
     # Auditoria de alteração manual da data fatal (seção 7: "sempre editável,

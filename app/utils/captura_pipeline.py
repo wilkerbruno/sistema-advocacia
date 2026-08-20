@@ -175,6 +175,7 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captu
             processo_id=processo.id, data=capturada.data,
             codigo_tpu=capturada.codigo_tpu, texto_integral=capturada.texto_integral,
             origem_captura="datajud", hash_dedup=capturada.hash_dedup,
+            complemento=getattr(capturada, "complemento", None),
         )
         db.session.add(mov)
         db.session.flush()

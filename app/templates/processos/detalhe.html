@@ -156,10 +156,9 @@
         </div>
         {% if processo.prazos %}
         {% set desc_generica = "Análise necessária — ato sem regra de próxima ação cadastrada" %}
-        <table class="table-doc">
-          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
-          <tbody>
-            {% for p in processo.prazos %}
+        {% set status_em_aberto = ("pendente", "em_elaboracao", "protocolado_aguardando_evidencia") %}
+
+        {% macro linha_prazo(p) %}
             <tr>
               <td>
                 {{ p.descricao }}
@@ -169,6 +168,21 @@
                 {% if p.status == "historico_anterior" %}
                 <br><span class="small text-muted-doc">Regularizado por {{ p.regularizado_por.nome if p.regularizado_por else "—" }}
                   em {{ p.regularizado_em|data_hora_br }}: "{{ p.motivo_regularizacao }}"</span>
+                {% endif %}
+                {% if p.status == "cumprido" %}
+                <br><span class="small text-muted-doc">
+                  Cumprido em {{ p.cumprido_em|data_hora_br if p.cumprido_em else "—" }} — evidência:
+                  {% if p.evidencia_movimentacao %}
+                  movimentação de {{ p.evidencia_movimentacao.data|data_hora_br }}: "{{ p.evidencia_movimentacao.texto_integral[:120] }}{% if p.evidencia_movimentacao.complemento %} — {{ p.evidencia_movimentacao.complemento }}{% endif %}"
+                  {% elif p.evidencia_documento %}
+                  documento "{{ p.evidencia_documento.nome_original }}" (enviado em {{ p.evidencia_documento.enviado_em|data_hora_br }})
+                  {% else %}
+                  <em>sem evidência registrada</em>
+                  {% endif %}
+                </span>
+                {% endif %}
+                {% if p.status == "perdido" %}
+                <br><span class="small text-muted-doc"><em>Marcado como perdido — sem evidência de cumprimento.</em></span>
                 {% endif %}
               </td>
               <td>{{ p.data_vencimento|data_br }}</td>
@@ -201,7 +215,7 @@
                     <select name="evidencia_movimentacao_id" class="form-select form-select-sm mb-2">
                       <option value="">— nenhuma —</option>
                       {% for m in processo.movimentacoes %}
-                      <option value="{{ m.id }}"{% if sugestoes_evidencia.get(p.id) and sugestoes_evidencia[p.id].id == m.id %} selected{% endif %}>{{ m.data|data_hora_br }} — {{ m.texto_integral[:60] }}</option>
+                      <option value="{{ m.id }}"{% if sugestoes_evidencia.get(p.id) and sugestoes_evidencia[p.id].id == m.id %} selected{% endif %}>{{ m.data|data_hora_br }} — {{ m.texto_integral[:60] }}{% if m.complemento %} ({{ m.complemento[:40] }}){% endif %}</option>
                       {% endfor %}
                     </select>
                     <label class="form-label small mb-1">Ou documento comprobatório</label>
@@ -217,9 +231,41 @@
                 {% endif %}
               </td>
             </tr>
-            {% endfor %}
+        {% endmacro %}
+
+        {% set prazos_abertos = [] %}
+        {% set prazos_concluidos = [] %}
+        {% for p in processo.prazos %}
+          {% if p.status in status_em_aberto %}
+            {% set _ = prazos_abertos.append(p) %}
+          {% else %}
+            {% set _ = prazos_concluidos.append(p) %}
+          {% endif %}
+        {% endfor %}
+
+        <h3 class="font-display" style="font-size: 1.05rem;">Prazos em aberto ({{ prazos_abertos|length }})</h3>
+        {% if prazos_abertos %}
+        <table class="table-doc mb-4">
+          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for p in prazos_abertos %}{{ linha_prazo(p) }}{% endfor %}
           </tbody>
         </table>
+        {% else %}
+        <p class="text-muted-doc small mb-4">Nenhum prazo em aberto — todos já foram cumpridos, marcados como perdidos ou regularizados.</p>
+        {% endif %}
+
+        <h3 class="font-display" style="font-size: 1.05rem;">Prazos concluídos e finalizados ({{ prazos_concluidos|length }})</h3>
+        {% if prazos_concluidos %}
+        <table class="table-doc">
+          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
+          <tbody>
+            {% for p in prazos_concluidos %}{{ linha_prazo(p) }}{% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+        <p class="text-muted-doc small">Nenhum prazo cumprido, perdido ou regularizado ainda.</p>
+        {% endif %}
         {% else %}
         <p class="text-muted-doc small">Nenhum prazo cadastrado.</p>
         {% endif %}
@@ -348,7 +394,7 @@
             <tr>
               <td>{{ m.data|data_hora_br }}</td>
               <td>{{ m.codigo_tpu or "—" }}</td>
-              <td>{{ m.texto_integral[:100] }}</td>
+              <td>{{ m.texto_integral[:100] }}{% if m.complemento %} <span class="text-muted-doc small">— {{ m.complemento }}</span>{% endif %}</td>
               <td>
                 {% if m.triagem_pendente %}
                 <span class="badge-status badge-pendente">triagem pendente</span>

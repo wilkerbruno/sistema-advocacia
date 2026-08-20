@@ -968,13 +968,54 @@ def alternar_regra_proxima_acao(regra_id):
     return redirect(url_for("governanca.regras_proxima_acao_lista"))
 
 
+def fila_triagem_agrupada(limite_processos_por_grupo=5):
+    """
+    Agrupa as movimentações com `triagem_pendente=True` (sem mapeamento de
+    estado cadastrado — ver estado_processual_engine.traduzir_movimentacao)
+    por código TPU (ou, quando o código não veio preenchido, pelos
+    primeiros 60 caracteres do texto do ato) — pra virar uma lista
+    ACIONÁVEL na tela de Mapa de estado, em vez de só um número. Sem isso,
+    "23 movimentações aguardando triagem" cresce mas ninguém enxerga COM O
+    QUE ele é feito nem em quantos/quais processos aparece, pra decidir o
+    que vale a pena cadastrar primeiro.
+
+    Devolve uma lista ordenada por quantidade (decrescente) de dicts:
+    {"codigo_tpu", "exemplo_texto", "quantidade", "processos": [Processo,...]}
+    — "processos" limitado a `limite_processos_por_grupo` processos
+    distintos por grupo (só pra não estourar a tela quando um código
+    genérico aparece em centenas de processos; a quantidade total continua
+    contando certo).
+    """
+    pendentes = Movimentacao.query.filter_by(triagem_pendente=True).order_by(Movimentacao.data.desc()).all()
+    grupos = {}
+    for mov in pendentes:
+        chave = mov.codigo_tpu or (mov.texto_integral or "")[:60].lower()
+        grupo = grupos.setdefault(chave, {
+            "codigo_tpu": mov.codigo_tpu,
+            "exemplo_texto": mov.texto_integral,
+            "quantidade": 0,
+            "processos": [],
+            "_processo_ids_vistos": set(),
+        })
+        grupo["quantidade"] += 1
+        if mov.processo_id not in grupo["_processo_ids_vistos"] and len(grupo["processos"]) < limite_processos_por_grupo:
+            grupo["_processo_ids_vistos"].add(mov.processo_id)
+            grupo["processos"].append(mov.processo)
+
+    for g in grupos.values():
+        del g["_processo_ids_vistos"]
+    return sorted(grupos.values(), key=lambda g: g["quantidade"], reverse=True)
+
+
 @governanca_bp.route("/mapa-estado-tpu")
 @login_required
 @apenas_admin
 def mapa_estado_lista():
     itens = MapaEstadoTPU.query.order_by(MapaEstadoTPU.ativo.desc(), MapaEstadoTPU.codigo_tpu).all()
-    triagem_pendente = Movimentacao.query.filter_by(triagem_pendente=True).count()
-    return render_template("governanca/mapa_estado_lista.html", itens=itens, triagem_pendente=triagem_pendente)
+    fila_triagem = fila_triagem_agrupada()
+    triagem_pendente = sum(g["quantidade"] for g in fila_triagem)
+    return render_template("governanca/mapa_estado_lista.html", itens=itens,
+                            triagem_pendente=triagem_pendente, fila_triagem=fila_triagem)
 
 
 @governanca_bp.route("/mapa-estado-tpu/novo", methods=["GET", "POST"])
@@ -1010,12 +1051,15 @@ def novo_mapa_estado():
         return redirect(url_for("governanca.mapa_estado_lista"))
 
     # Atalho "mapear agora" a partir da lista de andamentos de um processo
-    # (ver app/templates/processos/detalhe.html) — chega aqui com o código e
-    # o começo do texto do ato já preenchidos via querystring, pra não
-    # precisar redigitar o código TPU inteiro.
+    # (ver app/templates/processos/detalhe.html) ou da fila de triagem
+    # agrupada (ver fila_triagem_agrupada acima e
+    # governanca/mapa_estado_lista.html) — chega aqui com o código e o
+    # começo do texto do ato já preenchidos via querystring, pra não
+    # precisar redigitar o código TPU nem procurar o texto exato de novo.
     prefill = {
         "codigo_tpu": request.args.get("codigo_tpu", ""),
         "descricao_tpu": request.args.get("descricao_tpu", ""),
+        "texto_contido": request.args.get("texto_contido", ""),
     }
     return render_template("governanca/mapa_estado_form.html", item=None, prefill=prefill)
 

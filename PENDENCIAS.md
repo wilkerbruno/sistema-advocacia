@@ -1,5 +1,124 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -37. Aba Prazos separada em "em aberto" / "concluídos" + captura do campo extra do DataJud (complementos)
+
+**O que foi esclarecido:** "não aparece mais nada" (seção -36) não era a
+tela vazia — era que a aba Prazos só mostrava os 105 pendentes, misturados
+numa tabela só, e o(s) prazo(s) já concluído(s)/com evidência (o que você
+finalizou manualmente) ficava perdido no meio, difícil de achar. Você
+pediu pra ver claramente os já concluídos com toda a evidência e data.
+
+**1) Aba Prazos agora tem duas tabelas separadas** em vez de uma só
+misturando tudo:
+- **"Prazos em aberto"**: status pendente, em elaboração ou protocolado
+  aguardando evidência — os que realmente precisam de ação.
+- **"Prazos concluídos e finalizados"**: cumprido, perdido e histórico
+  anterior — cada um com todo o detalhe já disponível (data de
+  cumprimento + evidência completa da movimentação/documento pros
+  cumpridos; motivo/quem/quando pros regularizados; nota explícita pros
+  perdidos, que antes ficavam sem nenhuma explicação na linha).
+
+Tecnicamente: extraído o HTML de uma linha de prazo pra uma macro Jinja
+reaproveitada nas duas tabelas (`app/templates/processos/detalhe.html`),
+pra não duplicar a lógica dos botões/formulário de evidência.
+
+**2) Captura do campo `complementosTabelados` do DataJud** (você pediu
+"sim" na pergunta sobre buscar mais dado por movimentação): alguns tipos
+de ato vêm com um detalhe estruturado extra que o DataJud manda separado
+do texto principal — ex: resultado de um julgamento (procedente/
+improcedente), tipo de audiência, meio de intimação. Isso era descartado
+na captura; agora é formatado como texto curto e guardado em
+`Movimentacao.complemento` (nova coluna, nullable), aparecendo junto do
+texto do ato nas abas Andamentos, Governança → Painel (movimentações
+críticas) e nas evidências da aba Prazos. A maioria das movimentações
+continua sem nada aqui (None) — isso é o normal, a maior parte dos atos
+não tem complemento.
+
+⚠️ Mesmo aviso de sempre sobre este conector: os nomes exatos dos campos
+desse complemento seguem o schema publicado do DataJud, mas não pôde ser
+testado contra uma chamada real (rede de saída restrita neste ambiente).
+Depois do deploy, se um tipo de ato que claramente tem complemento (ex:
+julgamento) vier sem nada, me avise com um exemplo do JSON de resposta
+pra eu ajustar o mapeamento — mesmo texto de aviso que já existe no topo
+de `app/utils/conector_datajud.py`.
+
+**Arquivos alterados:** `app/models/movimentacao.py` (coluna
+`complemento`), `app/utils/captura_conectores.py` (campo no dataclass),
+`app/utils/conector_datajud.py` (`_formatar_complementos` + uso na
+captura), `app/utils/captura_pipeline.py` (persiste o campo),
+`app/templates/processos/detalhe.html` (split de tabelas + exibição do
+complemento), `app/templates/governanca/painel.html` (complemento nas
+movimentações críticas).
+
+**Testado:** `_formatar_complementos` com vários formatos plausíveis de
+entrada (com/sem descrição, só código, lista vazia); persistência
+ponta a ponta pelo pipeline (com e sem complemento); renderização real da
+aba Prazos confirmando a separação em duas seções (contagem certa em cada
+uma, ordem correta, nota de "perdido" aparecendo, complemento aparecendo
+na evidência de um prazo cumprido).
+
+**⚠️ Esta entrega PRECISA de `sincronizar_schema.py`** — `complemento` é
+coluna nova na tabela `movimentacoes`. Rode o comando no terminal do
+container do EasyPanel depois do `git push`/deploy, do jeito de sempre.
+
+## -36. Evidência completa visível na aba Prazos + fila de triagem (Governança) agora lista o que falta mapear, não só a quantidade
+
+**O que foi pedido:** "quero que em prazos apareçam todas as evidências já
+existentes e todos os seus dados e datas" + "em governança aparecem
+bastante coisa para mapear manualmente, quero que busque também o que já
+foi mapeado dos processos e os dados que foram inseridos nesse
+mapeamento" — resumindo: buscar/mostrar o máximo de dado já disponível no
+sistema, em vez de só números/status sem detalhe.
+
+**1) Evidência completa na aba Prazos:** um prazo "cumprido" só mostrava
+o status, sem nenhum detalhe da evidência (nem data, nem qual
+movimentação/documento) — os dados já existiam no banco
+(`evidencia_movimentacao_id`/`evidencia_documento_id`/`cumprido_em`), só
+não tinham `relationship` no modelo nem apareciam no template. Adicionado:
+- `Prazo.evidencia_movimentacao` e `Prazo.evidencia_documento`
+  (`app/models/processo.py`) — relationships sobre as colunas que já
+  existem, não precisa de `sincronizar_schema.py`.
+- Aba Prazos agora mostra, pra todo prazo "cumprido": a data de
+  cumprimento e, ou a movimentação de evidência (data + texto do ato), ou
+  o documento comprobatório (nome + data de envio) — mesmo padrão visual
+  que já existia pro status "histórico anterior" (motivo/quem/quando).
+
+**2) Fila de triagem agora é uma lista, não só um número
+(Governança → Mapa de estado):** antes, a tela só mostrava "N movimentação(ões)
+aguardando triagem" sem dizer com o quê. Nova função
+`fila_triagem_agrupada` (`app/routes/governanca.py`) agrupa as
+movimentações sem mapeamento por código TPU (ou por texto, quando não tem
+código) e mostra: quantidade, um exemplo real do texto do ato, em quais
+processos aparece (com link direto pra aba Prazos/Andamentos daquele
+processo), e um botão "Mapear agora" que abre o formulário de novo
+mapeamento já com código/texto pré-preenchidos — antes só existia esse
+atalho a partir de dentro de um processo (prazo genérico "Análise
+necessária"), agora também existe centralizado, olhando a carteira
+inteira de uma vez. A lista de mapeamentos JÁ CADASTRADOS (código,
+descrição, texto, estado de negócio resultante) continua na mesma tela,
+sem mudança — ela já mostrava tudo que foi mapeado antes.
+
+**Testado:** renderização real da aba Prazos com um prazo "cumprido" com
+evidência de movimentação (confirma data + texto aparecem), e renderização
+real da tela de Mapa de estado com movimentações de triagem pendente em 2
+processos diferentes (confirma agrupamento, processos afetados e o link
+"Mapear agora" pré-preenchido funcionando).
+
+**Não precisa de `sincronizar_schema.py`** — nenhuma coluna nova, só
+relationships e agrupamento em cima do que já existe no banco.
+
+**Pendente de resposta sua (ver conversa) — "em prazos não aparece mais
+nada":** preciso confirmar se isso é o resultado ESPERADO de já ter usado
+a regularização em lote (ou de os prazos verdadeiramente pendentes já
+terem sido todos fechados) nesse processo específico, ou se é um erro de
+verdade (nesse caso, provavelmente ligado a `sincronizar_schema.py` ainda
+não ter sido rodado — a mesma causa do erro `Unknown column` anterior,
+seção -33/-34). E se você quer que eu vá além do que já existe no DataJud
+hoje (capturar também o campo `complementosTabelados` — detalhe extra que
+alguns tipos de movimentação trazem, ex: resultado de julgamento, tipo de
+audiência — atualmente descartado) ou se "máximo de dados possível" já
+fica satisfeito com o que foi entregue aqui.
+
 ## -35. Sugestão automática de evidência para prazos históricos (assistida — sempre com confirmação humana)
 
 **O que foi pedido:** depois da seção -33 (regularização em lote pro

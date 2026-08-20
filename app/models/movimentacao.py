@@ -25,6 +25,14 @@ class Movimentacao(db.Model):
     origem_captura = db.Column(db.String(60))  # ex: judit, escavador, digesto, codilo, manual
     hash_dedup = db.Column(db.String(64), unique=True, index=True)  # hash do conteúdo p/ deduplicação
 
+    # Detalhe estruturado extra que o DataJud manda pra alguns tipos de ato
+    # (ex: resultado de julgamento, tipo de audiência, meio de intimação) —
+    # ver PENDENCIAS.md, seção -37. Formatado como texto legível na captura
+    # (app/utils/conector_datajud.py) porque o formato desses campos varia
+    # conforme o tipo de ato; a maioria das movimentações não tem nada aqui
+    # (None é o normal, não um erro de captura).
+    complemento = db.Column(db.Text, nullable=True)
+
     # Tradução para estado de negócio (camada de vocabulário, seção 6)
     estado_negocio_resultante = db.Column(db.String(60))
     triagem_pendente = db.Column(db.Boolean, default=False)  # True quando código TPU não mapeado

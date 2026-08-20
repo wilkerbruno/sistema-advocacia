@@ -79,6 +79,39 @@ _ROTULOS_GRAU = {
 }
 
 
+def _formatar_complementos(complementos_brutos):
+    """
+    Formata `complementosTabelados` (lista de objetos que o DataJud manda
+    junto de ALGUNS tipos de movimentação, com detalhe extra que não cabe
+    no campo `nome` genérico — ex: resultado de um julgamento
+    procedente/improcedente, tipo de uma audiência, meio de uma intimação)
+    num texto curto e legível, guardado em `Movimentacao.complemento` (ver
+    PENDENCIAS.md, seção -37).
+
+    A maioria das movimentações NÃO tem nada aqui (lista vazia/ausente) —
+    isso é o normal, não falha de captura. Best-effort: os nomes exatos dos
+    campos de cada item ("nome", "descricao", "valor"...) seguem o schema
+    publicado do DataJud, mas — mesmo aviso já registrado no topo deste
+    arquivo — não foi possível testar contra uma chamada real (rede de
+    saída restrita neste ambiente de geração). Se o texto sair estranho
+    ou vazio de forma consistente pra um tipo de ato que claramente tem
+    complemento, me avise com um exemplo do JSON de resposta pra ajustar.
+    """
+    if not complementos_brutos:
+        return None
+    partes = []
+    for item in complementos_brutos:
+        if not isinstance(item, dict):
+            continue
+        rotulo = item.get("nome") or item.get("descricao")
+        valor = item.get("descricao") if item.get("nome") else None
+        if rotulo and valor and rotulo != valor:
+            partes.append(f"{rotulo}: {valor}")
+        elif rotulo:
+            partes.append(str(rotulo))
+    return "; ".join(partes) or None
+
+
 def rotulo_grau(grau):
     """'G1' -> '1º grau', etc. — ver campo `grau` no exemplo de resposta do
     DataJud (https://www.tabnews.com.br/joaotextor/abstraindo-a-api-publica-do-cnj-datajud).
@@ -175,11 +208,17 @@ class ConectorDataJud(ConectorCaptura):
             codigo = mov.get("codigo")
             nome = mov.get("nome") or "Movimentação sem descrição"
             hash_dedup = hashlib.sha256(f"{numero_cnj}|{data_hora}|{codigo}|{nome}".encode()).hexdigest()
+            # hash_dedup NÃO leva o complemento em conta de propósito — ele
+            # continua identificando o mesmo ato pelos mesmos campos de
+            # sempre, então uma futura correção/preenchimento tardio do
+            # complemento pelo tribunal não faria a movimentação (que já
+            # existe) parecer "nova" e duplicar.
             movimentacoes.append(MovimentacaoCapturada(
                 data=_parse_data(data_hora),
                 codigo_tpu=str(codigo) if codigo is not None else None,
                 texto_integral=nome,
                 hash_dedup=hash_dedup,
+                complemento=_formatar_complementos(mov.get("complementosTabelados")),
             ))
 
         # "assuntos" normalmente é uma lista de objetos ({"nome": ...}), mas

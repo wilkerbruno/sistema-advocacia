@@ -18,6 +18,48 @@
   <a href="{{ url_for('governanca.novo_mapa_estado') }}" class="btn btn-brass ms-auto">+ Novo mapeamento</a>
 </div>
 
+{% if fila_triagem %}
+<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+  <p class="small mb-2">
+    <strong>Fila de triagem — o que ainda falta mapear</strong>, agrupado por código TPU
+    (ou por trecho do texto, quando o ato não veio com código). Mostra a quantidade de
+    movimentações capturadas nesse grupo, um exemplo real e em quais processos aparece —
+    cadastre o mapeamento direto daqui, já com código/texto pré-preenchidos.
+  </p>
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Código TPU</th>
+        <th>Exemplo de texto</th>
+        <th>Qtde.</th>
+        <th>Processos (amostra)</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in fila_triagem %}
+      <tr>
+        <td>{{ g.codigo_tpu or "— (sem código)" }}</td>
+        <td>{{ (g.exemplo_texto or "")[:100] }}</td>
+        <td>{{ g.quantidade }}</td>
+        <td>
+          {% for p in g.processos %}
+          <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}#prazos" class="small d-block">{{ p.numero_processo }}</a>
+          {% endfor %}
+        </td>
+        <td>
+          <a class="btn btn-outline-doc btn-sm"
+             href="{{ url_for('governanca.novo_mapa_estado', codigo_tpu=g.codigo_tpu or '', descricao_tpu=(g.exemplo_texto or '')[:60], texto_contido=(g.exemplo_texto or '')[:80] if not g.codigo_tpu else '') }}">
+            Mapear agora
+          </a>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
 <div class="card-doc tab p-0">
   {% if itens %}
   <table class="table-doc mb-0">

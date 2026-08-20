@@ -38,6 +38,12 @@ class MovimentacaoCapturada:
     codigo_tpu: str | None
     texto_integral: str
     hash_dedup: str
+    # Detalhe estruturado extra que algumas fontes trazem por movimentação
+    # (ex: resultado de julgamento, tipo de audiência — ver PENDENCIAS.md,
+    # seção -37) — já formatado como texto legível por quem implementa o
+    # conector, porque o formato varia conforme o tipo de ato. None é o
+    # normal (a maioria dos atos não tem nada aqui), não um erro.
+    complemento: str | None = None
 
 
 @dataclass
