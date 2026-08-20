@@ -15,7 +15,18 @@
   Confirme se não há impedimento antes de prosseguir com o caso.
 </div>
 {% endif %}
+{% if cliente.anonimizado_em %}
+<div class="alert alert-warning small mb-3">
+  <strong>Dados pessoais anonimizados</strong> em {{ cliente.anonimizado_em|data_hora_br }}
+  {% if cliente.anonimizado_por %}por {{ cliente.anonimizado_por.nome }}{% endif %} — ação irreversível
+  (LGPD, direito ao esquecimento). Processos e lançamentos vinculados foram mantidos.
+</div>
+{% endif %}
 <div class="d-flex justify-content-end gap-2 mb-3">
+  <a href="{{ url_for('clientes.exportar_dados_lgpd', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Exportar dados (LGPD)</a>
+  {% if current_user.is_admin and not cliente.anonimizado_em %}
+  <a href="{{ url_for('clientes.anonimizar', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Anonimizar</a>
+  {% endif %}
   <a href="{{ url_for('clientes.editar', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Editar</a>
   <form method="post" action="{{ url_for('clientes.inativar', cliente_id=cliente.id) }}">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -35,6 +46,20 @@
       <p class="small mb-1"><strong>Endereço:</strong> {{ cliente.endereco or "—" }}{% if cliente.cidade %}, {{ cliente.cidade }}/{{ cliente.estado }}{% endif %}</p>
       {% if current_user.is_admin %}<p class="small mb-1"><strong>Unidade:</strong> <span class="pill-unidade">{{ cliente.unidade.codigo }}</span> {{ cliente.unidade.nome }}</p>{% endif %}
       {% if cliente.observacoes %}<hr class="divider-doc"><p class="small">{{ cliente.observacoes }}</p>{% endif %}
+    </div>
+
+    <div class="card-doc tab p-3 mt-3">
+      <h4 style="font-size:1rem;" class="mb-3">LGPD</h4>
+      <p class="small mb-1"><strong>Base legal do tratamento:</strong>
+        {% if cliente.base_legal_tratamento == "consentimento" %}Consentimento
+        {% elif cliente.base_legal_tratamento == "contrato" %}Execução de contrato
+        {% elif cliente.base_legal_tratamento == "obrigacao_legal" %}Cumprimento de obrigação legal
+        {% elif cliente.base_legal_tratamento == "legitimo_interesse" %}Legítimo interesse
+        {% elif cliente.base_legal_tratamento == "outra" %}Outra
+        {% else %}—{% endif %}
+      </p>
+      <p class="small mb-1"><strong>Consentimento obtido em:</strong> {{ cliente.consentimento_obtido_em|data_br if cliente.consentimento_obtido_em else "—" }}</p>
+      {% if cliente.consentimento_observacoes %}<p class="small mb-0 text-muted-doc">{{ cliente.consentimento_observacoes }}</p>{% endif %}
     </div>
   </div>
 

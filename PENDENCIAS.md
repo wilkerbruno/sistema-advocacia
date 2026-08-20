@@ -1,5 +1,81 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -43. Ferramentas de LGPD (exportação, anonimização, consentimento)
+
+**Contexto:** próximo item da tabela (Compliance, Alto impacto) depois da
+verificação de conflito de interesses (seção -42).
+
+⚠️ **Aviso de escopo, importante para entender o que isto cobre e o que
+não cobre:** "ferramentas de LGPD" aqui significa ajuda operacional pra
+atender uma solicitação de titular de dados — não é uma garantia
+automática de conformidade legal (isso depende de política, processo,
+contrato e avaliação jurídica, que estão fora do que um software
+consegue garantir sozinho). Especificamente, a exportação e a
+anonimização cobrem os campos **estruturados** de dado pessoal do
+cliente (nome, CPF/CNPJ, contatos, endereço) — texto livre em outros
+lugares do sistema (ex: se o nome de alguém foi mencionado dentro da
+descrição de um processo ou de uma movimentação) **não** é varrido nem
+reescrito automaticamente; fazer isso sem revisão humana arriscaria
+corromper o histórico do caso.
+
+**1) Consentimento / base legal do tratamento** — novo bloco no cadastro
+do cliente: base legal (consentimento, execução de contrato,
+cumprimento de obrigação legal, legítimo interesse, outra), data em que
+o consentimento foi obtido, e observações livres (ex: "assinado no
+contrato de honorários"). Isto é só **registro/documentação** — o
+sistema não valida nem decide se a base legal escolhida é
+juridicamente correta, isso é avaliação de quem cadastra.
+
+**2) Exportação de dados (portabilidade, art. 18 V)** — novo botão
+"Exportar dados (LGPD)" no detalhe do cliente, disponível pra qualquer
+usuário com acesso normal ao cliente (não precisa ser admin — é uma
+resposta a uma solicitação legítima do próprio cliente, não uma ação
+sensível). Baixa um JSON estruturado com: dados cadastrais, processos
+vinculados, lançamentos financeiros, apontamentos de hora dos processos
+do cliente, e compromissos de agenda. Cada exportação fica registrada
+no log de atividade (quem exportou e quando).
+
+**3) Anonimização (direito ao esquecimento, art. 18 VI)** — novo botão
+"Anonimizar", **só admin** (mesmo padrão de acesso de outras ações
+sensíveis/irreversíveis do sistema — decisão de que não há mais base
+legal pra reter o dado é tipicamente do sócio/gestor). Sempre com uma
+tela de confirmação explícita antes de executar: lista exatamente o que
+vai ser apagado, avisa se o cliente tem processo **ativo** vinculado
+(nesse caso, o próprio processo ativo costuma ser a base legal que ainda
+impede a anonimização — o sistema avisa mas não bloqueia, a decisão
+final é humana), e exige marcar uma caixa de ciência antes do botão
+funcionar. Ao confirmar: nome vira "Cliente anonimizado #N", CPF/CNPJ,
+RG, e-mail, telefone, WhatsApp, endereço e observações são apagados.
+Processos, lançamentos financeiros e apontamentos de hora vinculados
+são **mantidos intactos** (obrigação legal/fiscal de guarda de
+registro) — só a identificação pessoal do cliente é removida. Ação
+irreversível, registrada no log de atividade, e o cliente ganha um
+banner permanente no detalhe avisando que já foi anonimizado (e por
+quem/quando).
+
+**Testado (sqlite descartável + login real via `test_client` HTTP, 8
+cenários):** campos de consentimento salvos e exibidos corretamente;
+exportação traz cadastro + processos + lançamentos + apontamentos do
+cliente certo; usuário comum consegue exportar mas recebe 403 ao tentar
+anonimizar; tela de confirmação exige o checkbox marcado (POST sem
+marcar não anonimiza nada); anonimização apaga o dado pessoal mas
+mantém processo/lançamento/apontamento vinculados intactos; tentar
+anonimizar de novo um cliente já anonimizado é recusado com aviso
+claro; banner de "já anonimizado" aparece no detalhe.
+
+⚠️ **Este lote adiciona colunas novas** (`Cliente.base_legal_tratamento`,
+`consentimento_obtido_em`, `consentimento_observacoes`, `anonimizado_em`,
+`anonimizado_por_id` — todas opcionais, nenhum dado existente é
+afetado). Depois do deploy: `git push` de sempre + rodar
+`python sincronizar_schema.py` no Terminal do container.
+
+**Arquivos alterados:** `app/models/cliente.py` (5 colunas novas),
+`app/utils/lgpd.py` (novo — exportação e anonimização), `app/routes/clientes.py`
+(campos de consentimento no cadastro/edição, rotas `exportar_dados_lgpd` e
+`anonimizar`), `app/templates/clientes/form.html` (campos de LGPD),
+`app/templates/clientes/detalhe.html` (banner de anonimizado, botões,
+info de consentimento), `app/templates/clientes/anonimizar_confirmar.html` (novo).
+
 ## -42. Verificação de conflito de interesses
 
 **Contexto:** próximo item da tabela (Compliance, Alto impacto) depois da

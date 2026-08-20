@@ -1,11 +1,15 @@
+import io
+import json
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Cliente, Unidade
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo, apenas_admin
 from app.utils.notificacoes import registrar_log
 from app.utils.conflito_interesse import conflitos_para_cliente
+from app.utils.lgpd import montar_export_dados_cliente, anonimizar_cliente
 
 clientes_bp = Blueprint("clientes", __name__)
 
@@ -20,6 +24,15 @@ def _parse_valor_hora(valor):
     try:
         return Decimal(str(valor).replace(",", "."))
     except InvalidOperation:
+        return None
+
+
+def _parse_data_consentimento(valor):
+    if not valor:
+        return None
+    try:
+        return datetime.strptime(valor, "%Y-%m-%d").date()
+    except ValueError:
         return None
 
 
@@ -58,6 +71,9 @@ def novo():
             cep=request.form.get("cep"),
             observacoes=request.form.get("observacoes"),
             valor_hora_padrao=_parse_valor_hora(request.form.get("valor_hora_padrao")),
+            base_legal_tratamento=request.form.get("base_legal_tratamento") or None,
+            consentimento_obtido_em=_parse_data_consentimento(request.form.get("consentimento_obtido_em")),
+            consentimento_observacoes=request.form.get("consentimento_observacoes") or None,
             unidade_id=unidade_id,
             criado_por_id=current_user.id,
         )
@@ -122,6 +138,9 @@ def editar(cliente_id):
         cliente.cep = request.form.get("cep")
         cliente.observacoes = request.form.get("observacoes")
         cliente.valor_hora_padrao = _parse_valor_hora(request.form.get("valor_hora_padrao"))
+        cliente.base_legal_tratamento = request.form.get("base_legal_tratamento") or None
+        cliente.consentimento_obtido_em = _parse_data_consentimento(request.form.get("consentimento_obtido_em"))
+        cliente.consentimento_observacoes = request.form.get("consentimento_observacoes") or None
         if current_user.is_admin and request.form.get("unidade_id"):
             cliente.unidade_id = int(request.form["unidade_id"])
 
@@ -144,3 +163,66 @@ def inativar(cliente_id):
     db.session.commit()
     flash("Status do cliente atualizado.", "info")
     return redirect(url_for("clientes.detalhe", cliente_id=cliente.id))
+
+
+@clientes_bp.route("/<int:cliente_id>/exportar-dados-lgpd")
+@login_required
+def exportar_dados_lgpd(cliente_id):
+    """
+    Portabilidade de dados (LGPD art. 18 V, PENDENCIAS.md seção -43): baixa
+    tudo que o sistema guarda sobre este cliente (cadastro, processos,
+    lançamentos financeiros, apontamentos de hora, compromissos de agenda)
+    num JSON estruturado — formato padrão pra atender solicitação de
+    titular de dados. Ver limitação de escopo documentada em
+    app/utils/lgpd.py (não varre texto livre do sistema inteiro).
+    """
+    cliente = db.get_or_404(Cliente, cliente_id)
+    checar_acesso_unidade_ou_403(cliente.unidade_id)
+
+    dados = montar_export_dados_cliente(cliente)
+    conteudo = json.dumps(dados, ensure_ascii=False, indent=2).encode("utf-8")
+
+    registrar_log(current_user, "exportou_dados_lgpd", "Cliente", cliente.id, cliente.nome)
+    db.session.commit()
+
+    buffer = io.BytesIO(conteudo)
+    nome_arquivo = f"dados_lgpd_cliente_{cliente.id}.json"
+    return send_file(buffer, mimetype="application/json", as_attachment=True, download_name=nome_arquivo)
+
+
+@clientes_bp.route("/<int:cliente_id>/anonimizar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def anonimizar(cliente_id):
+    """
+    Direito ao esquecimento (LGPD art. 18 VI, PENDENCIAS.md seção -43) —
+    só admin (ação irreversível de compliance, mesmo padrão de acesso de
+    outras ações sensíveis do sistema) e sempre com confirmação explícita
+    (GET mostra o que será apagado + processos ativos vinculados como
+    aviso; só o POST, com o checkbox de confirmação marcado, executa).
+    Nunca decide sozinho que a anonimização é apropriada — isso depende de
+    não haver mais base legal pra reter o dado, uma avaliação jurídica que
+    cabe a quem está usando o sistema, não ao software.
+    """
+    cliente = db.get_or_404(Cliente, cliente_id)
+    checar_acesso_unidade_ou_403(cliente.unidade_id)
+
+    if cliente.anonimizado_em:
+        flash("Este cliente já foi anonimizado.", "info")
+        return redirect(url_for("clientes.detalhe", cliente_id=cliente.id))
+
+    if request.method == "POST":
+        if not request.form.get("confirmar"):
+            flash("Confirme marcando a caixa de ciência antes de anonimizar.", "danger")
+            return redirect(url_for("clientes.anonimizar", cliente_id=cliente.id))
+
+        nome_original = cliente.nome
+        anonimizar_cliente(cliente, current_user)
+        registrar_log(current_user, "anonimizou", "Cliente", cliente.id,
+                      f"nome original: {nome_original}")
+        db.session.commit()
+        flash("Dados pessoais do cliente foram anonimizados. Processos e lançamentos vinculados foram mantidos.", "success")
+        return redirect(url_for("clientes.detalhe", cliente_id=cliente.id))
+
+    processos_ativos = cliente.processos.filter_by(status="ativo").all()
+    return render_template("clientes/anonimizar_confirmar.html", cliente=cliente, processos_ativos=processos_ativos)

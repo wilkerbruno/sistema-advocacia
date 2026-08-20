@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block titulo %}Anonimizar {{ cliente.nome }} — JusControl{% endblock %}
+{% block eyebrow %}Cliente · LGPD{% endblock %}
+{% block cabecalho %}Anonimizar dados pessoais{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 700px;">
+  <div class="alert alert-danger small">
+    <strong>Esta ação é irreversível.</strong> Os dados pessoais deste cliente serão
+    sobrescritos e não há como recuperar o nome/contatos originais depois.
+  </div>
+
+  <p class="small mb-2">Os seguintes campos de <strong>{{ cliente.nome }}</strong> serão apagados/substituídos:</p>
+  <ul class="small text-muted-doc">
+    <li>Nome → substituído por "Cliente anonimizado #{{ cliente.id }}"</li>
+    <li>CPF/CNPJ, RG/Inscrição estadual</li>
+    <li>E-mail, telefone, WhatsApp</li>
+    <li>Endereço, cidade, estado, CEP</li>
+    <li>Observações</li>
+  </ul>
+
+  <p class="small mb-2">
+    <strong>O que NÃO é apagado</strong> (mantido por obrigação legal/fiscal de guarda de
+    registro): processos, lançamentos financeiros e apontamentos de hora vinculados a este
+    cliente continuam existindo normalmente, só sem mais identificar quem é a pessoa.
+  </p>
+
+  {% if processos_ativos %}
+  <div class="alert alert-warning small">
+    <strong>Atenção:</strong> este cliente tem {{ processos_ativos|length }} processo(s) ainda
+    <strong>ativo(s)</strong>. Confirme que já não há mais base legal para reter os dados
+    pessoais antes de prosseguir — normalmente, um processo ativo é justamente a base legal
+    (execução de contrato/obrigação legal) que ainda impede a anonimização.
+    <ul class="mb-0 mt-2">
+      {% for p in processos_ativos %}
+      <li><a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="form-check mb-3">
+      <input type="checkbox" name="confirmar" value="1" class="form-check-input" id="confirmar" required>
+      <label class="form-check-label small" for="confirmar">
+        Estou ciente de que esta ação é irreversível e que já avaliei que não há mais base legal
+        para reter os dados pessoais deste cliente.
+      </label>
+    </div>
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-danger">Anonimizar definitivamente</button>
+      <a href="{{ url_for('clientes.detalhe', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

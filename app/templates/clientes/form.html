@@ -82,6 +82,29 @@
         <label class="form-label">Observações</label>
         <textarea name="observacoes" class="form-control">{{ cliente.observacoes if cliente else '' }}</textarea>
       </div>
+
+      <div class="col-12"><hr class="divider-doc"><h5 style="font-size:0.9rem;" class="text-muted-doc">LGPD</h5></div>
+      <div class="col-md-4">
+        <label class="form-label">Base legal do tratamento</label>
+        <select name="base_legal_tratamento" class="form-select">
+          <option value="">Não informado</option>
+          <option value="consentimento" {{ "selected" if cliente and cliente.base_legal_tratamento == "consentimento" }}>Consentimento</option>
+          <option value="contrato" {{ "selected" if cliente and cliente.base_legal_tratamento == "contrato" }}>Execução de contrato</option>
+          <option value="obrigacao_legal" {{ "selected" if cliente and cliente.base_legal_tratamento == "obrigacao_legal" }}>Cumprimento de obrigação legal</option>
+          <option value="legitimo_interesse" {{ "selected" if cliente and cliente.base_legal_tratamento == "legitimo_interesse" }}>Legítimo interesse</option>
+          <option value="outra" {{ "selected" if cliente and cliente.base_legal_tratamento == "outra" }}>Outra</option>
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Consentimento obtido em</label>
+        <input type="date" name="consentimento_obtido_em" class="form-control"
+               value="{{ cliente.consentimento_obtido_em.isoformat() if cliente and cliente.consentimento_obtido_em else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Observações do consentimento</label>
+        <input type="text" name="consentimento_observacoes" class="form-control"
+               value="{{ cliente.consentimento_observacoes if cliente else '' }}" placeholder="ex: assinado no contrato de honorários">
+      </div>
     </div>
 
     <div class="d-flex gap-2 mt-4">
