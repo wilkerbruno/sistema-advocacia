@@ -213,7 +213,7 @@ a:hover { color: var(--brass-600); }
 .badge-ativo, .badge-pago, .badge-cumprido, .badge-concluida, .badge-realizada { background: #e6efe8; color: var(--status-ok); }
 .badge-pendente, .badge-agendada, .badge-em_andamento { background: #fdf0dd; color: var(--status-warn); }
 .badge-suspenso, .badge-atrasado, .badge-perdido, .badge-cancelada { background: #f7e6e6; color: var(--status-danger); }
-.badge-arquivado, .badge-encerrado { background: var(--paper-200); color: var(--ink-500); }
+.badge-arquivado, .badge-encerrado, .badge-historico_anterior { background: var(--paper-200); color: var(--ink-500); }
 .badge-urgente { background: var(--status-danger); color: #fff; }
 .badge-alta { background: #fdf0dd; color: var(--status-warn); }
 .badge-normal { background: var(--paper-200); color: var(--ink-600); }

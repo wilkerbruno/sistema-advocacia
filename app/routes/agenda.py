@@ -82,7 +82,11 @@ def index():
         )
 
     for p in prazos_q.all():
-        situacao = "vencido" if (p.data_vencimento < hoje and p.status not in ("cumprido",)) else p.status
+        # "historico_anterior" (ver PENDENCIAS.md, seção -33) nunca vira
+        # "vencido" aqui — já foi revisado e regularizado, mostrar como
+        # "vencido" de novo (que sugere pendência real) seria enganoso.
+        situacao = "vencido" if (p.data_vencimento < hoje
+                                  and p.status not in ("cumprido", "historico_anterior")) else p.status
         _add(p.data_vencimento, "prazo", p.descricao,
              url_for("processos.detalhe", processo_id=p.processo_id), situacao)
 

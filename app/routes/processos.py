@@ -18,6 +18,7 @@ from app.utils.acesso import (
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils import tribunais_datajud, agente_ia_router
 from app.utils.analise_processo_ia import gerar_analise
+from app.utils.fila import enfileirar
 from app.utils.cnj import validar_numero_cnj
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
@@ -238,7 +239,8 @@ def detalhe(processo_id):
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
-                            tribunais_datajud=tribunais_datajud.TODOS)
+                            tribunais_datajud=tribunais_datajud.TODOS,
+                            prazos_historico=prazos_historico_elegiveis(processo))
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -412,7 +414,9 @@ def atualizar_status_prazo(prazo_id):
 
     Por isso este endpoint aceita qualquer status EXCETO "cumprido" —
     fechar como cumprido só é permitido pela rota dedicada
-    `cumprir_prazo_com_evidencia`, que exige evidência.
+    `cumprir_prazo_com_evidencia`, que exige evidência. Pelo mesmo motivo,
+    também não aceita "historico_anterior" aqui — só pela rota dedicada
+    `regularizar_prazos_historico`, que exige um motivo registrado.
     """
     prazo = db.get_or_404(Prazo, prazo_id)
     checar_acesso_processo_ou_403(prazo.processo)
@@ -421,6 +425,11 @@ def atualizar_status_prazo(prazo_id):
     if novo_status == "cumprido":
         flash("Prazo não pode ser marcado como cumprido sem evidência. "
               "Anexe o comprovante de protocolo ou vincule a movimentação correspondente.", "warning")
+        return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+
+    if novo_status == "historico_anterior":
+        flash("Use a ação \"Regularizar prazos anteriores ao cadastro\" (no topo da aba Prazos) para "
+              "este status — ela registra o motivo da regularização.", "warning")
         return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
 
     if novo_status in Prazo.STATUS:
@@ -471,6 +480,71 @@ def cumprir_prazo_com_evidencia(prazo_id):
     db.session.commit()
     flash("Prazo fechado como cumprido, com evidência registrada.", "success")
     return redirect(url_for("processos.detalhe", processo_id=prazo.processo_id))
+
+
+def prazos_historico_elegiveis(processo):
+    """
+    Prazos "pendentes" com vencimento anterior à data em que ESTE processo
+    foi cadastrado no sistema — o sinal de que vieram de uma movimentação
+    histórica capturada na carga inicial (ver PENDENCIAS.md, seção -33),
+    não de um prazo de verdade em aberto hoje. Reaproveitada tanto pra
+    mostrar a contagem/aviso na aba Prazos quanto pela rota que regulariza.
+    """
+    data_cadastro = processo.criado_em.date() if processo.criado_em else date.today()
+    return [
+        p for p in processo.prazos
+        if p.status == "pendente" and p.data_vencimento and p.data_vencimento < data_cadastro
+    ]
+
+
+@processos_bp.route("/<int:processo_id>/prazos/regularizar-historico", methods=["POST"])
+@login_required
+def regularizar_prazos_historico(processo_id):
+    """
+    Ação em lote (ver PENDENCIAS.md, seção -33): quando um processo é
+    cadastrado pelo CNJ, o sistema já traz o histórico completo de
+    movimentações do tribunal (ver app/utils/captura_pipeline.py) — e
+    movimentações antigas que batem com uma regra cadastrada geram um
+    Prazo com vencimento no passado. Esse prazo nunca teve chance de ser
+    fechado com evidência real (o escritório não estava usando o sistema
+    na época), mas normalmente também não foi "perdido" de verdade — o
+    processo simplesmente seguiu tramitando. Sem esta ação, alguém teria
+    que abrir cada um desses prazos antigos um por um e decidir "perdido"
+    ou "cumprido" manualmente.
+
+    Marca todos de uma vez como "historico_anterior" (nunca "cumprido" —
+    isso exigiria evidência real, que não existe aqui) — status neutro que
+    some da contagem de pendentes/perdidos, mas continua visível e
+    auditável na aba Prazos (com o motivo, quem aplicou e quando).
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    motivo = request.form.get("motivo", "").strip()
+    if not motivo:
+        flash("Descreva o motivo da regularização (ex.: \"histórico anterior ao cadastro deste processo no "
+              "sistema — processo seguiu tramitando normalmente\").", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    elegiveis = prazos_historico_elegiveis(processo)
+    if not elegiveis:
+        flash("Nenhum prazo pendente anterior ao cadastro deste processo no sistema foi encontrado.", "info")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    agora = datetime.utcnow()
+    for prazo in elegiveis:
+        prazo.status = "historico_anterior"
+        prazo.motivo_regularizacao = motivo
+        prazo.regularizado_em = agora
+        prazo.regularizado_por_id = current_user.id
+
+    registrar_log(current_user, "regularizou_prazos_historico", "Processo", processo.id,
+                  f"{len(elegiveis)} prazo(s)")
+    db.session.commit()
+    flash(f"{len(elegiveis)} prazo(s) anterior(es) ao cadastro deste processo marcados como histórico — "
+          "não contam mais como pendentes/perdidos nos painéis, mas continuam visíveis e auditáveis aqui.",
+          "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
 
 # ---------- Audiências ----------
@@ -592,32 +666,35 @@ def gerar_analise_ia(processo_id):
     tipo = request.form.get("tipo")
     instrucao = request.form.get("instrucao", "").strip()
 
+    if tipo not in AnaliseProcessoIA.TIPOS:
+        flash("Tipo de análise inválido.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+    if tipo == "rascunho_peticao" and not instrucao:
+        flash("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
     empresa_do_processo = processo.unidade.empresa if processo.unidade else None
     if not agente_ia_router.provedor_disponivel(empresa_do_processo):
         flash("Agente de IA indisponível para esta empresa no momento (modelo local não baixado, ou "
               "chave da API do Claude não cadastrada — confira em \"Minhas Integrações\").", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
-    try:
-        resultado, truncado = gerar_analise(processo, tipo, instrucao)
-    except ValueError as e:
-        flash(str(e), "danger")
-        return redirect(url_for("processos.detalhe", processo_id=processo.id))
-    except agente_ia_router.ProvedorIAIndisponivelError as e:
-        flash(f"Agente de IA indisponível: {e}", "danger")
-        return redirect(url_for("processos.detalhe", processo_id=processo.id))
-    except Exception as e:  # nunca deixa a tela do processo travada por erro do provedor de IA
-        flash(f"Não foi possível gerar a análise agora: {e}", "danger")
-        return redirect(url_for("processos.detalhe", processo_id=processo.id))
-
+    # A geração em si (chamada ao modelo, pode levar minutos) roda em
+    # segundo plano — ver app/jobs/ia_jobs.py e PENDENCIAS.md, seção -32.
+    # Aqui só cria o registro como "processando" e devolve a tela na hora;
+    # a aba Análise IA se atualiza sozinha quando terminar.
     analise = AnaliseProcessoIA(
         processo_id=processo.id, solicitado_por_id=current_user.id, tipo=tipo,
-        instrucao=instrucao or None, resultado=resultado, digest_truncado=truncado,
+        instrucao=instrucao or None, resultado="", status="processando",
     )
     db.session.add(analise)
     registrar_log(current_user, "gerou_analise_ia", "Processo", processo.id, tipo)
     db.session.commit()
-    flash("Análise gerada — revise com atenção antes de usar; é sempre um rascunho para conferência humana.",
+
+    enfileirar("app.jobs.ia_jobs.processar_analise_processo_ia", analise.id, processo.id, tipo, instrucao)
+
+    flash("Gerando análise em segundo plano — acompanhe na aba \"Análise IA\" (atualiza sozinha; "
+          "pode levar alguns minutos no modelo local). É sempre um rascunho para conferência humana.",
           "success")
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
 

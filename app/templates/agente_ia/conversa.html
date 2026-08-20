@@ -24,14 +24,43 @@
     {% for m in conversa.mensagens %}
     <div class="mb-3 {% if m.papel == 'user' %}text-end{% endif %}">
       <div class="small text-muted-doc mb-1">{{ "Você" if m.papel == "user" else persona.titulo }} · {{ m.criado_em|data_hora_br }}</div>
+      {% if m.status == "processando" %}
+      <div class="d-inline-block text-start text-muted-doc fst-italic" style="max-width: 80%; padding: 10px 14px; border-radius: 10px;
+                  background: var(--paper-100);" data-mensagem-processando="{{ m.id }}">
+        Gerando resposta... (pode levar alguns minutos no modelo local — não precisa recarregar, esta página atualiza sozinha)
+      </div>
+      {% else %}
       <div class="d-inline-block text-start" style="max-width: 80%; padding: 10px 14px; border-radius: 10px; white-space: pre-wrap;
                   background: {{ 'var(--brass-100)' if m.papel == 'user' else 'var(--paper-100)' }};">{{ m.conteudo }}</div>
+      {% endif %}
     </div>
     {% endfor %}
   {% else %}
   <p class="text-muted-doc small mb-0">Faça a primeira pergunta para este agente.</p>
   {% endif %}
 </div>
+<script>
+(function () {
+  // Faz polling só se existir alguma mensagem "processando" nesta página
+  // (ver PENDENCIAS.md, seção -32 — geração de IA roda em segundo plano
+  // agora) — assim que o status virar "pronta", recarrega a página uma
+  // única vez pra mostrar a resposta de verdade.
+  var pendente = document.querySelector("[data-mensagem-processando]");
+  if (!pendente) return;
+  var mensagemId = pendente.getAttribute("data-mensagem-processando");
+  var intervalo = setInterval(function () {
+    fetch("{{ url_for('agente_ia.status_mensagem', mensagem_id=0) }}".replace("0", mensagemId))
+      .then(function (r) { return r.json(); })
+      .then(function (dados) {
+        if (dados.status !== "processando") {
+          clearInterval(intervalo);
+          window.location.reload();
+        }
+      })
+      .catch(function () { /* falha de rede pontual no polling — tenta de novo no próximo tick */ });
+  }, 3000);
+})();
+</script>
 
 <form method="post" action="{{ url_for('agente_ia.enviar_mensagem', conversa_id=conversa.id) }}" class="d-flex gap-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

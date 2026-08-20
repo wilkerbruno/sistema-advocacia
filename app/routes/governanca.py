@@ -490,9 +490,12 @@ def tentar_captura(processo_id):
 @governanca_bp.route("/fila-intimacoes")
 @login_required
 def fila_intimacoes():
+    # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora da
+    # fila de propósito — já foi revisado e regularizado em lote, não
+    # precisa de ninguém tratando de novo aqui.
     query = Prazo.query.join(Processo).filter(
         Prazo.deletado_em.is_(None),
-        Prazo.status != "cumprido",
+        Prazo.status.notin_(["cumprido", "historico_anterior"]),
     )
     if not current_user.is_admin:
         query = query.filter(Processo.unidade_id == current_user.unidade_id)
@@ -516,15 +519,19 @@ def painel():
         prazos_base = Prazo.query.join(Processo)
     prazos_base = filtrar_processos_visiveis(prazos_base).filter(Prazo.deletado_em.is_(None))
 
+    # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora das
+    # três listas abaixo de propósito — já foi revisado e regularizado em
+    # lote, não é um prazo em aberto precisando de atenção.
     prazos_7d = prazos_base.filter(
-        Prazo.status != "cumprido", Prazo.data_vencimento.between(hoje, hoje + timedelta(days=7))
+        Prazo.status.notin_(["cumprido", "historico_anterior"]),
+        Prazo.data_vencimento.between(hoje, hoje + timedelta(days=7)),
     ).order_by(Prazo.data_vencimento).all()
     prazos_15d = prazos_base.filter(
-        Prazo.status != "cumprido",
+        Prazo.status.notin_(["cumprido", "historico_anterior"]),
         Prazo.data_vencimento.between(hoje + timedelta(days=8), hoje + timedelta(days=15)),
     ).order_by(Prazo.data_vencimento).all()
     prazos_vencidos_sem_evidencia = prazos_base.filter(
-        Prazo.status != "cumprido", Prazo.data_vencimento < hoje
+        Prazo.status.notin_(["cumprido", "historico_anterior"]), Prazo.data_vencimento < hoje
     ).order_by(Prazo.data_vencimento).all()
 
     limite_30 = hoje - timedelta(days=30)

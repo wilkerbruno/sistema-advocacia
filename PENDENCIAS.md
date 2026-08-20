@@ -1,5 +1,147 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -33. Regularização em lote de prazos "perdidos" vindos do histórico anterior ao cadastro no sistema
+
+**O que foi pedido:** você registrou um processo público pelo número CNJ e
+percebeu muitos "prazos perdidos" — perguntou se dava pra também trazer o
+que já tinha ocorrido no processo, pra não ter que recadastrar tudo na mão.
+
+**Isso já acontecia — o "problema" era outra coisa:** ao cadastrar pelo
+CNJ, o sistema já busca e grava o histórico completo de movimentações do
+tribunal via DataJud (ver `app/routes/governanca.py::novo_por_cnj` e
+`app/utils/captura_pipeline.py`) — nada precisa ser digitado manualmente,
+e isso já funcionava antes desta mudança. Os "prazos perdidos" eram um
+efeito colateral desse próprio histórico: quando uma movimentação antiga
+bate com uma regra cadastrada (`RegraProximaAcao`), o motor de prazos gera
+um `Prazo` com vencimento na data real daquela movimentação — que, sendo
+histórica, já nasce vencida. Como nada marca esse prazo como cumprido
+automaticamente (não existia evidência real capturada na época — o
+escritório não usava o sistema ainda), ele fica "pendente" com data
+passada, e é isso que os painéis contam como "perdido" — mesmo que, na
+vida real, o processo tenha seguido tramitando normalmente.
+
+**O que foi construído:** uma ação em lote na aba "Prazos" de cada
+processo (`app/routes/processos.py::regularizar_prazos_historico`) — um
+aviso aparece automaticamente quando há prazos pendentes com vencimento
+anterior à data em que aquele processo foi cadastrado no sistema, com um
+botão "Regularizar N prazo(s)" que pede um motivo obrigatório (fica
+registrado, com quem aplicou e quando) e marca todos de uma vez com um
+status novo, neutro: **`historico_anterior`**.
+
+**Por que não usei "cumprido":** o projeto tem uma regra de governança
+central e deliberada (ver docstring de `Prazo` em `app/models/processo.py`)
+— um prazo só fecha como "cumprido" com evidência real anexada (movimentação
+capturada ou documento). Prazos históricos regularizados em lote não têm
+essa evidência (o escritório não estava usando o sistema na época), então
+marcar como "cumprido" seria construir uma mentira de compliance. O status
+novo é honesto sobre isso: não finge evidência, só reconhece que aquele
+prazo é anterior ao uso do sistema e não deve mais contar como pendência
+em aberto. Ele nunca desaparece nem é apagado (governança: nunca exclusão
+física) — continua visível na aba Prazos, com o motivo/quem/quando.
+
+**Onde esse novo status foi excluído de propósito** (pra não continuar
+aparecendo como "vencido"/"pendente"/"perdido" em nenhum lugar):
+painel de governança (3 listas — próximos 7 dias, 8-15 dias, vencidos sem
+evidência), fila de intimações, calendário da Agenda, contexto que a IA
+usa pra montar resumo/rascunho de petição. **Onde deixei de propósito
+sem mexer**: o cálculo de "taxa de cumprimento de prazo" (`cumpridos` /
+`cumpridos + perdidos`) já ignorava qualquer status que não fosse
+"cumprido"/"perdido" — um prazo regularizado não conta nem a favor nem
+contra essa taxa, o que é o comportamento certo (não foi nem confirmado
+cumprido, nem perdido de verdade).
+
+**Colunas novas (banco):** `prazos.motivo_regularizacao`,
+`prazos.regularizado_em`, `prazos.regularizado_por_id` — todas NULLABLE
+(mesmo motivo de sempre — `sincronizar_schema.py` não aplica `DEFAULT`).
+
+**Passo extra pra ativar:** depois do `git push` de sempre, rode
+`python sincronizar_schema.py` no terminal do container (mesmo passo já
+usado nas seções -32 e -28) pra criar as 3 colunas novas.
+
+**Testado nesta rodada:** simulei um processo com 4 prazos — dois
+"históricos" (vencimento de 2015 e 2016, antes do cadastro), um real (daqui
+a 5 dias) e um já legitimamente cumprido antes. Confirmei: o aviso mostra a
+contagem certa (2, não os 4); tentar regularizar sem motivo é bloqueado e
+nada muda; regularizar com motivo marca só os 2 históricos, sem tocar no
+prazo real nem no já cumprido; o aviso some da tela depois (não sobra mais
+nenhum elegível); o painel de governança e a fila de intimações não listam
+mais os prazos regularizados; e o endpoint genérico de trocar status
+recusa `"historico_anterior"` (só passa pela rota dedicada, que exige
+motivo). Reexecutei os testes dos 3 itens críticos da seção -28 — todos
+continuam passando.
+
+## -32. Fila de processamento em segundo plano (Redis + RQ) — item 2.3 do `AUDITORIA_GRANDE_PORTE.md`
+
+**O que foi pedido:** você pediu pra eu apontar o que mais faltava da
+auditoria de grande porte e escolher por onde começar. Escolhi este item
+(2.3 — fila de processamento em segundo plano) porque ele resolve, de
+raiz, o tradeoff que a seção -31 (acima) tinha acabado de introduzir: com
+`-w 1`, o sistema inteiro ficava bloqueado pra todo mundo enquanto
+qualquer pessoa gerava uma resposta de IA. Isso deixa de ser um problema
+com esta mudança.
+
+**O que mudou, tecnicamente:** antes, tanto o chat do Agente de IA
+(`app/routes/agente_ia.py`) quanto a Análise de processo
+(`app/routes/processos.py::gerar_analise_ia`) chamavam o modelo de IA
+DIRETO dentro do próprio pedido do navegador — o worker do gunicorn ficava
+ocupado (minutos, no modelo local por CPU) até o modelo terminar de
+responder. Agora:
+
+- A rota web só valida o pedido, cria o registro (mensagem/análise) já
+  como **"processando"** no banco, e devolve a tela na hora (sem esperar
+  o modelo).
+- Quem chama o modelo de verdade é um **processo separado** — um worker do
+  RQ (`app/jobs/ia_jobs.py`), consumindo uma fila no Redis
+  (`app/utils/fila.py`), iniciado em segundo plano pelo
+  `docker/entrypoint.sh` (mesmo padrão que já existia pro cron).
+- A tela do chat (`conversa.html`) e a aba "Análise IA" do processo
+  (`detalhe.html`) checam sozinhas, a cada poucos segundos, se o resultado
+  já ficou pronto (JavaScript simples, sem WebSocket) e atualizam a tela
+  automaticamente — sem precisar recarregar manualmente.
+- **`-w 1` virou `-w 2`** no `Dockerfile` (gunicorn): o motivo original do
+  `-w 1` (worker do gunicorn preso gerando IA) deixou de existir, já que os
+  workers do gunicorn nunca mais chamam o modelo diretamente.
+- Redis roda **dentro do mesmo container** da aplicação (não escuta fora
+  de `127.0.0.1`, não precisa configurar nada novo no EasyPanel) —
+  limitação consciente: se o container reiniciar com algum job na fila ou
+  em processamento, esse job específico se perde (fica "processando" pra
+  sempre, sem re-tentar sozinho); gerar de novo é só clicar no botão outra
+  vez. Se um dia isso incomodar, a evolução natural é um Redis em serviço
+  separado, com persistência própria.
+- O worker do RQ roda com `--worker-class rq.worker.SimpleWorker` — de
+  propósito, pra continuar carregando o modelo de IA **uma vez só na
+  memória** (não a cada mensagem) — ver comentário detalhado no
+  `docker/entrypoint.sh` sobre por que isso importa.
+
+**Colunas novas (banco):** `mensagens_agente_ia.status` e
+`analises_processo_ia.status` — ambas NULLABLE, `None` tratado como
+"pronta" em todo o código (mesmo motivo de sempre: `sincronizar_schema.py`
+só sabe adicionar coluna sem `DEFAULT` no banco).
+
+**⚠️ Passo extra pra ativar, além do de sempre:**
+1. `git add` / `commit` / `push` (de sempre).
+2. Depois do deploy, rode `python sincronizar_schema.py` no terminal do
+   container (pelo próprio painel do EasyPanel — não precisa de SSH) pra
+   criar as duas colunas novas acima. Ele sempre pergunta antes de aplicar
+   e nunca apaga dado.
+
+**Testado nesta rodada:** simulei o fluxo inteiro de ponta a ponta —
+processo web (Flask test client) enfileirando o job e um worker RQ de
+verdade (processo separado, apontando pro mesmo banco/Redis) consumindo a
+fila — tanto pro chat quanto pra análise de processo. Confirmei: o POST
+que envia a mensagem/pedido responde em milissegundos (não trava esperando
+o modelo); a tela mostra "processando" imediatamente; o job processa em
+outro processo e grava o resultado; a tela para de mostrar "processando"
+depois que o job termina; rodei duas mensagens seguidas no mesmo worker
+(sem reiniciar) pra confirmar que o modelo ficaria mesmo
+carregado uma vez só, sem recriar a conexão com o banco a cada mensagem
+(o que vazaria conexão com um worker de vida longa). Reexecutei também os
+testes dos 3 itens críticos da seção -28 — todos continuam passando. Não
+testei com o modelo de IA de verdade carregado (sem os pesos baixados
+aqui no meu ambiente), só com o caminho de "provedor indisponível" — vale
+confirmar o tempo real de resposta com o modelo de verdade depois do
+deploy.
+
 ## -31. IA local REATIVADA — a desativação da seção -30 foi revertida; em vez disso, limitei a IA a 1 worker pra travar o consumo em ~1,1 GB
 
 **O que aconteceu:** logo depois da mudança da seção -30 (motor da IA

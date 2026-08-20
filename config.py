@@ -34,6 +34,18 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True, "pool_recycle": 280}
 
+    # Fila de processamento em segundo plano (RQ + Redis) — ver
+    # app/utils/fila.py e PENDENCIAS.md, seção -32. Usada pela geração de
+    # IA (chat do Agente de IA e análise de processo) pra não travar o
+    # worker do gunicorn durante os segundos/minutos que o modelo leva pra
+    # responder. Por padrão aponta pro Redis rodando dentro do próprio
+    # container (ver Dockerfile/entrypoint.sh) — não precisa configurar
+    # nada no EasyPanel pra isso funcionar. Se um dia mover o Redis pra um
+    # serviço separado (recomendado se a fila crescer bastante), basta
+    # definir REDIS_URL nas variáveis de ambiente do serviço apontando pra
+    # ele.
+    REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+
     # Upload de documentos dos processos
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER", os.path.join(BASE_DIR, "uploads"))
     MAX_CONTENT_LENGTH = 25 * 1024 * 1024  # 25 MB por arquivo

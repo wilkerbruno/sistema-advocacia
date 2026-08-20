@@ -166,10 +166,25 @@ class Prazo(db.Model):
     NÃO fecha o prazo — por isso `status` inclui "aguardando_evidencia" e
     o fechamento definitivo (`cumprido`) exige `evidencia_documento_id`
     ou `evidencia_movimentacao_id` preenchidos.
+
+    "historico_anterior" (ver PENDENCIAS.md, seção -33): status distinto de
+    "cumprido" e de "perdido" — usado SÓ para prazos gerados automaticamente
+    a partir de movimentações históricas capturadas na carga inicial (ao
+    cadastrar um processo pelo CNJ, o sistema busca o histórico completo do
+    tribunal, e movimentações antigas que batem com uma regra cadastrada
+    geram um Prazo com vencimento já no passado). Esse prazo nunca teve
+    chance de ser fechado com evidência de verdade (o escritório não estava
+    usando o sistema na época) — mas também não é honesto marcar como
+    "perdido" de verdade, já que o processo seguiu tramitando normalmente.
+    Por isso este status é NEUTRO: some da contagem de "pendentes"/
+    "perdidos" dos painéis (que sempre filtram por status=="pendente"), mas
+    nunca é apagado nem finge ter evidência de cumprimento — fica sempre
+    visível na aba Prazos do processo, com o motivo e quem aplicou
+    registrados (ver regularizar_prazos_historico em app/routes/processos.py).
     """
     __tablename__ = "prazos"
 
-    STATUS = ("pendente", "em_elaboracao", "protocolado_aguardando_evidencia", "cumprido", "perdido")
+    STATUS = ("pendente", "em_elaboracao", "protocolado_aguardando_evidencia", "cumprido", "perdido", "historico_anterior")
     PRIORIDADES = ("baixa", "normal", "alta", "urgente")
 
     id = db.Column(db.Integer, primary_key=True)
@@ -201,6 +216,16 @@ class Prazo(db.Model):
     motivo_alteracao_data = db.Column(db.String(255))
     alterado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
     alterado_por = db.relationship("Usuario", foreign_keys=[alterado_por_id])
+
+    # Auditoria da regularização em lote pra status="historico_anterior" (ver
+    # PENDENCIAS.md, seção -33 e docstring da classe acima) — quem, quando e
+    # por quê, mesmo espírito do par alterado_por_id/motivo_alteracao_data
+    # acima, mas em campos próprios pra não confundir os dois motivos
+    # diferentes de alteração no mesmo prazo.
+    motivo_regularizacao = db.Column(db.Text)
+    regularizado_em = db.Column(db.DateTime)
+    regularizado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    regularizado_por = db.relationship("Usuario", foreign_keys=[regularizado_por_id])
 
     responsavel_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
     responsavel = db.relationship("Usuario", foreign_keys=[responsavel_id])

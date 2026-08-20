@@ -32,6 +32,7 @@ from app.models import ConversaAgenteIA, MensagemAgenteIA, Processo, Prazo, Tare
 from app.utils.acesso import aplicar_escopo_unidade
 from app.utils.notificacoes import registrar_log
 from app.utils import agente_ia_router
+from app.utils.fila import enfileirar
 
 agente_ia_bp = Blueprint("agente_ia", __name__)
 
@@ -85,10 +86,6 @@ PERSONA_CONFIG = {
         ),
     },
 }
-
-
-class AgenteIndisponivelError(Exception):
-    pass
 
 
 # ---------------------- Contexto real por persona ----------------------
@@ -188,9 +185,17 @@ _CONTEXTO_POR_PERSONA = {
 }
 
 
-# ---------------------- Chamada ao modelo ----------------------
+# ---------------------- Montagem do pedido (rápido — só leitura de banco) ----------------------
+#
+# Separado da chamada ao modelo de propósito: isto aqui roda dentro da
+# requisição web normal (é rápido, só monta texto a partir de dados já no
+# banco), mas a chamada ao modelo em si (lenta, pode levar minutos por CPU)
+# roda em segundo plano, num worker separado (ver app/jobs/ia_jobs.py e
+# PENDENCIAS.md, seção -32) — por isso a montagem do "system" e do
+# histórico formatado precisa terminar ANTES de enfileirar o job, já que o
+# worker não tem acesso a current_user/à sessão de quem perguntou.
 
-def _chamar_llm(empresa, persona, mensagens_historico, contexto_dados):
+def _montar_system_e_mensagens(persona, mensagens_historico, contexto_dados):
     system = (
         PERSONA_CONFIG[persona]["system"]
         + "\n\nContexto atual do escritório (dados reais, consultados no momento desta mensagem — "
@@ -203,10 +208,7 @@ def _chamar_llm(empresa, persona, mensagens_historico, contexto_dados):
         for m in mensagens_historico[-MAX_MENSAGENS_HISTORICO:]
     ]
 
-    try:
-        return agente_ia_router.gerar_resposta(empresa, system, mensagens_api)
-    except agente_ia_router.ProvedorIAIndisponivelError as e:
-        raise AgenteIndisponivelError(str(e)) from e
+    return system, mensagens_api
 
 
 # ---------------------- Rotas ----------------------
@@ -263,29 +265,48 @@ def enviar_mensagem(conversa_id):
     if not texto:
         return redirect(url_for("agente_ia.conversa", conversa_id=conversa.id))
 
-    msg_usuario = MensagemAgenteIA(conversa_id=conversa.id, papel="user", conteudo=texto)
+    msg_usuario = MensagemAgenteIA(conversa_id=conversa.id, papel="user", conteudo=texto, status="pronta")
     db.session.add(msg_usuario)
     if not conversa.titulo:
         conversa.titulo = texto[:80]
     db.session.flush()
 
-    try:
-        contexto_dados = _CONTEXTO_POR_PERSONA[conversa.persona]()
-        resposta_texto = _chamar_llm(current_user.empresa, conversa.persona, conversa.mensagens, contexto_dados)
-        if not resposta_texto:
-            resposta_texto = "[O agente respondeu vazio — tente reformular a pergunta.]"
-    except AgenteIndisponivelError as e:
-        resposta_texto = f"⚠️ Agente indisponível: {e}"
-    except Exception as e:  # nunca deixa a conversa travada por erro da API externa
-        resposta_texto = f"⚠️ Não foi possível consultar o agente de IA agora: {e}"
+    # Monta o pedido agora (rápido, só leitura de banco) e cria a mensagem
+    # do assistente já como placeholder "processando" — a chamada ao
+    # modelo em si roda em segundo plano (ver app/jobs/ia_jobs.py e
+    # PENDENCIAS.md, seção -32), pra não travar este worker do gunicorn
+    # pelos minutos que o modelo local pode levar.
+    contexto_dados = _CONTEXTO_POR_PERSONA[conversa.persona]()
+    system, mensagens_api = _montar_system_e_mensagens(conversa.persona, conversa.mensagens, contexto_dados)
 
-    msg_assistente = MensagemAgenteIA(conversa_id=conversa.id, papel="assistant", conteudo=resposta_texto)
+    msg_assistente = MensagemAgenteIA(conversa_id=conversa.id, papel="assistant", conteudo="", status="processando")
     db.session.add(msg_assistente)
     conversa.atualizado_em = datetime.utcnow()
     registrar_log(current_user, "mensagem_agente_ia", "ConversaAgenteIA", conversa.id, conversa.persona)
     db.session.commit()
 
+    empresa_id = current_user.empresa_id_atual
+    enfileirar(
+        "app.jobs.ia_jobs.processar_mensagem_agente_ia",
+        msg_assistente.id, empresa_id, system, mensagens_api,
+    )
+
     return redirect(url_for("agente_ia.conversa", conversa_id=conversa.id))
+
+
+@agente_ia_bp.route("/mensagens/<int:mensagem_id>/status")
+@login_required
+def status_mensagem(mensagem_id):
+    """
+    Endpoint de polling (ver conversa.html) — a página consulta isto de
+    poucos em poucos segundos enquanto uma mensagem está "processando",
+    pra saber quando recarregar e mostrar a resposta pronta, sem precisar
+    de WebSocket.
+    """
+    mensagem = db.get_or_404(MensagemAgenteIA, mensagem_id)
+    if mensagem.conversa.usuario_id != current_user.id and not current_user.is_admin:
+        abort(403)
+    return {"status": mensagem.status or "pronta"}
 
 
 @agente_ia_bp.route("/<int:conversa_id>/excluir", methods=["POST"])

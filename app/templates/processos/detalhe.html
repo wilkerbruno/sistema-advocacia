@@ -113,6 +113,29 @@
 
       <!-- PRAZOS -->
       <div class="tab-pane fade" id="prazos">
+        {% if prazos_historico %}
+        <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+          <p class="small mb-2">
+            <strong>{{ prazos_historico|length }} prazo(s) com vencimento anterior ao cadastro deste
+            processo no sistema</strong> — provavelmente vieram do histórico de movimentações trazido
+            automaticamente ao cadastrar pelo CNJ (ver aba Andamentos), não de um prazo em aberto hoje.
+            Sem evidência real de cumprimento (o escritório não usava o sistema na época), mas contam
+            como "perdido" no painel do jeito que estão. Se o processo seguiu tramitando normalmente,
+            regularize todos de uma vez em vez de marcar prazo por prazo:
+          </p>
+          <details>
+            <summary class="btn btn-outline-doc btn-sm">Regularizar {{ prazos_historico|length }} prazo(s) anterior(es) ao cadastro</summary>
+            <form method="post" action="{{ url_for('processos.regularizar_prazos_historico', processo_id=processo.id) }}"
+                  class="mt-2" onsubmit="return confirm('Marcar ' + {{ prazos_historico|length }} + ' prazo(s) como histórico anterior ao cadastro? Essa ação fica registrada e pode ser revista depois, prazo por prazo, se precisar.');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="form-label small mb-1">Motivo (obrigatório — fica registrado no histórico deste prazo)</label>
+              <textarea name="motivo" class="form-control form-control-sm mb-2" rows="2" required
+                        placeholder="Ex.: histórico anterior ao cadastro deste processo no sistema — processo seguiu tramitando normalmente, sem prejuízo real."></textarea>
+              <button class="btn btn-brass btn-sm">Confirmar regularização em lote</button>
+            </form>
+          </details>
+        </div>
+        {% endif %}
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_prazo', processo_id=processo.id) }}" class="row g-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -140,6 +163,10 @@
                 {{ p.descricao }}
                 {% if p.descricao == desc_generica %}
                 <br><a class="small" href="{{ url_for('governanca.nova_regra_proxima_acao', ato_capturado=p.tipo_ato or '') }}">cadastrar regra para "{{ (p.tipo_ato or '')[:60] }}"</a>
+                {% endif %}
+                {% if p.status == "historico_anterior" %}
+                <br><span class="small text-muted-doc">Regularizado por {{ p.regularizado_por.nome if p.regularizado_por else "—" }}
+                  em {{ p.regularizado_em|data_hora_br }}: "{{ p.motivo_regularizacao }}"</span>
                 {% endif %}
               </td>
               <td>{{ p.data_vencimento|data_br }}</td>
@@ -418,6 +445,7 @@
         </script>
 
         {% if analises_ia %}
+        {% set tem_processando = analises_ia|selectattr("status", "equalto", "processando")|list %}
         {% for a in analises_ia %}
         <div class="card-doc tab p-3 mb-3">
           <div class="d-flex justify-content-between align-items-start mb-2">
@@ -433,8 +461,15 @@
             </form>
           </div>
           {% if a.instrucao %}<p class="small mb-2"><strong>Pedido:</strong> {{ a.instrucao }}</p>{% endif %}
+          {% if a.status == "processando" %}
+          <div class="alert alert-warning py-1 px-2 small mb-0">
+            Gerando com o modelo local (CPU, sem custo) — pode levar alguns minutos. Esta página
+            atualiza sozinha quando terminar, não precisa recarregar.
+          </div>
+          {% else %}
           <div class="alert alert-warning py-1 px-2 small mb-2">Rascunho gerado por IA — revise, corrija e valide juridicamente antes de usar.</div>
           <pre class="small mb-0" style="white-space: pre-wrap; font-family: inherit;">{{ a.resultado }}</pre>
+          {% endif %}
         </div>
         {% endfor %}
         {% else %}
@@ -442,6 +477,28 @@
         {% endif %}
       </div>
     </div>
+
+    {% if tem_processando %}
+    <script>
+    (function () {
+      // Alguma análise ainda "processando" (ver PENDENCIAS.md, seção -32)
+      // — recarrega a página sozinha em alguns segundos e reabre a aba
+      // Análise IA, pra não perder o lugar. Simples de propósito (em vez
+      // de um polling JSON por análise): esta página já é grande, com
+      // várias abas — recarregar tudo é mais simples e robusto do que
+      // atualizar só um pedaço.
+      setTimeout(function () {
+        window.location.reload();
+      }, 4000);
+      document.addEventListener("DOMContentLoaded", function () {
+        var abaAnaliseIa = document.querySelector('[data-bs-target="#analise-ia"]');
+        if (abaAnaliseIa && window.bootstrap) {
+          new bootstrap.Tab(abaAnaliseIa).show();
+        }
+      });
+    })();
+    </script>
+    {% endif %}
   </div>
 </div>
 {% endblock %}

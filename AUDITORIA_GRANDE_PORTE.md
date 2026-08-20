@@ -157,7 +157,7 @@ mantendo o histórico jurídico intacto, já que o processo em si não pode
 simplesmente sumir) e um registro simples de bases legais/consentimento
 por cliente.
 
-### 2.3 Nenhuma fila de processamento em segundo plano (Celery/RQ/Huey ou equivalente)
+### 2.3 Nenhuma fila de processamento em segundo plano (Celery/RQ/Huey ou equivalente) — ✅ CORRIGIDO (ver PENDENCIAS.md -32)
 
 Toda geração de IA e qualquer operação potencialmente longa roda de forma
 síncrona, dentro do próprio ciclo de requisição do gunicorn. Isso já

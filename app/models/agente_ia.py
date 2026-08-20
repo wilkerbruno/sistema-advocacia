@@ -48,6 +48,16 @@ class MensagemAgenteIA(db.Model):
     papel = db.Column(db.String(10), nullable=False)  # ver PAPEIS
     conteudo = db.Column(db.Text, nullable=False)
 
+    # "processando" | "pronta" — ver PENDENCIAS.md, seção -32 (fila de IA em
+    # segundo plano). NULLABLE de propósito, mesmo tendo um "padrão" em
+    # código: sincronizar_schema.py só sabe adicionar coluna sem DEFAULT no
+    # banco, então NOT NULL quebraria a sincronização em bancos com
+    # mensagens já cadastradas (seu caso em produção). `None`/qualquer valor
+    # diferente de "processando" é tratado como "pronta" em todo o código —
+    # nunca testar "== 'pronta'", sempre "== 'processando'" (ver
+    # app/routes/agente_ia.py e templates/agente_ia/conversa.html).
+    status = db.Column(db.String(20), default="pronta")
+
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):
@@ -83,11 +93,18 @@ class AnaliseProcessoIA(db.Model):
 
     tipo = db.Column(db.String(20), nullable=False)  # ver TIPOS
     instrucao = db.Column(db.Text)  # pedido de quem solicitou (obrigatório para rascunho_peticao)
-    resultado = db.Column(db.Text, nullable=False)
+    # nullable=False mas pode ser "" enquanto status="processando" (ver
+    # abaixo) — o job de fundo preenche de verdade quando terminar.
+    resultado = db.Column(db.Text, nullable=False, default="")
     # True quando o histórico do processo teve que ser cortado para caber na
     # janela de contexto do modelo local — sinaliza que o resumo/rascunho
     # pode não cobrir movimentações/decisões mais antigas.
     digest_truncado = db.Column(db.Boolean, default=False)
+
+    # "processando" | "pronta" — mesma lógica/motivo de MensagemAgenteIA.status
+    # acima (ver PENDENCIAS.md, seção -32) — NULLABLE de propósito, `None` é
+    # tratado como "pronta" em todo o código.
+    status = db.Column(db.String(20), default="pronta")
 
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 

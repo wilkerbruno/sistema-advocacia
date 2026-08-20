@@ -279,7 +279,11 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
     if processo.valor_causa:
         partes.append(f"Valor da causa: R$ {processo.valor_causa}.")
 
-    prazos_pendentes = [p for p in processo.prazos if p.status != "cumprido" and not p.deletado_em]
+    # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora —
+    # já foi revisado e regularizado, não é um prazo pendente de verdade;
+    # incluir aqui confundiria o resumo/rascunho gerado pela IA.
+    prazos_pendentes = [p for p in processo.prazos
+                         if p.status not in ("cumprido", "historico_anterior") and not p.deletado_em]
     if prazos_pendentes:
         linhas = [f"- {p.descricao} (vence {p.data_vencimento.strftime('%d/%m/%Y')}, status: {p.status})"
                   for p in prazos_pendentes[:10]]
