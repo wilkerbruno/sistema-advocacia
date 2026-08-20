@@ -1,5 +1,132 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -41. Segmentação financeira por área do direito (+ correção de um vazamento de conta_terceiros que eu mesmo introduzi)
+
+**Contexto:** próximo item da tabela depois de "Modelos de cobrança"
+(seção -40) — o painel de Relatórios consolidados (`/admin/relatorios`,
+só admin) já mostrava contagem de processos por área do direito, mas
+nenhum número financeiro por área.
+
+**O que mudou:** a tabela "Processos por área do direito" virou
+"Processos e financeiro por área do direito", com duas colunas novas —
+receita recebida e receita pendente — somando só lançamentos
+**vinculados a um processo daquela área** (lançamento avulso, sem
+processo, não entra em nenhuma área — não tem como saber de qual área
+é). Mesma régua do resto do sistema: só receita (não despesa), e conta
+de terceiros excluída do total (senão um depósito judicial grande
+inflaria artificialmente a "receita" de uma área).
+
+**Efeito colateral bom encontrado no caminho:** ao extrair o filtro de
+`conta_terceiros` pra um lugar só (`app/utils/financeiro_util.py`,
+reaproveitado pela tela Financeiro E por este relatório), percebi que a
+tabela "Desempenho por unidade" do mesmo painel de Relatórios **não**
+excluía conta de terceiros do cálculo de receita — ou seja, desde a
+criação da conta de terceiros (seção -39, mais cedo nesta mesma sessão),
+esse relatório por unidade estava com o mesmo problema que motivou
+segregar a conta de terceiros em primeiro lugar. Corrigido junto (agora
+usa o mesmo filtro, testado com um depósito judicial de propósito
+grande no teste pra confirmar que não aparece somado).
+
+**Testado:** processo de uma área com lançamento pago + pendente +
+depósito de terceiros + despesa, outro processo de área diferente com
+só um lançamento pago, e um lançamento avulso sem processo nenhum —
+confirmado que cada área mostra só a receita própria certa (terceiros e
+despesa excluídos, avulso não aparece em nenhuma área). Renderização
+real da tabela conferida (números batendo exatamente com o esperado).
+
+**Não precisa de `sincronizar_schema.py`** — nenhuma coluna nova, só
+lógica de código (um arquivo utilitário novo + duas rotas). Só o `git
+push` de sempre.
+
+**Arquivos alterados:** `app/utils/financeiro_util.py` (novo — filtro de
+conta_terceiros extraído pra ser compartilhado), `app/routes/financeiro.py`
+(passou a importar o filtro em vez de ter a própria cópia — comportamento
+idêntico, só reorganização), `app/routes/admin.py` (`relatorios` — corrige
+"Desempenho por unidade" e adiciona segmentação financeira por área),
+`app/templates/admin/relatorios.html` (tabela por área com as colunas novas).
+
+## -40. Modelos de cobrança (êxito %, retainer, PDF de recibo)
+
+**Contexto:** próximo item da tabela de prioridades, depois de fechar CSRF
+(reforçado), Volume Docker (confirmado por você direto no painel do
+EasyPanel) e timesheet→faturamento/conta de terceiros (seção -39).
+
+Até aqui todo lançamento financeiro era só "valor fixo digitado na mão" —
+sem nenhum jeito de registrar que um honorário é sobre êxito (percentual
+de um valor de causa/acordo) ou uma mensalidade recorrente, e sem
+nenhuma forma de emitir um recibo formal pro cliente.
+
+**1) Modelo de cobrança no lançamento:** novo campo `modelo_cobranca` em
+todo lançamento — "Valor fixo" (padrão, comportamento de sempre), "Êxito
+(%)" ou "Retainer (mensalidade)". Isso é só **rastreabilidade e apoio
+visual** — o campo `valor` continua sendo sempre o que de fato
+entra/sai do caixa, nunca calculado escondido.
+
+**2) Êxito (%):** ao escolher esse modelo no formulário "Novo
+lançamento", aparecem dois campos extras — percentual e valor-base
+(normalmente o valor da causa ou o valor do acordo/recuperação). A tela
+sugere automaticamente o valor-base a partir do valor da causa do
+processo escolhido (quando cadastrado) e calcula, ao vivo, uma sugestão
+de valor final (percentual × valor-base) no campo Valor — mesmo padrão
+de governança já usado em "Gerar cobrança a partir de horas" (seção
+-39): é só um ponto de partida editável, o valor que realmente é salvo é
+sempre o que a pessoa confirmar, nunca aplicado sozinho. Assim que
+alguém edita o campo Valor manualmente, a sugestão automática para de
+sobrescrever, pra não brigar com o que já foi digitado.
+
+**3) Retainer (mensalidade):** não existe fila/agendador neste projeto
+pra gerar cobrança recorrente sozinha automaticamente — e não seria
+prudente criar lançamento financeiro sem revisão humana de qualquer
+forma. Em vez disso, todo lançamento marcado como "retainer" ganha um
+botão **"Gerar próximo mês"** na tela Financeiro, que duplica o
+lançamento com o vencimento um mês à frente (tratando corretamente
+virada de ano e meses com dias diferentes, ex: lançamento com
+vencimento dia 31 gera o próximo com vencimento no último dia do mês
+seguinte) e status voltando pra "pendente" — sempre uma ação explícita
+de quem está usando o sistema, nunca algo rodando escondido.
+
+**4) Recibo em PDF:** novo botão "Recibo (PDF)" em todo lançamento já
+marcado como **pago** (só faz sentido pra algo que de fato foi recebido
+— gerar recibo de algo ainda pendente seria emitir comprovante de algo
+que não aconteceu). O PDF traz nome/CNPJ do escritório, endereço da
+unidade, valor, cliente, descrição, processo vinculado (se houver),
+data e forma de pagamento, e uma linha de assinatura. Usa a biblioteca
+`reportlab` (adicionada ao `requirements.txt`) — testado inclusive com
+nomes e textos com acentuação (ç, ã, õ, á, é...), que aparecem
+corretamente no PDF gerado.
+
+**Testado (sqlite descartável + login real via `test_client` HTTP):**
+- Formulário mostra o valor da causa de cada processo (pro cálculo de
+  sugestão do JS) e os campos de percentual/valor-base aparecem/somem
+  corretamente conforme o modelo escolhido.
+- Lançamento "êxito" salva percentual e valor-base certos; o valor final
+  salvo é o confirmado, não recalculado no servidor.
+- Trocar de volta pra "fixo" não deixa percentual/valor-base "fantasma"
+  salvo por engano, mesmo que o formulário mande esses campos
+  preenchidos (ex: usuário mudou de ideia sem limpar os campos).
+- "Gerar próximo mês" cria a cobrança seguinte com vencimento +1 mês e
+  status pendente; rejeitado (400) se tentado num lançamento que não é
+  do modelo retainer.
+- Recibo recusa gerar PDF pra lançamento ainda pendente (redireciona com
+  aviso); gera um PDF válido (cabeçalho `%PDF`, conteúdo revisado
+  visualmente, inclusive com acentuação) pra lançamento pago.
+
+⚠️ **Este lote adiciona colunas novas** (`Lancamento.modelo_cobranca`,
+`Lancamento.percentual_exito`, `Lancamento.valor_base_exito` — todas
+opcionais, nenhum dado existente é afetado) **e uma dependência nova**
+(`reportlab`, já no `requirements.txt`). Depois do deploy: (1) `git push`
+de sempre, (2) rodar `python sincronizar_schema.py` no Terminal do
+container, (3) confirmar que o build do Docker instalou o `reportlab`
+(o próprio `requirements.txt` já cuida disso, só citando pra você saber
+o que esperar no log do build).
+
+**Arquivos alterados:** `requirements.txt` (`reportlab`),
+`app/models/financeiro.py` (`modelo_cobranca`, `percentual_exito`,
+`valor_base_exito`), `app/routes/financeiro.py` (`novo` atualizado, novas
+rotas `duplicar_retainer` e `recibo`), `app/templates/financeiro/form.html`
+(seletor de modelo + JS de sugestão), `app/templates/financeiro/listar.html`
+(badge de modelo, botão de recibo, botão "Gerar próximo mês").
+
 ## -39. Tabela de prioridades do relatório de 20/08: mais 3 formulários sem csrf_token encontrados, Volume Docker, e "Vínculo timesheet → faturamento" + "Conta de terceiros"
 
 **Contexto:** você mandou a tabela de 23 itens do relatório e pediu pra
@@ -55,12 +182,10 @@ ajuda o EasyPanel a sugerir esse caminho ao configurar um mount — mas
 **não substitui, sozinho, configurar o volume persistente de verdade no
 painel do EasyPanel**. Isso é uma ação sua, fora deste repositório:
 
-⚠️ **AÇÃO SUA NECESSÁRIA:** no painel do EasyPanel, confirme (ou
-configure, se ainda não existir) um volume/mount persistente apontando
-para `/app/uploads` dentro do container. Sem isso, todo documento
-anexado a um processo é perdido na próxima vez que o container for
-recriado do zero (ex: num redeploy). Isso não dá pra verificar nem
-corrigir por código — só olhando o painel mesmo.
+✅ **Confirmado por você em 20/08/2026:** o painel do EasyPanel já tem uma
+montagem de volume configurada (`uploads` → `/app/uploads`), então os
+documentos anexados a processos sobrevivem a um redeploy/reinício do
+container. Este item está **fechado** — não precisa de mais nenhuma ação.
 
 ### 3) Vínculo timesheet → faturamento
 

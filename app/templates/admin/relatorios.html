@@ -33,14 +33,33 @@
 </div>
 
 <div class="card-doc tab p-3">
-  <h4 class="mb-3" style="font-size:1rem;">Processos por área do direito (todas as unidades)</h4>
+  <h4 class="mb-3" style="font-size:1rem;">Processos e financeiro por área do direito (todas as unidades)</h4>
+  <p class="small text-muted-doc mb-3">
+    Receita própria do escritório por área (depósito de terceiros não entra aqui — ver aba
+    "Conta de terceiros" em Financeiro). Só conta lançamento vinculado a um processo.
+  </p>
   {% if por_area %}
-    {% for area, qtd in por_area.items() %}
-    <div class="d-flex justify-content-between align-items-center py-2 {% if not loop.last %}border-bottom{% endif %}" style="border-color: var(--paper-200) !important;">
-      <span>{{ area }}</span>
-      <span class="fw-semibold">{{ qtd }}</span>
-    </div>
-    {% endfor %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Área do direito</th>
+        <th>Processos</th>
+        <th>Receita recebida</th>
+        <th>Receita pendente</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for area, qtd in por_area.items() %}
+      {% set fin = financeiro_por_area.get(area, {"recebido": 0, "pendente": 0}) %}
+      <tr>
+        <td>{{ area }}</td>
+        <td>{{ qtd }}</td>
+        <td style="color: var(--status-ok);">{{ fin.recebido|moeda }}</td>
+        <td>{{ fin.pendente|moeda }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
   {% else %}
   <p class="text-muted-doc small mb-0">Nenhum dado disponível ainda.</p>
   {% endif %}

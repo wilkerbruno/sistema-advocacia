@@ -7,6 +7,7 @@ from app.models import Unidade, Usuario, Processo, Cliente, Lancamento, LogAtivi
 from app.utils.acesso import apenas_admin, login_papel_requerido, checar_acesso_unidade_ou_403
 from app.utils.notificacoes import registrar_log
 from app.utils.rede import resumir_user_agent
+from app.utils.financeiro_util import filtro_conta_terceiros
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -220,12 +221,16 @@ def relatorios():
             processos_ativos=Processo.query.filter_by(unidade_id=u.id, status="ativo").count(),
             processos_encerrados=Processo.query.filter_by(unidade_id=u.id, status="encerrado").count(),
             clientes=Cliente.query.filter_by(unidade_id=u.id).count(),
+            # ⚠️ filtra fora conta_terceiros (ver PENDENCIAS.md, seção -39 e
+            # -41): sem isso, depósito judicial/valor de repasse de cliente
+            # inflaria a receita "própria" do escritório aqui, mesmo já
+            # segregado corretamente na tela Financeiro.
             receita_pendente=db.session.query(func.coalesce(func.sum(Lancamento.valor), 0)).filter(
                 Lancamento.unidade_id == u.id, Lancamento.natureza == "receita",
-                Lancamento.status == "pendente").scalar(),
+                Lancamento.status == "pendente", filtro_conta_terceiros(False)).scalar(),
             receita_recebida=db.session.query(func.coalesce(func.sum(Lancamento.valor), 0)).filter(
                 Lancamento.unidade_id == u.id, Lancamento.natureza == "receita",
-                Lancamento.status == "pago").scalar(),
+                Lancamento.status == "pago", filtro_conta_terceiros(False)).scalar(),
         ))
 
     query_processos = Processo.query
@@ -237,7 +242,33 @@ def relatorios():
         query_processos.with_entities(Processo.area_direito, func.count(Processo.id)).group_by(Processo.area_direito).all()
     )
 
-    return render_template("admin/relatorios.html", por_unidade=por_unidade, por_area=por_area)
+    # Segmentação financeira por área do direito (ver PENDENCIAS.md, seção
+    # -41): só entra na conta o lançamento vinculado a um processo (área
+    # vem do processo, não existe "área" de um lançamento solto) — receita
+    # própria do escritório (conta_terceiros excluído, mesmo motivo do
+    # bloco acima), separada em recebida vs. pendente, igual ao resto do
+    # painel financeiro.
+    query_lancamentos_area = db.session.query(
+        Processo.area_direito,
+        Lancamento.status,
+        func.coalesce(func.sum(Lancamento.valor), 0),
+    ).join(Lancamento, Lancamento.processo_id == Processo.id).filter(
+        Lancamento.natureza == "receita", filtro_conta_terceiros(False),
+    )
+    if not current_user.is_admin_desenvolvedor:
+        query_lancamentos_area = query_lancamentos_area.filter(Processo.unidade_id.in_(ids_unidades))
+    query_lancamentos_area = query_lancamentos_area.group_by(Processo.area_direito, Lancamento.status)
+
+    financeiro_por_area = {}
+    for area, status, total in query_lancamentos_area.all():
+        registro = financeiro_por_area.setdefault(area, {"recebido": 0, "pendente": 0})
+        if status == "pago":
+            registro["recebido"] += total
+        elif status == "pendente":
+            registro["pendente"] += total
+
+    return render_template("admin/relatorios.html", por_unidade=por_unidade, por_area=por_area,
+                            financeiro_por_area=financeiro_por_area)
 
 
 @admin_bp.route("/auditoria")

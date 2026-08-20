@@ -9,6 +9,7 @@ class Lancamento(db.Model):
     TIPOS = ("honorario", "custas", "despesa", "outro")
     NATUREZAS = ("receita", "despesa")
     STATUS = ("pendente", "pago", "atrasado", "cancelado")
+    MODELOS_COBRANCA = ("fixo", "exito", "retainer")
 
     id = db.Column(db.Integer, primary_key=True)
     descricao = db.Column(db.String(255), nullable=False)
@@ -42,6 +43,26 @@ class Lancamento(db.Model):
     # (em SQL, `NULL = 0` não é verdadeiro, then filtraria pra fora as
     # linhas antigas); usar sempre `.is_(True)` / `.is_(False) ou is_(None)`.
     conta_terceiros = db.Column(db.Boolean, default=False, nullable=True)
+
+    # Modelo de cobrança (ver PENDENCIAS.md, seção -40): registra COMO o
+    # valor deste lançamento foi combinado com o cliente — não muda em
+    # nada o cálculo do caixa (o campo `valor` continua sendo sempre o que
+    # de fato entra/sai), é só rastreabilidade e apoio visual.
+    # None/"fixo" (padrão, comportamento de sempre): valor combinado direto.
+    # "exito": percentual sobre um valor-base (normalmente valor da causa
+    # ou valor recuperado no acordo) — `percentual_exito` e
+    # `valor_base_exito` guardam como o valor sugerido foi calculado, só
+    # para conferência futura; o valor final digitado por quem lançou é
+    # sempre o que vale, igual ao padrão já usado em
+    # `gerar_cobranca_horas` (sugestão nunca é aplicada sozinha).
+    # "retainer": mensalidade fixa recorrente — sem tabela de recorrência
+    # própria (não há fila/agendador neste projeto); o botão "Gerar
+    # cobrança do próximo mês" na tela Financeiro duplica manualmente o
+    # lançamento com o vencimento do mês seguinte, sempre uma ação
+    # explícita de quem está usando o sistema.
+    modelo_cobranca = db.Column(db.String(20), nullable=True)
+    percentual_exito = db.Column(db.Numeric(5, 2), nullable=True)
+    valor_base_exito = db.Column(db.Numeric(14, 2), nullable=True)
 
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 

@@ -84,19 +84,34 @@
     <tbody>
       {% for l in lancamentos %}
       <tr>
-        <td>{{ l.descricao }}{% if l.parcela %} <span class="text-muted-doc small">({{ l.parcela }})</span>{% endif %}</td>
+        <td>
+          {{ l.descricao }}{% if l.parcela %} <span class="text-muted-doc small">({{ l.parcela }})</span>{% endif %}
+          {% if l.modelo_cobranca == "exito" %}<span class="badge-status badge-normal ms-1">êxito{% if l.percentual_exito %} {{ l.percentual_exito }}%{% endif %}</span>
+          {% elif l.modelo_cobranca == "retainer" %}<span class="badge-status badge-normal ms-1">retainer</span>{% endif %}
+        </td>
         <td>{{ l.tipo }} · {{ l.natureza }}</td>
         {% if current_user.is_admin %}<td><span class="pill-unidade">{{ l.unidade.codigo }}</span></td>{% endif %}
         <td>{{ l.data_vencimento|data_br }}</td>
         <td class="{% if l.natureza == 'despesa' %}text-danger{% endif %}">{{ l.valor|moeda }}</td>
         <td><span class="badge-status badge-{{ l.status }}">{{ l.status }}</span></td>
         <td>
-          {% if l.status == "pendente" %}
-          <form method="post" action="{{ url_for('financeiro.atualizar_status', lancamento_id=l.id) }}" class="d-flex gap-1">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button name="status" value="pago" class="btn btn-outline-doc btn-sm">Marcar pago</button>
-          </form>
-          {% endif %}
+          <div class="d-flex flex-wrap gap-1">
+            {% if l.status == "pendente" %}
+            <form method="post" action="{{ url_for('financeiro.atualizar_status', lancamento_id=l.id) }}" class="d-flex gap-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button name="status" value="pago" class="btn btn-outline-doc btn-sm">Marcar pago</button>
+            </form>
+            {% endif %}
+            {% if l.status == "pago" %}
+            <a href="{{ url_for('financeiro.recibo', lancamento_id=l.id) }}" class="btn btn-outline-doc btn-sm">Recibo (PDF)</a>
+            {% endif %}
+            {% if l.modelo_cobranca == "retainer" %}
+            <form method="post" action="{{ url_for('financeiro.duplicar_retainer', lancamento_id=l.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="btn btn-outline-doc btn-sm">Gerar próximo mês</button>
+            </form>
+            {% endif %}
+          </div>
         </td>
       </tr>
       {% endfor %}
