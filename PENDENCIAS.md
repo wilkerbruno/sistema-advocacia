@@ -1,5 +1,74 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -42. Verificação de conflito de interesses
+
+**Contexto:** próximo item da tabela (Compliance, Alto impacto) depois da
+segmentação financeira por área (seção -41).
+
+**O conflito clássico da advocacia** que este item mira: o escritório
+representa alguém como CLIENTE num processo e, ao mesmo tempo, é adverso
+a essa mesma pessoa/empresa em OUTRO processo (`parte_contraria`) — às
+vezes sem ninguém perceber, porque os dois casos são de unidades ou
+responsáveis diferentes. É uma questão de ética profissional (OAB), não
+só organização — por isso a verificação enxerga o escritório **inteiro**
+(todas as unidades da mesma empresa), nunca só a unidade de quem está
+olhando, mas **nunca cruza a fronteira de empresa** (cada escritório
+cliente da plataforma só vê conflito dentro do próprio escritório —
+verifiquei isso especificamente com um teste dedicado).
+
+**Onde aparece:**
+1. **Aviso imediato no cadastro** — ao criar um cliente cujo nome já
+   aparece como parte contrária em algum processo do escritório, ou ao
+   criar/editar um processo cuja parte contrária já é cliente do
+   escritório em outro caso, um aviso vermelho aparece na hora (não
+   bloqueia o cadastro — a decisão de aceitar ou recusar um caso por
+   conflito é sempre humana, o sistema só avisa).
+2. **Banner permanente na página do cliente e do processo** — diferente
+   do aviso do item 1 (que só quem cadastrou vê, uma vez), este banner é
+   calculado toda vez que a página é aberta, então continua avisando
+   mesmo que o conflito só tenha passado a existir depois (ex: cliente A
+   já existia, e um processo com parte contrária = nome de A foi criado
+   depois, por outra pessoa, em outra unidade).
+3. **Tela dedicada "Verificação de conflitos"** (`/governanca/conflitos`,
+   menu Governança, só admin — decisão de aceitar/recusar caso por
+   conflito costuma ser de sócio/gestor) — varredura completa do
+   escritório inteiro, lista todo par cliente↔processo em conflito de
+   uma vez, pra revisão periódica proativa (não só reativa, na hora do
+   cadastro).
+
+**Como a comparação de nome funciona:** normalizado (sem acento, sem
+diferença de maiúscula/minúscula, espaços colapsados), mas **exato**
+depois de normalizado — de propósito, sem similaridade aproximada
+("fuzzy"). Um match "quase igual" que passa por cima de nomes
+realmente diferentes geraria aviso demais e a equipe pararia de prestar
+atenção nos avisos reais; prefere não pegar um nome digitado muito
+diferente a virar ruído.
+
+**Testado (sqlite descartável + login real via `test_client` HTTP, 6
+cenários):**
+- Conflito detectado corretamente atravessando unidades (mesma empresa).
+- **Nunca cruza fronteira de empresa** — cliente com nome idêntico em
+  outro escritório cliente da plataforma não aparece.
+- Processo do PRÓPRIO cliente com parte contrária = nome dele mesmo não
+  conta como conflito (não é o caso que este item cobre).
+- Cliente sem nenhuma relação não gera falso positivo.
+- Usuário comum recebe 403 na tela dedicada (só admin).
+- Aviso aparece já no ato de cadastrar um novo processo com parte
+  contrária = cliente existente.
+
+**Não precisa de `sincronizar_schema.py`** — nenhuma coluna nova (a
+verificação é sempre calculada na hora, nunca fica salva); usa os campos
+`Cliente.nome` e `Processo.parte_contraria` que já existiam. Só o `git
+push` de sempre.
+
+**Arquivos alterados:** `app/utils/conflito_interesse.py` (novo),
+`app/routes/clientes.py` (aviso no cadastro + banner no detalhe),
+`app/routes/processos.py` (aviso no cadastro + banner no detalhe),
+`app/routes/governanca.py` (nova rota `verificacao_conflitos`),
+`app/templates/clientes/detalhe.html`, `app/templates/processos/detalhe.html`
+(banners), `app/templates/governanca/conflitos.html` (novo), `app/templates/base.html`
+(item de menu novo, "GB").
+
 ## -41. Segmentação financeira por área do direito (+ correção de um vazamento de conta_terceiros que eu mesmo introduzi)
 
 **Contexto:** próximo item da tabela depois de "Modelos de cobrança"

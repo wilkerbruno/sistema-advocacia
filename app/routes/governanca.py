@@ -37,6 +37,7 @@ from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_moviment
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils import tribunais_datajud
+from app.utils.conflito_interesse import varrer_conflitos_da_empresa
 
 governanca_bp = Blueprint("governanca", __name__)
 
@@ -774,6 +775,45 @@ def contingenciamento():
         contagem_por_classificacao=contagem_por_classificacao,
         exposicao_total=exposicao_total, provisao_total=provisao_total,
     )
+
+
+# ---------- Verificação de conflito de interesses (PENDENCIAS.md, seção -42) ----------
+
+@governanca_bp.route("/conflitos")
+@login_required
+@apenas_admin
+def verificacao_conflitos():
+    """
+    Varredura completa da empresa inteira (todas as unidades) atrás de
+    todo par (cliente, processo de OUTRO cliente cuja parte_contraria bate
+    com o nome desse cliente) — o conflito de interesses clássico da
+    advocacia: representar alguém e, ao mesmo tempo, ser adverso a essa
+    mesma pessoa/empresa em outro caso do escritório. Só admin (decisão de
+    aceitar/recusar caso por conflito é tipicamente do sócio/gestor, não
+    de qualquer usuário — mesmo padrão de acesso de admin/relatorios).
+
+    Restrito a admin, mas nunca cruza fronteira de empresa: admin de
+    empresa vê só a própria empresa; admin desenvolvedor (multi-empresa)
+    não tem uma "empresa atual" fixa, então esta tela pede pra escolher
+    uma antes de rodar a varredura, em vez de arriscar misturar dado de
+    escritórios clientes diferentes.
+    """
+    from app.models import Empresa
+
+    empresa_id = request.args.get("empresa_id", type=int)
+    empresas_para_escolher = None
+    conflitos = []
+
+    if current_user.is_admin_desenvolvedor:
+        empresas_para_escolher = Empresa.query.filter_by(dono_da_plataforma=False).order_by(Empresa.nome).all()
+        if empresa_id:
+            conflitos = varrer_conflitos_da_empresa(empresa_id)
+    else:
+        empresa_id = current_user.empresa_id_atual
+        conflitos = varrer_conflitos_da_empresa(empresa_id)
+
+    return render_template("governanca/conflitos.html", conflitos=conflitos,
+                            empresas_para_escolher=empresas_para_escolher, empresa_id=empresa_id)
 
 
 # ---------- Export para Data Lake (seção 12) ----------

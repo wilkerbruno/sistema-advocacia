@@ -5,6 +5,7 @@ from app.extensions import db
 from app.models import Cliente, Unidade
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log
+from app.utils.conflito_interesse import conflitos_para_cliente
 
 clientes_bp = Blueprint("clientes", __name__)
 
@@ -65,6 +66,18 @@ def novo():
         registrar_log(current_user, "criou", "Cliente", cliente.id, cliente.nome)
         db.session.commit()
         flash("Cliente cadastrado com sucesso.", "success")
+
+        # Verificação de conflito de interesses (PENDENCIAS.md, seção -42):
+        # avisa já no cadastro se este cliente já aparece como parte
+        # contrária em outro caso do escritório. Nunca bloqueia — só avisa
+        # (fica também visível permanentemente no detalhe do cliente).
+        empresa = db.session.get(Unidade, unidade_id).empresa
+        conflitos = conflitos_para_cliente(empresa.id if empresa else None, cliente.nome, cliente_id=cliente.id)
+        if conflitos:
+            numeros = ", ".join(p.numero_processo or p.numero_interno or f"#{p.id}" for p in conflitos)
+            flash(f"⚠️ Possível conflito de interesses: {cliente.nome} já aparece como parte contrária "
+                  f"em outro processo do escritório ({numeros}). Revise antes de prosseguir.", "danger")
+
         return redirect(url_for("clientes.detalhe", cliente_id=cliente.id))
 
     return render_template("clientes/form.html", cliente=None, unidades=unidades)
@@ -75,7 +88,17 @@ def novo():
 def detalhe(cliente_id):
     cliente = db.get_or_404(Cliente, cliente_id)
     checar_acesso_unidade_ou_403(cliente.unidade_id)
-    return render_template("clientes/detalhe.html", cliente=cliente)
+
+    # Verificação de conflito de interesses (PENDENCIAS.md, seção -42):
+    # este cliente aparece como parte contrária em algum outro processo do
+    # escritório (qualquer unidade da mesma empresa)? Checagem ao vivo, não
+    # fica salva em lugar nenhum — sempre reflete o cadastro atual.
+    conflitos_interesse = conflitos_para_cliente(
+        cliente.unidade.empresa_id if cliente.unidade else None,
+        cliente.nome, cliente_id=cliente.id,
+    )
+
+    return render_template("clientes/detalhe.html", cliente=cliente, conflitos_interesse=conflitos_interesse)
 
 
 @clientes_bp.route("/<int:cliente_id>/editar", methods=["GET", "POST"])

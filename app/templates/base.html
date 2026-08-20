@@ -84,6 +84,9 @@
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado'] }}" href="{{ url_for('governanca.mapa_estado_lista') }}">
         <span class="tab-index">GA</span> Mapa de estado (TPU)
       </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.verificacao_conflitos' }}" href="{{ url_for('governanca.verificacao_conflitos') }}">
+        <span class="tab-index">GB</span> Verificação de conflitos
+      </a>
       {% endif %}
 
       {% if current_user.is_authenticated and current_user.pode_gerenciar_usuarios() %}

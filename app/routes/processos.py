@@ -23,6 +23,7 @@ from app.utils.cnj import validar_numero_cnj
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
+from app.utils.conflito_interesse import conflitos_para_parte_contraria
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -206,6 +207,21 @@ def novo():
                        processo.numero_processo or processo.numero_interno)
         db.session.commit()
 
+        # Verificação de conflito de interesses (PENDENCIAS.md, seção -42):
+        # avisa já no cadastro se a parte contrária deste processo já é
+        # cliente do escritório em outro caso. Nunca bloqueia o cadastro —
+        # só avisa (fica também visível permanentemente no detalhe do
+        # processo, pra quem não estava olhando nesse momento).
+        if processo.parte_contraria:
+            conflitos = conflitos_para_parte_contraria(
+                empresa_do_cadastro.id if empresa_do_cadastro else None,
+                processo.parte_contraria, cliente_id_do_processo=processo.cliente_id,
+            )
+            if conflitos:
+                nomes = ", ".join(c.nome for c in conflitos)
+                flash(f"⚠️ Possível conflito de interesses: a parte contrária ({processo.parte_contraria}) "
+                      f"já é cliente do escritório em outro caso ({nomes}). Revise antes de prosseguir.", "danger")
+
         if processo.forma_acompanhamento == "automatico" and processo.monitoravel:
             qtd = len(processo.movimentacoes)
             flash(f"Processo cadastrado e em monitoramento automático — dados encontrados no "
@@ -245,12 +261,25 @@ def detalhe(processo_id):
         p.id: sugerir_evidencia_historica(p) for p in prazos_historico
     }
     sugestoes_evidencia = {k: v for k, v in sugestoes_evidencia.items() if v is not None}
+
+    # Verificação de conflito de interesses (PENDENCIAS.md, seção -42): a
+    # parte contrária deste processo já é cliente do escritório em outro
+    # caso? Checagem ao vivo (não fica salva em lugar nenhum) — sempre
+    # reflete o cadastro atual, então também pega conflito que só passou a
+    # existir depois deste processo já criado (ex: um novo cliente
+    # cadastrado depois com o mesmo nome desta parte contrária).
+    conflitos_interesse = conflitos_para_parte_contraria(
+        processo.unidade.empresa_id if processo.unidade else None,
+        processo.parte_contraria, cliente_id_do_processo=processo.cliente_id,
+    ) if processo.parte_contraria else []
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
                             tribunais_datajud=tribunais_datajud.TODOS,
                             prazos_historico=prazos_historico,
-                            sugestoes_evidencia=sugestoes_evidencia)
+                            sugestoes_evidencia=sugestoes_evidencia,
+                            conflitos_interesse=conflitos_interesse)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])

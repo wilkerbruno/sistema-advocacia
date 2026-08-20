@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block titulo %}Verificação de conflitos — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Verificação de conflito de interesses{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Varre todo o escritório (todas as unidades) atrás do conflito clássico da advocacia:
+  representar alguém como cliente e, ao mesmo tempo, ser adverso a essa mesma pessoa/empresa
+  em outro caso. A comparação é por nome normalizado (sem acento, sem diferença de
+  maiúscula/minúscula) — nomes parecidos mas não exatamente iguais não são pegos aqui de
+  propósito, pra não gerar aviso demais; revise sempre com bom senso, principalmente com
+  nomes comuns.
+</p>
+
+{% if empresas_para_escolher is not none %}
+<form method="get" class="d-flex gap-2 mb-3 align-items-end">
+  <div>
+    <label class="form-label small mb-1">Empresa</label>
+    <select name="empresa_id" class="form-select" style="min-width:280px;" onchange="this.form.submit()">
+      <option value="">Selecione uma empresa...</option>
+      {% for e in empresas_para_escolher %}
+      <option value="{{ e.id }}" {{ "selected" if empresa_id == e.id }}>{{ e.nome }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <noscript><button class="btn btn-outline-doc btn-sm">Verificar</button></noscript>
+</form>
+{% endif %}
+
+{% if empresas_para_escolher is not none and not empresa_id %}
+<div class="empty-state">
+  <div class="font-display">Escolha uma empresa acima</div>
+  <p class="mb-0">Admin desenvolvedor enxerga múltiplas empresas — escolha qual escritório verificar.</p>
+</div>
+{% elif conflitos %}
+<div class="alert alert-danger small mb-3">
+  {{ conflitos|length }} possível conflito(s) de interesse encontrado(s). Revise cada um — pode
+  ser mesmo nome de pessoas diferentes, ou algo que já foi resolvido (ex: caso encerrado).
+</div>
+<div class="card-doc tab p-0">
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Cliente</th>
+        <th>Também aparece como parte contrária em</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in conflitos %}
+      <tr>
+        <td><a class="linha-link" href="{{ url_for('clientes.detalhe', cliente_id=item.cliente.id) }}">{{ item.cliente.nome }}</a></td>
+        <td>
+          {% for p in item.processos %}
+          <div>
+            <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a>
+            <span class="text-muted-doc small">— cliente desse processo: {{ p.cliente.nome if p.cliente else "—" }}</span>
+          </div>
+          {% endfor %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% elif empresa_id %}
+<div class="empty-state">
+  <div class="font-display">Nenhum conflito encontrado</div>
+  <p class="mb-0">Nenhum cliente cadastrado aparece como parte contrária em outro processo do escritório.</p>
+</div>
+{% endif %}
+{% endblock %}

@@ -4,6 +4,16 @@
 {% block cabecalho %}{{ processo.numero_processo or processo.numero_interno or "Processo sem número" }}{% endblock %}
 
 {% block conteudo %}
+{% if conflitos_interesse %}
+<div class="alert alert-danger small mb-3">
+  <strong>⚠️ Possível conflito de interesses:</strong> a parte contrária deste processo
+  ({{ processo.parte_contraria }}) já é cliente do escritório —
+  {% for c in conflitos_interesse %}
+  <a href="{{ url_for('clientes.detalhe', cliente_id=c.id) }}">{{ c.nome }}</a>{% if not loop.last %}, {% endif %}
+  {% endfor %}.
+  Confirme se não há impedimento antes de prosseguir com o caso.
+</div>
+{% endif %}
 <div class="row g-4">
   <div class="col-lg-4">
     <div class="card-doc tab p-3 mb-4">
