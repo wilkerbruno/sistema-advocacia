@@ -61,22 +61,31 @@ def _obter_modelo():
     with _lock:
         if _modelo is not None:  # outra chamada pode ter carregado enquanto esperava o lock
             return _modelo
+        # ⚠️ Mensagens abaixo (ImportError e arquivo ausente) cobrem também o
+        # cenário ATUAL, intencional (não é erro de deploy): o motor de IA
+        # local está temporariamente desativado — ver PENDENCIAS.md, seção
+        # -30 — porque pesava demais para o servidor de produção atual. Por
+        # isso o texto é direcionado ao usuário final (ex: usar a API do
+        # Claude com chave própria em "Minhas Integrações"), em vez de
+        # instruir a rodar comandos no servidor, que só confundiriam quem
+        # está apenas usando o sistema pelo navegador.
         try:
             from llama_cpp import Llama
         except ImportError as e:
             raise ModeloIndisponivelError(
-                "Biblioteca 'llama-cpp-python' não instalada no servidor — rode "
-                "'pip install -r requirements.txt' e reinicie a aplicação."
+                "O modelo de IA local está temporariamente desativado neste servidor "
+                "(mudança planejada, não é uma falha) — enquanto isso, use a API do "
+                "Claude com chave própria da empresa em \"Minhas Integrações\" (menu do "
+                "administrador), se disponível."
             ) from e
 
         caminho = _caminho_modelo()
         if not caminho or not os.path.isfile(caminho):
             raise ModeloIndisponivelError(
-                f"Modelo de IA local não encontrado em '{caminho}'. Rode "
-                "'python baixar_modelo_ia_local.py' no servidor para baixar os "
-                "pesos (~1,1 GB, feito uma única vez; já roda sozinho durante o "
-                "build da imagem Docker — se está faltando, o build pode ter "
-                "falhado nessa etapa, veja o log do deploy)."
+                "O modelo de IA local está temporariamente desativado neste servidor "
+                "(mudança planejada, não é uma falha) — enquanto isso, use a API do "
+                "Claude com chave própria da empresa em \"Minhas Integrações\" (menu do "
+                "administrador), se disponível."
             )
 
         n_ctx = current_app.config.get("IA_LOCAL_CONTEXT_SIZE", 4096)

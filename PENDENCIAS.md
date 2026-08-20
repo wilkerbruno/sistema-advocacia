@@ -1,4 +1,78 @@
-# Status das pendências do briefing (atualizado em 19/08/2026)
+# Status das pendências do briefing (atualizado em 20/08/2026)
+
+## -30. IA local DESATIVADA temporariamente (motor + download do modelo) — até migrar de VPS
+
+**O que foi pedido:** mesmo depois do ajuste da seção -29 (wheel
+pré-compilada em vez de compilar do zero), o build voltou a falhar de
+novo logo depois — o log parava de responder logo após "Installing
+collected packages", sem erro explícito, o que é compatível com o
+processo de build sendo morto por falta de RAM (o servidor de produção
+tem só 2 núcleos / ~7,8 GB, e provavelmente o container antigo — já com o
+modelo de IA carregado em memória — ainda estava rodando ao mesmo tempo
+que o build novo). Você pediu pra voltar a IA local pra uma versão
+anterior, mais leve, "pelo menos até migrar a VPS" — confirmei que era só
+o motor/modelo de IA local (não as correções de segurança da seção -28,
+que continuam ativas e intactas).
+
+**O que foi feito:** o motor da IA local (`llama-cpp-python`, biblioteca
+que roda o modelo dentro do próprio servidor) e o download dos pesos do
+modelo (~1,1 GB, `baixar_modelo_ia_local.py`) foram **comentados**, não
+apagados, em três arquivos:
+- `requirements.txt` — linha `llama-cpp-python==0.3.34` comentada;
+- `Dockerfile` — a etapa de `pip install` voltou a ser simples (sem
+  precisar mais do `--extra-index-url` da seção -29, já que não instala
+  mais o `llama-cpp-python` de jeito nenhum agora) e as duas linhas que
+  baixavam o modelo (`COPY baixar_modelo_ia_local.py .` / `RUN python
+  baixar_modelo_ia_local.py`) foram comentadas;
+- `app/utils/ia_local.py` — as duas mensagens de erro internas (biblioteca
+  não instalada / arquivo do modelo não encontrado) foram reescritas: antes
+  instruíam a "rodar tal comando no servidor", o que ia parar direto no
+  chat do Agente de IA pro usuário final (advogado, não tec) e parecer um
+  build quebrado; agora dizem claramente que é uma desativação temporária
+  e planejada, e sugerem usar a API do Claude com chave própria (\"Minhas
+  Integrações\") como alternativa nesse meio tempo.
+
+**Por que é seguro (nada quebra):** o sistema já tinha, desde antes desta
+mudança, um tratamento gracioso pra "IA local indisponível" em toda
+chamada — `app/utils/agente_ia_router.py` embrulha qualquer falha do
+motor local numa `ProvedorIAIndisponivelError` com mensagem amigável, e
+todo lugar que chama isso (`/agente-ia`, análise de processo em
+`processos.py`) já capturava essa exceção e mostrava um aviso em vez de
+deixar a tela quebrar. Testei de ponta a ponta nesta rodada (com o
+`llama-cpp-python` desinstalado do ambiente de teste, simulando
+exatamente o servidor depois deste deploy): a aplicação sobe normalmente,
+a tela do Agente de IA mostra "não configurado", e uma mensagem enviada
+recebe a resposta amigável em vez de erro. Reexecutei também os testes
+dos 3 itens críticos da seção -28 (Data Lake, CSRF, sigilo de processo) —
+todos continuam passando, confirmando que essa mudança não afeta a
+segurança corrigida antes.
+
+**Empresas que já usam a API do Claude com chave própria** (opção
+"PROVEDOR_IA_CLAUDE_BYOK" em "Minhas Integrações") **não são afetadas** —
+continuam funcionando normalmente, porque não dependem do motor local.
+
+**Efeito esperado no próximo deploy:** o build fica mais leve e mais
+rápido (não baixa mais os ~1,1 GB do modelo nem precisa da wheel do
+`llama-cpp-python`), e o consumo de RAM em runtime cai também (o motor
+local não carrega mais nada em memória, já que nem está instalado). Se a
+causa do segundo travamento (seção -29) era mesmo falta de RAM durante o
+build concorrendo com o container antigo, isso deve resolver — mas como
+não consegui confirmar a causa exata (os comandos de diagnóstico que
+sugeri via SSH ainda não foram rodados), vale acompanhar o painel de
+recursos do EasyPanel no próximo deploy com atenção.
+
+**Como reativar quando migrar pra uma VPS com mais RAM:** descomentar as
+linhas indicadas nos três arquivos acima (todas com comentário explicando
+o que descomentar) — é rápido, é só me pedir quando chegar a hora.
+
+**⚠️ Lembrete importante (aprendido nesta mesma rodada):** o EasyPanel
+faz o build a partir do repositório Git conectado, não a partir da pasta
+sincronizada no seu computador — depois que eu entregar estes arquivos
+aqui, é preciso fazer `git add`, `git commit` e `git push` na pasta do
+projeto pra essa mudança realmente chegar no próximo deploy. Sem esse
+passo, o EasyPanel vai continuar buildando a versão antiga (com a IA
+local ainda ativa) mesmo que os arquivos já estejam atualizados na sua
+pasta local.
 
 ## -29. Build travando o servidor inteiro (RAM 99%, CPU 100%) — `Dockerfile` ajustado pra não compilar mais o llama-cpp-python do zero
 

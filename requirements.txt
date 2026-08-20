@@ -9,4 +9,11 @@ Werkzeug==3.0.3
 email-validator==2.2.0
 gunicorn==22.0.0
 requests==2.32.3
-llama-cpp-python==0.3.34
+# llama-cpp-python==0.3.34
+# ^ Motor da IA local (app/utils/ia_local.py) DESATIVADO temporariamente —
+# ver PENDENCIAS.md, seção -30. Pesa demais para o servidor atual (2
+# núcleos / ~7,8 GB de RAM), tanto no build (mesmo já usando wheel
+# pré-compilada, ver Dockerfile) quanto em runtime (~1,1 GB de RAM por
+# worker do gunicorn, na primeira mensagem que cada um atender). Reative
+# descomentando esta linha + as linhas correspondentes no Dockerfile
+# quando migrar para uma VPS com mais RAM.
