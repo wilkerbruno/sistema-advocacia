@@ -4,9 +4,32 @@
 {% block cabecalho %}Financeiro{% endblock %}
 
 {% block conteudo %}
+<ul class="nav nav-tabs mb-3">
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if conta != 'terceiros' }}" href="{{ url_for('financeiro.listar', conta='operacional') }}">Caixa do escritório</a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link {{ 'active' if conta == 'terceiros' }}" href="{{ url_for('financeiro.listar', conta='terceiros') }}">Conta de terceiros</a>
+  </li>
+</ul>
+
+{% if conta == "terceiros" %}
+<p class="small text-muted-doc mb-3">
+  Valores que passam pelo escritório mas não são receita/despesa própria (ex: depósito
+  judicial, valor recebido em nome do cliente para repasse) — segregados do caixa
+  operacional de propósito, pra nunca inflar nem confundir o resultado real do escritório.
+</p>
+{% else %}
+<p class="small text-muted-doc mb-3">
+  Saldo em trânsito na conta de terceiros: <strong>{{ saldo_terceiros|moeda }}</strong>
+  {% if saldo_terceiros and saldo_terceiros > 0 %}<a href="{{ url_for('financeiro.listar', conta='terceiros') }}" class="ms-1">ver detalhes</a>{% endif %}
+  — não incluído nos totais abaixo.
+</p>
+{% endif %}
+
 <div class="kpi-grid mb-4">
   <div class="kpi-card">
-    <div class="kpi-label">A receber (pendente)</div>
+    <div class="kpi-label">{{ "A repassar (pendente)" if conta == "terceiros" else "A receber (pendente)" }}</div>
     <div class="kpi-value">{{ total_a_receber|moeda }}</div>
   </div>
   <div class="kpi-card">
@@ -20,6 +43,7 @@
 </div>
 
 <form method="get" class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <input type="hidden" name="conta" value="{{ conta }}">
   <select name="natureza" class="form-select" style="width: 160px;" onchange="this.form.submit()">
     <option value="">Receitas e despesas</option>
     <option value="receita" {{ "selected" if natureza == "receita" }}>Receitas</option>
@@ -39,7 +63,8 @@
     {% endfor %}
   </select>
   {% endif %}
-  <a href="{{ url_for('financeiro.novo') }}" class="btn btn-brass ms-auto">+ Novo lançamento</a>
+  <a href="{{ url_for('financeiro.gerar_cobranca_horas') }}" class="btn btn-outline-doc ms-auto">Gerar cobrança a partir de horas</a>
+  <a href="{{ url_for('financeiro.novo') }}" class="btn btn-brass">+ Novo lançamento</a>
 </form>
 
 <div class="card-doc tab p-0">

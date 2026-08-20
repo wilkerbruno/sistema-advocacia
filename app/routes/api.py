@@ -2,7 +2,7 @@ from flask import Blueprint, jsonify, request
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Notificacao, Cliente, Processo
-from app.utils.acesso import aplicar_escopo_unidade
+from app.utils.acesso import aplicar_escopo_unidade, filtrar_processos_visiveis
 from app.utils.cep import consultar_cep, CepInvalidoError, CepNaoEncontradoError
 
 api_bp = Blueprint("api", __name__)
@@ -58,7 +58,15 @@ def busca_rapida():
 
     like = f"%{termo}%"
     clientes = aplicar_escopo_unidade(Cliente.query, Cliente).filter(Cliente.nome.ilike(like)).limit(5).all()
-    processos = aplicar_escopo_unidade(Processo.query, Processo).filter(
+    # filtrar_processos_visiveis (ver app/utils/acesso.py) — correção de
+    # segurança (relatório de avaliação de 20/08/2026, item 2.3): sem isso,
+    # um processo em segredo de justiça sem o usuário estar na lista de
+    # acesso continuava aparecendo aqui (número + existência do processo),
+    # mesmo com a tela de detalhe corretamente bloqueada por
+    # checar_acesso_processo_ou_403 — mesma lacuna já fechada em
+    # processos.listar e governanca.painel/fila_intimacoes, só faltava
+    # esta rota de autocomplete.
+    processos = filtrar_processos_visiveis(aplicar_escopo_unidade(Processo.query, Processo)).filter(
         db.or_(Processo.numero_processo.ilike(like), Processo.numero_interno.ilike(like))
     ).limit(5).all()
 

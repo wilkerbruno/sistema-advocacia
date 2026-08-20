@@ -29,6 +29,15 @@ class Apontamento(db.Model):
     descricao = db.Column(db.String(255), nullable=False)
     faturavel = db.Column(db.Boolean, default=True, nullable=False)
 
+    # Vínculo com o lançamento financeiro que cobrou estas horas (ver
+    # PENDENCIAS.md, seção -39, e financeiro.gerar_cobranca_horas) — nulo
+    # enquanto o apontamento ainda não foi faturado. Um apontamento só pode
+    # ser vinculado a UM lançamento por vez; a tela de gerar cobrança só
+    # oferece apontamentos com este campo vazio, pra nunca cobrar a mesma
+    # hora duas vezes.
+    lancamento_id = db.Column(db.Integer, db.ForeignKey("lancamentos_financeiros.id"), nullable=True)
+    lancamento = db.relationship("Lancamento", back_populates="apontamentos")
+
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
     def __repr__(self):

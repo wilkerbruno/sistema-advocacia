@@ -69,6 +69,27 @@ COPY . .
 
 RUN mkdir -p /app/uploads
 
+# Documentos anexados a processo (ver app/routes/processos.py, campo
+# UPLOAD_FOLDER em config.py) ficam nesta pasta. Sem esta declaração, o
+# Dockerfile não dá NENHUM sinal de que esse caminho precisa sobreviver a
+# um redeploy — ver relatório de avaliação de 20/08/2026, item "Volume
+# Docker/persistência de documentos". `VOLUME` aqui não cria, sozinho, um
+# volume persistente de verdade (isso ainda depende de um mount configurado
+# no painel do EasyPanel apontando pra este mesmo caminho) — o que ele faz
+# é: (a) documentar a intenção no próprio Dockerfile, versionada com o
+# resto do código, em vez de só numa configuração manual que ninguém mais
+# vê; (b) em painéis como o EasyPanel, que leem o Dockerfile pra sugerir
+# pontos de montagem, normalmente já é reconhecido e oferecido como
+# sugestão pronta na tela de "Mounts"/"Volumes" do serviço. ⚠️ AÇÃO SUA
+# NECESSÁRIA: confira no painel do EasyPanel, na configuração deste
+# serviço, se já existe um volume persistente montado em `/app/uploads` —
+# se não existir, crie um apontando pra este caminho ANTES do próximo
+# redeploy, ou os documentos já enviados por clientes/advogados podem ser
+# perdidos na próxima vez que o container subir do zero. Isso não dá pra
+# confirmar nem corrigir por código — é uma configuração de infraestrutura
+# feita direto no painel, fora deste repositório.
+VOLUME ["/app/uploads"]
+
 EXPOSE 5000
 
 # -w 2 (voltou de 1 — ver PENDENCIAS.md, seções -31 e -32): o -w 1 tinha

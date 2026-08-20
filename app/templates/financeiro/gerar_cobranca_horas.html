@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block titulo %}Gerar cobrança a partir de horas — JusControl{% endblock %}
+{% block eyebrow %}Financeiro{% endblock %}
+{% block cabecalho %}Gerar cobrança a partir de horas apontadas{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4 mb-3" style="max-width: 900px;">
+  <p class="small text-muted-doc mb-3">
+    Escolha um processo para ver as horas apontadas (timesheet) que ainda não
+    foram cobradas. Selecione as que quer incluir e confirme o valor — a
+    sugestão abaixo é só um ponto de partida (horas × valor/hora padrão do
+    cliente, quando cadastrado), você sempre pode editar antes de gerar.
+  </p>
+  <form method="get" class="d-flex flex-wrap gap-2 align-items-end">
+    <div>
+      <label class="form-label small mb-1">Processo</label>
+      <select name="processo_id" class="form-select" style="min-width:320px;" onchange="this.form.submit()">
+        <option value="">Selecione um processo...</option>
+        {% for p in processos %}
+        <option value="{{ p.id }}" {{ "selected" if processo_selecionado and processo_selecionado.id == p.id }}>
+          {{ p.numero_processo or p.numero_interno or ("processo #" ~ p.id) }}{% if p.cliente %} — {{ p.cliente.nome }}{% endif %}
+        </option>
+        {% endfor %}
+      </select>
+    </div>
+    <noscript><button class="btn btn-outline-doc btn-sm">Ver apontamentos</button></noscript>
+  </form>
+</div>
+
+{% if processo_selecionado %}
+<div class="card-doc tab p-4" style="max-width: 900px;">
+  <h4 style="font-size:1rem;" class="mb-3">
+    Apontamentos não faturados —
+    {{ processo_selecionado.numero_processo or processo_selecionado.numero_interno }}
+  </h4>
+
+  {% if apontamentos_elegiveis %}
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="processo_id" value="{{ processo_selecionado.id }}">
+
+    <table class="table-doc mb-3">
+      <thead>
+        <tr>
+          <th style="width:36px;"></th>
+          <th>Data</th>
+          <th>Descrição</th>
+          <th>Usuário</th>
+          <th>Horas</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for a in apontamentos_elegiveis %}
+        <tr>
+          <td><input type="checkbox" name="apontamento_ids" value="{{ a.id }}" checked class="form-check-input"></td>
+          <td>{{ a.data|data_br }}</td>
+          <td>{{ a.descricao }}</td>
+          <td>{{ a.usuario.nome }}</td>
+          <td>{{ "%.2f"|format(a.horas) }}h</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+      <tfoot>
+        <tr>
+          <td colspan="4" class="text-end fw-semibold">Total selecionável</td>
+          <td class="fw-semibold">{{ "%.2f"|format(total_horas) }}h</td>
+        </tr>
+      </tfoot>
+    </table>
+
+    <div class="row g-3">
+      <div class="col-12">
+        <label class="form-label">Descrição da cobrança</label>
+        <input type="text" name="descricao" class="form-control"
+               placeholder="Honorários — {{ '%.2f'|format(total_horas) }}h apontadas em {{ processo_selecionado.numero_processo or processo_selecionado.numero_interno }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">
+          Valor (R$) *
+          {% if sugestao_valor %}<span class="text-muted-doc small">— sugestão: {{ sugestao_valor|moeda }}</span>{% endif %}
+        </label>
+        <input type="number" step="0.01" name="valor" class="form-control" required
+               value="{{ sugestao_valor if sugestao_valor else '' }}">
+        {% if not sugestao_valor %}
+        <div class="small text-muted-doc mt-1">
+          Este cliente não tem valor/hora padrão cadastrado — informe o valor manualmente.
+        </div>
+        {% endif %}
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Vencimento</label>
+        <input type="date" name="data_vencimento" class="form-control">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Gerar cobrança</button>
+      <a href="{{ url_for('financeiro.listar') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum apontamento pendente de cobrança</div>
+    <p class="mb-0">
+      Todos os apontamentos faturáveis deste processo já foram vinculados a
+      um lançamento financeiro, ou ainda não há apontamentos faturáveis
+      registrados.
+    </p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -71,6 +71,13 @@
         <input type="text" name="estado" id="estado" maxlength="2" class="form-control" value="{{ cliente.estado if cliente else '' }}">
       </div>
 
+      <div class="col-md-4">
+        <label class="form-label">Valor/hora padrão (R$)</label>
+        <input type="number" step="0.01" name="valor_hora_padrao" class="form-control"
+               value="{{ cliente.valor_hora_padrao if cliente and cliente.valor_hora_padrao else '' }}">
+        <div class="small text-muted-doc mt-1">Opcional — usado só como sugestão ao gerar cobrança a partir de horas apontadas (timesheet). O valor final é sempre confirmado/editado na hora de gerar a cobrança.</div>
+      </div>
+
       <div class="col-12">
         <label class="form-label">Observações</label>
         <textarea name="observacoes" class="form-control">{{ cliente.observacoes if cliente else '' }}</textarea>

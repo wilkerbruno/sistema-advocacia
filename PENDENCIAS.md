@@ -1,5 +1,204 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -39. Tabela de prioridades do relatório de 20/08: mais 3 formulários sem csrf_token encontrados, Volume Docker, e "Vínculo timesheet → faturamento" + "Conta de terceiros"
+
+**Contexto:** você mandou a tabela de 23 itens do relatório e pediu pra
+começar pelo mais importante e ir avançando item por item até fechar
+tudo. Depois de fechar "Login sem proteção CSRF" e "Busca rápida vaza
+processos em segredo de justiça" (seção -38, mesma sessão), continuei
+pela tabela.
+
+### 1) Auditoria completa de CSRF — 3 formulários a mais estavam quebrados
+
+Antes de seguir pra frente, fui conferir se a correção de CSRF da seção
+-28 realmente cobriu 100% dos formulários POST do sistema, já que
+`auth/login.html` (seção -38) tinha sido pulado justamente por não estar
+disponível no ambiente de teste usado naquela rodada — sinal de que
+podia ter mais algum na mesma situação.
+
+Levantei o horário de modificação de **todos** os templates do seu
+repositório real e separei os que claramente fizeram parte daquela leva
+de correção (mesmo lote de horário) dos que ficaram de fora. Conferi um
+por um os ~20 que ficaram de fora, procurando `<form method="post"` sem
+`csrf_token` (e também chamadas `fetch`/AJAX em POST, que usariam o
+padrão de header `X-CSRFToken` — não achei nenhuma fora do padrão).
+Resultado: a maioria (telas só de leitura/listagem, ex:
+`admin/unidades.html`, `dashboard/index.html`) não tem formulário
+nenhum e está OK. Mas encontrei **3 formulários realmente quebrados**,
+que iam devolver erro 400 ("Bad Request") pra qualquer usuário que
+tentasse usar:
+
+- **`financeiro/form.html`** ("Novo lançamento") — o formulário mais
+  usado da tela financeira. Este é o mais grave dos três: se alguém no
+  seu escritório tentou cadastrar um lançamento financeiro recentemente
+  e recebeu um erro estranho, era isso.
+- **`clientes/detalhe.html`** (botão "Inativar"/"Reativar" cliente).
+- **`governanca/importar_lote.html`** (upload de CSV pra importação em
+  lote de processos).
+
+Todos os três receberam o mesmo `<input type="hidden" name="csrf_token"
+value="{{ csrf_token() }}">` que todo outro formulário do sistema já
+tem. Testado com login real via `test_client` HTTP: cada um dos três
+POSTs sem token é rejeitado (400) e com o token certo funciona
+normalmente — confirmando tanto que o problema era real quanto que a
+correção resolve sem quebrar o fluxo.
+
+**Isso fecha de verdade o item "Login sem proteção CSRF" da tabela — o
+escopo real era maior do que só o login.**
+
+### 2) Volume Docker/persistência de documentos
+
+`Dockerfile` ganhou `VOLUME ["/app/uploads"]` depois da criação da pasta
+de uploads. Isso **documenta a intenção** (a pasta onde ficam os
+documentos anexados a processos precisa sobreviver a um redeploy) e
+ajuda o EasyPanel a sugerir esse caminho ao configurar um mount — mas
+**não substitui, sozinho, configurar o volume persistente de verdade no
+painel do EasyPanel**. Isso é uma ação sua, fora deste repositório:
+
+⚠️ **AÇÃO SUA NECESSÁRIA:** no painel do EasyPanel, confirme (ou
+configure, se ainda não existir) um volume/mount persistente apontando
+para `/app/uploads` dentro do container. Sem isso, todo documento
+anexado a um processo é perdido na próxima vez que o container for
+recriado do zero (ex: num redeploy). Isso não dá pra verificar nem
+corrigir por código — só olhando o painel mesmo.
+
+### 3) Vínculo timesheet → faturamento
+
+Até aqui, apontamento de hora (timesheet) e lançamento financeiro
+existiam lado a lado sem nenhuma ligação — transformar horas trabalhadas
+em cobrança era manual, por fora do sistema, sem nenhum controle contra
+cobrar a mesma hora duas vezes.
+
+- Nova coluna `Apontamento.lancamento_id` (nullable) — vazia enquanto o
+  apontamento não foi cobrado.
+- Nova tela **"Gerar cobrança a partir de horas"** (acessível pelo botão
+  na tela Financeiro e por um link direto na linha de cada apontamento
+  faturável na tela Timesheet): escolhe um processo, mostra as horas
+  faturáveis ainda não cobradas desse processo, com uma **sugestão** de
+  valor (horas × valor/hora padrão do cliente, só se cadastrado — nunca
+  obrigatório, sempre editável antes de confirmar). Ao confirmar, cria o
+  lançamento financeiro e vincula cada apontamento selecionado a ele.
+- Revalidação no servidor: o POST nunca confia cegamente nos IDs que
+  vieram do formulário — refiltra por processo, faturável e ainda-não-
+  vinculado antes de gerar a cobrança, então mesmo que dois usuários
+  tentem faturar a mesma hora ao mesmo tempo, só o primeiro consegue.
+- Tela Timesheet agora mostra, em cada linha faturável, se já foi
+  "faturado" ou um link direto pra gerar a cobrança.
+
+### 4) Conta de terceiros (valores de cliente)
+
+Escritórios de porte precisam segregar dinheiro que só **passa** pelo
+escritório (depósito judicial, valor recebido em nome do cliente pra
+repasse) do caixa **próprio** do escritório — misturar os dois é erro
+comum e problema de compliance (OAB).
+
+- Nova coluna `Lancamento.conta_terceiros` (booleana). Um checkbox no
+  formulário "Novo lançamento" marca explicitamente quando é valor de
+  terceiros — nunca é automático, sempre uma escolha do usuário no
+  momento do lançamento.
+- A tela Financeiro agora tem duas abas: **"Caixa do escritório"**
+  (padrão, o que a tela sempre mostrou) e **"Conta de terceiros"**. Os
+  totais (a receber, recebido no mês, em atraso) de cada aba são
+  calculados só com os lançamentos daquele tipo — nunca somados juntos,
+  pra nunca mascarar o caixa real do escritório. Mesmo na aba
+  operacional, um aviso mostra o saldo em trânsito na conta de
+  terceiros, como lembrete.
+
+⚠️ **Detalhe técnico importante sobre esta coluna especificamente:**
+`conta_terceiros` foi criada como **opcional** (aceita nulo) por
+propósito, mesmo o valor "de fato" sendo sempre sim/não — o motivo é que
+`sincronizar_schema.py` aplica coluna nova como `NOT NULL` sem nenhum
+valor padrão no banco, e isso **quebraria** ao tentar aplicar numa
+tabela `lancamentos_financeiros` que já tem linhas (que é exatamente o
+seu caso em produção). Deixando opcional, o `sincronizar_schema.py`
+funciona normalmente, e todo lançamento antigo (que fica com valor nulo
+nessa coluna depois do `ALTER TABLE`) continua aparecendo
+corretamente na aba "Caixa do escritório" — testado especificamente
+esse cenário (lançamento simulando dado pré-existente, com o campo
+nulo, continua aparecendo no lugar certo).
+
+### Testado (sqlite descartável + login real via `test_client` HTTP, cobrindo os 4 itens acima)
+
+- Os 3 formulários com csrf_token novo: GET traz o token, POST sem token
+  é rejeitado (400), POST com token funciona.
+- "Novo lançamento" com e sem marcar "conta de terceiros": salva a coluna
+  certa nos dois casos; as duas abas da tela Financeiro mostram só o que
+  é de cada tipo, sem misturar.
+- Lançamento com `conta_terceiros` nulo (simulando dado antigo pós-
+  migração) continua aparecendo na aba operacional — não some.
+- Cadastro de cliente com valor/hora padrão (aceitando tanto "180.50"
+  quanto "180,50").
+- Gerar cobrança a partir de horas: sugestão de valor calculada certa
+  (soma das horas × valor/hora do cliente); cria o lançamento e vincula
+  os apontamentos certos; apontamentos já faturados somem da lista de
+  elegíveis na próxima vez que a tela é aberta pro mesmo processo (não
+  cobra duas vezes); processo de cliente sem valor/hora cadastrado não
+  quebra a tela, só pede o valor manualmente.
+- Tela Timesheet mostra o status de faturamento por linha.
+
+⚠️ **Este lote adiciona colunas novas** (`Cliente.valor_hora_padrao`,
+`Apontamento.lancamento_id`, `Lancamento.conta_terceiros` — todas
+opcionais/nullable, nenhuma quebra dado existente) — depois do deploy,
+**rode `python sincronizar_schema.py` no Terminal do container no
+EasyPanel** pra criar essas colunas no banco. Sem isso, as telas que
+usam esses campos vão dar erro.
+
+**Arquivos alterados:** `Dockerfile` (VOLUME), `app/models/cliente.py`
+(`valor_hora_padrao`), `app/models/apontamento.py` (`lancamento_id`),
+`app/models/financeiro.py` (`conta_terceiros`), `app/routes/financeiro.py`
+(`novo`, `listar`, nova rota `gerar_cobranca_horas`), `app/routes/clientes.py`
+(`valor_hora_padrao` no cadastro/edição), `app/templates/financeiro/listar.html`,
+`app/templates/financeiro/form.html`, `app/templates/financeiro/gerar_cobranca_horas.html`
+(novo), `app/templates/clientes/form.html`, `app/templates/clientes/detalhe.html`,
+`app/templates/timesheet/listar.html`, `app/templates/governanca/importar_lote.html`.
+
+**Itens da tabela fechados nesta rodada:** "Volume Docker/persistência de
+documentos", "Vínculo timesheet → faturamento", "Conta de terceiros
+(valores de cliente)" — e um reforço do item "Login sem proteção CSRF"
+(escopo ampliado pros 3 formulários extras encontrados).
+
+## -38. Fechadas as duas pendências de segurança do relatório de 20/08/2026 (CSRF no login + vazamento na busca rápida)
+
+**Contexto:** o relatório "Avaliação para adoção por escritório de grande
+porte" (entregue como .docx nesta mesma data) reavaliou os três itens
+críticos da auditoria de 19/08 e encontrou duas pendências pequenas e
+concretas, ambas fechadas agora.
+
+**1) CSRF no login:** `app/templates/auth/login.html` — que não estava
+disponível no ambiente de testes quando a proteção CSRF foi ativada em
+todo o resto do sistema (seção -28) — foi lido diretamente do seu
+repositório real (via o bridge com seu computador) e recebeu o mesmo
+`<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">` que
+todo outro formulário do sistema já tem. Removido o `@csrf.exempt` e o
+comentário temporário de `app/routes/auth.py::login` — o login agora tem
+a mesma proteção que o resto do sistema, sem exceção.
+
+**2) Busca rápida vazando processo em segredo de justiça:**
+`app/routes/api.py::busca_rapida` (autocomplete usado por telas de busca)
+filtrava só por unidade (`aplicar_escopo_unidade`), sem aplicar
+`filtrar_processos_visiveis` (a mesma função que já protege
+`processos.listar` e `governanca.painel`/`fila_intimacoes` desde a
+correção da muralha ética, seção -28). Um usuário sem grant explícito
+conseguia ver número e existência de um processo sigiloso por essa busca,
+mesmo com a tela de detalhe corretamente bloqueada. Agora usa a mesma
+função de filtro que o resto do sistema.
+
+**Testado (4 cenários, login real via `test_client` HTTP, não só chamada
+direta da view):**
+- GET /login traz o csrf_token no HTML; POST sem csrf_token agora é
+  rejeitado (400); POST com o token certo continua logando normalmente.
+- Busca rápida: usuário sem grant não vê o processo sigiloso (mas continua
+  vendo processos normais); o responsável pelo processo continua vendo
+  normalmente; um usuário com `ProcessoAcessoRestrito` explícito também
+  continua vendo — a correção não superbloqueia quem tem acesso legítimo.
+
+**Não precisa de `sincronizar_schema.py`** — nenhuma coluna nova, só
+lógica de código. Só o `git push` de sempre.
+
+**Arquivos alterados:** `app/templates/auth/login.html` (csrf_token),
+`app/routes/auth.py` (remoção do `@csrf.exempt`), `app/routes/api.py`
+(`busca_rapida` agora usa `filtrar_processos_visiveis`).
+
 ## -37. Aba Prazos separada em "em aberto" / "concluídos" + captura do campo extra do DataJud (complementos)
 
 **O que foi esclarecido:** "não aparece mais nada" (seção -36) não era a

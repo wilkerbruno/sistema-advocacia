@@ -41,6 +41,7 @@
         <th>Processo</th>
         <th>Horas</th>
         <th>Faturável</th>
+        <th>Cobrança</th>
         <th></th>
       </tr>
     </thead>
@@ -53,6 +54,17 @@
         <td>{% if a.processo %}<a class="linha-link" href="{{ url_for('processos.detalhe', processo_id=a.processo_id) }}">{{ a.processo.numero_processo or a.processo.numero_interno }}</a>{% else %}—{% endif %}</td>
         <td>{{ "%.2f"|format(a.horas) }}h</td>
         <td>{% if a.faturavel %}<span class="badge-status badge-cumprido">sim</span>{% else %}<span class="badge-status badge-normal">não</span>{% endif %}</td>
+        <td>
+          {% if not a.faturavel %}
+          <span class="text-muted-doc small">—</span>
+          {% elif a.lancamento_id %}
+          <span class="badge-status badge-ativo">faturado</span>
+          {% elif a.processo_id %}
+          <a class="small" href="{{ url_for('financeiro.gerar_cobranca_horas', processo_id=a.processo_id) }}">gerar cobrança</a>
+          {% else %}
+          <span class="text-muted-doc small">sem processo</span>
+          {% endif %}
+        </td>
         <td>
           {% if a.usuario_id == current_user.id or current_user.is_admin %}
           <form method="post" action="{{ url_for('timesheet.excluir', apontamento_id=a.id) }}" onsubmit="return confirm('Excluir este apontamento?')">

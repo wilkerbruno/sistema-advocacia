@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
 from app.extensions import db
@@ -6,6 +7,19 @@ from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_regist
 from app.utils.notificacoes import registrar_log
 
 clientes_bp = Blueprint("clientes", __name__)
+
+
+def _parse_valor_hora(valor):
+    # Campo opcional (ver PENDENCIAS.md, seção -39) — só pré-preenche uma
+    # SUGESTÃO de valor em "Gerar cobrança a partir de horas"; nunca é
+    # obrigatório e um valor inválido/vazio simplesmente vira None em vez
+    # de quebrar o cadastro do cliente.
+    if not valor:
+        return None
+    try:
+        return Decimal(str(valor).replace(",", "."))
+    except InvalidOperation:
+        return None
 
 
 @clientes_bp.route("/")
@@ -42,6 +56,7 @@ def novo():
             estado=request.form.get("estado"),
             cep=request.form.get("cep"),
             observacoes=request.form.get("observacoes"),
+            valor_hora_padrao=_parse_valor_hora(request.form.get("valor_hora_padrao")),
             unidade_id=unidade_id,
             criado_por_id=current_user.id,
         )
@@ -83,6 +98,7 @@ def editar(cliente_id):
         cliente.estado = request.form.get("estado")
         cliente.cep = request.form.get("cep")
         cliente.observacoes = request.form.get("observacoes")
+        cliente.valor_hora_padrao = _parse_valor_hora(request.form.get("valor_hora_padrao"))
         if current_user.is_admin and request.form.get("unidade_id"):
             cliente.unidade_id = int(request.form["unidade_id"])
 

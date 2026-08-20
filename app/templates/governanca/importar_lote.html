@@ -18,6 +18,7 @@
     mas vale testar com um lote pequeno primeiro.
   </p>
   <form method="post" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="mb-3">
       <label class="form-label">Arquivo CSV</label>
       <input type="file" name="arquivo_csv" accept=".csv" class="form-control" required>

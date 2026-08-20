@@ -18,6 +18,13 @@ class Cliente(db.Model):
     estado = db.Column(db.String(2))
     cep = db.Column(db.String(10))
     observacoes = db.Column(db.Text)
+    # Taxa horária padrão deste cliente (ver PENDENCIAS.md, seção -39) — usada
+    # só como SUGESTÃO inicial de valor na tela "Gerar cobrança a partir das
+    # horas do período" (app/routes/financeiro.py::gerar_cobranca_horas);
+    # nunca gera lançamento sozinha, o valor final é sempre revisado e pode
+    # ser editado antes de confirmar. Nula quando o cliente não tem uma taxa
+    # fixa combinada (ex: contrato de êxito, valor fechado por caso).
+    valor_hora_padrao = db.Column(db.Numeric(10, 2), nullable=True)
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 

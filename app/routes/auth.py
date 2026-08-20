@@ -2,7 +2,7 @@ from datetime import datetime, date, timedelta
 
 from flask import Blueprint, render_template, redirect, url_for, request, flash
 from flask_login import login_user, logout_user, login_required, current_user
-from app.extensions import db, csrf
+from app.extensions import db
 from app.models import Usuario, Empresa, Unidade, Licenca, ConfiguracaoPlataforma
 from app.utils.notificacoes import registrar_log
 
@@ -10,21 +10,7 @@ auth_bp = Blueprint("auth", __name__)
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])
-@csrf.exempt
 def login():
-    # ⚠️ TEMPORÁRIO (ver PENDENCIAS.md seção -28): esta view está isenta de
-    # CSRF só porque `app/templates/auth/login.html` não estava disponível
-    # no meu ambiente de testes nesta rodada (ver alerta de sandbox
-    # incompleto, PENDENCIAS.md seção -26) — não tive como confirmar/editar
-    # esse template sem risco de sobrescrever algo que talvez já exista de
-    # forma diferente no seu projeto real. Assim que você adicionar
-    # `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`
-    # dentro do `<form method="post">` do login.html de verdade, pode pedir
-    # pra eu remover esta linha `@csrf.exempt` — sem isso, o login continua
-    # funcionando normalmente, só não tem a proteção CSRF que o resto do
-    # sistema já tem agora (risco bem menor que os outros formulários: o
-    # pior cenário de CSRF só no login é logar a vítima como o atacante,
-    # não alterar dado nenhum).
     if current_user.is_authenticated:
         return redirect(url_for("dashboard.index"))
 
