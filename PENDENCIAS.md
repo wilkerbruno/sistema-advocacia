@@ -1,6 +1,74 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -31. IA local REATIVADA — a desativação da seção -30 foi revertida; em vez disso, limitei a IA a 1 worker pra travar o consumo em ~1,1 GB
+
+**O que aconteceu:** logo depois da mudança da seção -30 (motor da IA
+local desativado), a tela do Agente de IA passou a mostrar "Agente de IA
+indisponível para esta empresa no momento" — que é exatamente o
+resultado esperado daquela mudança (nenhum provedor configurado pra
+aquela empresa), mas você interpretou como um novo erro e pediu pra
+"desinstalar a IA que instalou que esgotou a memória e instalar a
+antiga". Perguntei o que você preferia e você esclareceu: queria a IA
+local ligada de novo, mas te preocupava o fato dela (na sua percepção)
+estar consumindo ~2,5 GB, contra os ~1,1 GB "de antes".
+
+**Esclarecimento importante — não existiam dois modelos diferentes:** o
+modelo sempre foi o mesmo, o "pequeno" (Qwen2.5-1.5B, ~1,1 GB,
+`baixar_modelo_ia_local.py`). O modelo "grande" (~2,5 GB) existe no
+script mas nunca foi ativado — nem antes, nem depois de nenhuma mudança
+minha nesta rodada. O número "~2,5 GB" que você percebeu não era um
+modelo diferente: é a SOMA de até 2 workers do gunicorn (`-w 2`,
+configurado no `Dockerfile`) carregando, cada um, sua própria cópia do
+mesmo modelo pequeno de 1,1 GB na memória — cada worker é um processo
+Python separado, então o modelo não é compartilhado entre eles. Com os 2
+workers em uso ao mesmo tempo, o total batia perto de ~2,2-2,5 GB, mesmo
+sendo sempre o modelo de 1,1 GB.
+
+**O que foi feito:**
+- Revertida a desativação da seção -30: `llama-cpp-python` descomentado
+  de novo em `requirements.txt`, `Dockerfile` voltou a instalar via
+  `--extra-index-url` (wheel pré-compilada, seção -29) e a baixar o
+  modelo pequeno (~1,1 GB) durante o build — exatamente como estava antes
+  da seção -30, nenhuma mudança de modelo.
+- `Dockerfile`: `gunicorn` mudou de `-w 2` pra **`-w 1`** — com só 1
+  worker, só existe UMA cópia do modelo carregada por vez, então o teto
+  de RAM da IA fica garantido em ~1,1 GB, não importa quantas mensagens
+  diferentes cheguem.
+- `app/utils/ia_local.py`: as mensagens de erro (que antes diziam
+  "desativado de propósito") voltaram a tratar a ausência do modelo como
+  uma falha genuína — já que a IA volta a ser o padrão ativo — mas
+  continuam amigáveis pro usuário final, sem instruir a rodar comando
+  nenhum no servidor.
+
+**⚠️ Tradeoff real que vem junto com `-w 1` — vale você saber:** com só 1
+worker, o sistema INTEIRO (não só o Agente de IA) atende uma requisição
+de cada vez. Se dois usuários acessarem ao mesmo tempo, um espera o outro
+terminar — pra telas normais isso é rápido e quase imperceptível. Mas
+enquanto o Agente de IA está gerando uma resposta (pode levar até
+alguns minutos, já que roda por CPU, sem GPU), o sistema fica bloqueado
+pra TODOS os outros usuários até terminar, não só pra quem pediu a IA.
+Isso é diferente do tradeoff menor que já existia com 2 workers (onde
+sobrava 1 worker livre pro resto do sistema enquanto o outro gerava a
+resposta). Pra um escritório de porte maior com vários usuários
+simultâneos, isso pode incomodar na prática — se acontecer, me avise que
+a solução definitiva é tirar a geração de IA do ciclo de
+requisição/resposta (fila em segundo plano), não é algo que dá pra
+resolver só ajustando esse número de novo.
+
+**Testado nesta rodada:** reexecutei os testes dos 3 itens críticos da
+seção -28 (Data Lake, CSRF, sigilo de processo) — todos continuam
+passando. Não tenho como testar o carregamento de verdade do modelo
+aqui no meu ambiente (sem os pesos baixados, sem GPU/RAM de servidor de
+produção pra reproduzir), mas a mudança em si é só de configuração
+(quantidade de workers) e não mexe em nenhuma lógica do motor de IA.
+
+**⚠️ Lembrete de sempre:** só chega no ar depois de `git add` / `commit`
+/ `push` na pasta do projeto.
+
 ## -30. IA local DESATIVADA temporariamente (motor + download do modelo) — até migrar de VPS
+
+**⚠️ Esta seção foi REVERTIDA pela seção -31 acima, no mesmo dia — deixei
+o histórico abaixo só pra registro, mas a IA local está ativa de novo.**
 
 **O que foi pedido:** mesmo depois do ajuste da seção -29 (wheel
 pré-compilada em vez de compilar do zero), o build voltou a falhar de

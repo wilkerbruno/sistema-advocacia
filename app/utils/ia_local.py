@@ -61,31 +61,30 @@ def _obter_modelo():
     with _lock:
         if _modelo is not None:  # outra chamada pode ter carregado enquanto esperava o lock
             return _modelo
-        # ⚠️ Mensagens abaixo (ImportError e arquivo ausente) cobrem também o
-        # cenário ATUAL, intencional (não é erro de deploy): o motor de IA
-        # local está temporariamente desativado — ver PENDENCIAS.md, seção
-        # -30 — porque pesava demais para o servidor de produção atual. Por
-        # isso o texto é direcionado ao usuário final (ex: usar a API do
-        # Claude com chave própria em "Minhas Integrações"), em vez de
-        # instruir a rodar comandos no servidor, que só confundiriam quem
-        # está apenas usando o sistema pelo navegador.
+        # ⚠️ Mensagens abaixo (ImportError e arquivo ausente) são pra um cenário
+        # de FALHA genuína (algo deu errado no deploy), não pra uma
+        # desativação de propósito — o motor local está ativo por padrão
+        # (ver PENDENCIAS.md, seções -30 e -31). Escritas pensando no
+        # usuário final (advogado usando o sistema pelo navegador, não um
+        # técnico com acesso ao servidor) — por isso não instruem a rodar
+        # comando nenhum, só avisam e sugerem uma alternativa/contato.
         try:
             from llama_cpp import Llama
         except ImportError as e:
             raise ModeloIndisponivelError(
-                "O modelo de IA local está temporariamente desativado neste servidor "
-                "(mudança planejada, não é uma falha) — enquanto isso, use a API do "
-                "Claude com chave própria da empresa em \"Minhas Integrações\" (menu do "
-                "administrador), se disponível."
+                "O modelo de IA local não está disponível neste servidor no momento. "
+                "Use a API do Claude com chave própria da empresa em \"Minhas "
+                "Integrações\" (menu do administrador), se disponível, ou avise o "
+                "suporte técnico do sistema."
             ) from e
 
         caminho = _caminho_modelo()
         if not caminho or not os.path.isfile(caminho):
             raise ModeloIndisponivelError(
-                "O modelo de IA local está temporariamente desativado neste servidor "
-                "(mudança planejada, não é uma falha) — enquanto isso, use a API do "
-                "Claude com chave própria da empresa em \"Minhas Integrações\" (menu do "
-                "administrador), se disponível."
+                "O modelo de IA local não está disponível neste servidor no momento "
+                "(pesos do modelo não encontrados). Use a API do Claude com chave "
+                "própria da empresa em \"Minhas Integrações\" (menu do administrador), "
+                "se disponível, ou avise o suporte técnico do sistema."
             )
 
         n_ctx = current_app.config.get("IA_LOCAL_CONTEXT_SIZE", 4096)
