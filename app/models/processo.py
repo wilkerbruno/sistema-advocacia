@@ -241,6 +241,14 @@ class Prazo(db.Model):
     # Governança (seção 4 e 11): nunca exclusão física de prazo — somente soft delete.
     deletado_em = db.Column(db.DateTime, nullable=True)
 
+    # Lembrete automático (ver PENDENCIAS.md, seção -44, e
+    # enviar_lembretes_prazos_audiencias.py) — marca que o lembrete já foi
+    # disparado pra este prazo, pra nunca mandar duas vezes mesmo que o job
+    # rode várias vezes seguidas (mesmo padrão de
+    # Compromisso.notificacao_enviada_em). Nullable de propósito, como toda
+    # coluna nova deste projeto (ver sincronizar_schema.py).
+    lembrete_enviado_em = db.Column(db.DateTime, nullable=True)
+
 
 class Audiencia(db.Model):
     __tablename__ = "audiencias"
@@ -259,6 +267,10 @@ class Audiencia(db.Model):
 
     responsavel_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
     responsavel = db.relationship("Usuario")
+
+    # Lembrete automático (ver PENDENCIAS.md, seção -44) — mesmo mecanismo
+    # de Prazo.lembrete_enviado_em acima.
+    lembrete_enviado_em = db.Column(db.DateTime, nullable=True)
 
 
 class Documento(db.Model):

@@ -40,7 +40,8 @@ RUN pip install --no-cache-dir --extra-index-url https://abetlen.github.io/llama
 # só invalida esta camada se um destes arquivos específicos mudar.
 COPY docker/capturar-movimentacoes.cron /etc/cron.d/capturar-movimentacoes
 COPY docker/lembretes-compromissos.cron /etc/cron.d/lembretes-compromissos
-RUN chmod 0644 /etc/cron.d/capturar-movimentacoes /etc/cron.d/lembretes-compromissos
+COPY docker/lembretes-prazos-audiencias.cron /etc/cron.d/lembretes-prazos-audiencias
+RUN chmod 0644 /etc/cron.d/capturar-movimentacoes /etc/cron.d/lembretes-compromissos /etc/cron.d/lembretes-prazos-audiencias
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

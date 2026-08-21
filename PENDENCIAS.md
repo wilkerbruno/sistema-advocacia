@@ -1,5 +1,73 @@
 # Status das pendências do briefing (atualizado em 20/08/2026)
 
+## -44. Lembrete de prazo/audiência por WhatsApp/e-mail
+
+**Contexto:** próximo item da tabela (Comunicação, Alto impacto — "risco
+de perda de prazo") depois das ferramentas de LGPD (seção -43).
+
+O sistema já tinha lembrete automático pra Compromisso da Agenda (seção
+-32/anterior), mas não pra **prazo processual** nem pra **audiência** —
+os dois eventos com o risco mais sério de esquecimento (perder prazo
+processual é um dos piores erros que um escritório pode cometer). Este
+item fecha essa lacuna, reaproveitando a mesma infraestrutura de envio
+(notificação in-app, e-mail, WhatsApp) já usada pelos lembretes de
+compromisso.
+
+**Como funciona:** um script novo,
+`enviar_lembretes_prazos_audiencias.py`, roda **uma vez por dia** (6h da
+manhã) dentro do próprio container via cron (mesmo mecanismo já usado
+pela recaptura diária do DataJud e pelos lembretes de compromisso — não
+depende de nenhuma configuração externa de agendamento). Diferente de
+Compromisso (onde você escolhe um horário exato de lembrete), aqui a
+regra é "faltam N dias pra vencer": por padrão, **2 dias antes** para
+prazo e **1 dia antes** para audiência — ajustável sem mexer em código,
+só trocando as variáveis de ambiente `LEMBRETE_PRAZO_DIAS_ANTES` /
+`LEMBRETE_AUDIENCIA_DIAS_ANTES` no painel do EasyPanel. Um prazo que já
+venceu e ainda está pendente (sem nunca ter recebido lembrete) também
+dispara — lembrete atrasado é melhor que nenhum.
+
+**Diferença de destinatário entre os dois** (decisão deliberada):
+- **Prazo**: só o responsável interno pelo processo. Jargão como "prazo
+  pra contestar" não costuma fazer sentido pro cliente sem contexto, e
+  mandar isso desacompanhado por WhatsApp arriscaria confundir ou
+  preocupar à toa.
+- **Audiência**: responsável interno **e** o cliente do processo
+  (quando tem e-mail/WhatsApp cadastrado) — audiência é um evento que o
+  cliente frequentemente precisa saber ou comparecer, diferente de um
+  prazo interno.
+
+Cada lembrete é enviado só uma vez (marca `lembrete_enviado_em` assim
+que dispara, mesmo padrão de `Compromisso.notificacao_enviada_em`) —
+rodar o job de novo nunca duplica um lembrete já enviado. Canais: dentro
+do sistema sempre; e-mail se SMTP estiver configurado; WhatsApp se
+`WHATSAPP_BRIDGE_URL` estiver configurada e a empresa já tiver
+conectado o próprio número — exatamente as mesmas condições e o mesmo
+comportamento de degradar graciosamente (nunca falha o lembrete inteiro
+por falta de um canal) já usados nos lembretes de compromisso.
+
+**Testado:** 5 cenários de prazo (dentro do prazo configurado, fora
+ainda, já cumprido — não dispara mesmo dentro da janela, já vencido mas
+ainda pendente — dispara mesmo assim, e soft-deletado — nunca dispara) e
+3 de audiência (dentro, fora, cancelada), confirmando notificação in-app
+criada certinho pro responsável, e rodando o script duas vezes seguidas
+pra confirmar que não duplica lembrete já enviado.
+
+⚠️ **Este lote adiciona colunas novas** (`Prazo.lembrete_enviado_em`,
+`Audiencia.lembrete_enviado_em` — ambas opcionais). Depois do deploy:
+`git push` de sempre + rodar `python sincronizar_schema.py` no Terminal
+do container. **Diferente dos lotes anteriores, este também precisa que
+o container seja reconstruído do zero** (não só reiniciado) pra pegar o
+novo arquivo de cron (`docker/lembretes-prazos-audiencias.cron`) — um
+redeploy normal do EasyPanel (que reconstrói a imagem a partir do
+Dockerfile) já cobre isso, só citando pra você confirmar que não foi só
+um restart.
+
+**Arquivos alterados:** `app/models/processo.py` (`Prazo.lembrete_enviado_em`,
+`Audiencia.lembrete_enviado_em`), `config.py` (`LEMBRETE_PRAZO_DIAS_ANTES`,
+`LEMBRETE_AUDIENCIA_DIAS_ANTES`), `enviar_lembretes_prazos_audiencias.py`
+(novo), `docker/lembretes-prazos-audiencias.cron` (novo), `Dockerfile`
+(registra o novo cron).
+
 ## -43. Ferramentas de LGPD (exportação, anonimização, consentimento)
 
 **Contexto:** próximo item da tabela (Compliance, Alto impacto) depois da

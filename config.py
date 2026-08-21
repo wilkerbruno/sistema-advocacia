@@ -83,6 +83,13 @@ class Config:
     SMTP_REMETENTE = os.environ.get("SMTP_REMETENTE", "")
     RELATORIO_SEMANAL_DESTINATARIOS = os.environ.get("RELATORIO_SEMANAL_DESTINATARIOS", "")  # e-mails separados por vírgula
 
+    # Lembrete automático de prazo/audiência (ver PENDENCIAS.md, seção -44,
+    # e enviar_lembretes_prazos_audiencias.py) — quantos dias de antecedência
+    # cada lembrete dispara. Ajustável sem precisar mexer em código, só
+    # trocando a variável de ambiente no painel do EasyPanel.
+    LEMBRETE_PRAZO_DIAS_ANTES = int(os.environ.get("LEMBRETE_PRAZO_DIAS_ANTES", "2"))
+    LEMBRETE_AUDIENCIA_DIAS_ANTES = int(os.environ.get("LEMBRETE_AUDIENCIA_DIAS_ANTES", "1"))
+
     # Cobrança de licenças via Mercado Pago (Checkout Pro).
     MERCADOPAGO_ACCESS_TOKEN = os.environ.get("MERCADOPAGO_ACCESS_TOKEN", "")
 
