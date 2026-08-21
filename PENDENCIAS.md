@@ -1,5 +1,81 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -51. Auditoria de acesso a documentos (quem baixou o quê)
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (LGPD/Governança, Impacto médio, Esforço baixo — hoje o sistema
+já audita quem enviou e quem excluiu um documento, mas baixar um
+documento não deixava rastro nenhum; qualquer pessoa com acesso ao
+processo podia baixar qualquer documento sem que ninguém soubesse quem
+nem quando). O escritório já tinha toda a infraestrutura de auditoria
+pronta (`LogAtividade`/`registrar_log`, a mesma usada em login, exclusão
+de dado, edição de alçada etc.) — este item foi conectar o download
+nela e dar um jeito de consultar isso por documento.
+
+**O que mudou:**
+
+1) **`app/routes/processos.py`, `baixar_documento()`** — agora chama
+   `registrar_log(current_user, "baixou_documento", "Documento", doc.id,
+   doc.nome_original)` antes de servir o arquivo. Usei o id do próprio
+   **Documento** (não do Processo, como os logs de upload/exclusão já
+   existentes) de propósito: assim o histórico de UM documento nunca se
+   mistura com o de outro, mesmo que dois arquivos do mesmo processo
+   tenham o mesmo nome original (ex: duas versões de "procuracao.pdf"
+   enviadas em datas diferentes) — testado explicitamente.
+
+2) **Rota nova `GET /processos/documentos/<id>/historico`** — lista
+   todo mundo que já baixou aquele documento específico, com data/hora,
+   IP e navegador/dispositivo resumido (reaproveita a mesma função
+   `resumir_user_agent` já usada na tela geral de Auditoria). Restrita a
+   admin ou gestor — ver quem baixou o quê é informação sobre a
+   ATIVIDADE de outras pessoas, não sobre o processo em si, então segue
+   o mesmo critério de acesso já usado na aprovação de alçada financeira
+   (seção -50): não é "todo mundo que vê o processo", é só quem tem
+   papel de gestão.
+
+3) **`app/templates/processos/historico_documento.html`** (novo) — a
+   tela dessa rota nova.
+
+4) **`app/templates/processos/detalhe.html`** — cada linha da tabela de
+   documentos ganhou um botão "Histórico" (com a contagem de downloads
+   entre parênteses, ex: "Histórico (3)"), visível só pra admin/gestor,
+   ao lado do "Baixar" já existente.
+
+5) **`app/routes/processos.py`, `detalhe()`** — pré-computa a contagem
+   de downloads de todos os documentos do processo numa única consulta
+   agregada (`GROUP BY`), em vez de uma consulta por documento na hora
+   de montar a tabela.
+
+O download em si nunca foi bloqueado nem ficou mais lento pra quem
+baixa — só passou a deixar rastro. E como todo log novo cai também na
+tabela `logs_atividade` de sempre, um download de documento também
+aparece na tela geral de Auditoria (Configurações → Auditoria) se você
+filtrar por usuário/data, junto com toda ação já registrada — a rota
+nova só existe pra dar uma visão focada "quem baixou ESTE documento
+aqui", sem precisar catar isso no meio de centenas de outras ações.
+
+**Testado:** 7 testes novos (`tests/test_auditoria_documentos.py`) —
+baixar um documento registra quem baixou; baixar o mesmo documento
+várias vezes registra cada download separado; dois documentos com o
+MESMO nome original nunca misturam o histórico um do outro; gestor
+consegue ver o histórico com o nome de quem baixou (advogado e outro
+gestor, nos dois casos); advogado comum leva 403 tentando abrir o
+histórico de um documento; a tela de histórico funciona normalmente
+mesmo sem nenhum download ainda registrado; e a tela do processo mostra
+o link com a contagem certa só pra admin/gestor, nunca pra usuário
+comum. Rodei a suíte inteira depois (84 testes) — sem regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — este lote **não** adiciona
+coluna nem tabela nova (só reaproveita `logs_atividade`, que já existe),
+então **não** precisa rodar `sincronizar_schema.py`; e não adiciona
+`.cron` novo, então também **não** precisa de rebuild especial — só o
+`git push`/deploy de sempre.
+
+**Arquivos alterados:** `app/routes/processos.py`,
+`app/templates/processos/detalhe.html`,
+`app/templates/processos/historico_documento.html` (novo),
+`tests/test_auditoria_documentos.py` (novo).
+
 ## -50. Alçada/aprovação em múltiplos níveis (financeiro)
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

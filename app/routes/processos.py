@@ -7,9 +7,10 @@ from flask import (Blueprint, render_template, request, redirect, url_for,
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
+from sqlalchemy import func
 from app.models import (
     Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
-    Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito,
+    Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito, LogAtividade,
 )
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
@@ -25,6 +26,7 @@ from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoData
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
 from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
+from app.utils.rede import resumir_user_agent
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -279,13 +281,25 @@ def detalhe(processo_id):
         processo.parte_contraria, cliente_id_do_processo=processo.cliente_id,
     ) if processo.parte_contraria else []
 
+    # Auditoria de acesso a documentos (PENDENCIAS.md, seção -51): quantas
+    # vezes cada documento já foi baixado, pra mostrar o número junto do
+    # botão "Histórico" sem precisar de uma consulta por documento.
+    contagem_downloads_documentos = dict(
+        db.session.query(LogAtividade.entidade_id, func.count(LogAtividade.id))
+        .filter(LogAtividade.entidade == "Documento", LogAtividade.acao == "baixou_documento",
+                LogAtividade.entidade_id.in_([d.id for d in processo.documentos]))
+        .group_by(LogAtividade.entidade_id)
+        .all()
+    ) if processo.documentos else {}
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
                             tribunais_datajud=tribunais_datajud.TODOS,
                             prazos_historico=prazos_historico,
                             sugestoes_evidencia=sugestoes_evidencia,
-                            conflitos_interesse=conflitos_interesse)
+                            conflitos_interesse=conflitos_interesse,
+                            contagem_downloads_documentos=contagem_downloads_documentos)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -759,9 +773,36 @@ def add_documento(processo_id):
 def baixar_documento(documento_id):
     doc = db.get_or_404(Documento, documento_id)
     checar_acesso_processo_ou_403(doc.processo)
+    # Auditoria de acesso a documentos (PENDENCIAS.md, seção -51): registra
+    # QUEM baixou QUAL documento e QUANDO — antes disso, baixar um documento
+    # não deixava rastro nenhum, só upload e exclusão eram auditados.
+    # entidade_id aqui é o id do próprio Documento (não do Processo, como
+    # nos outros dois logs desta tela), de propósito: permite achar o
+    # histórico de UM documento específico sem ambiguidade, mesmo que dois
+    # documentos do mesmo processo tenham o mesmo nome original.
+    registrar_log(current_user, "baixou_documento", "Documento", doc.id, doc.nome_original)
+    db.session.commit()
     pasta_processo = os.path.join(current_app.config["UPLOAD_FOLDER"], str(doc.processo_id))
     return send_from_directory(pasta_processo, doc.nome_arquivo,
                                 as_attachment=True, download_name=doc.nome_original)
+
+
+@processos_bp.route("/documentos/<int:documento_id>/historico")
+@login_required
+def historico_documento(documento_id):
+    doc = db.get_or_404(Documento, documento_id)
+    checar_acesso_processo_ou_403(doc.processo)
+    # Ferramenta de governança/auditoria — mesmo critério de acesso já usado
+    # pra aprovação de alçada financeira (só admin ou gestor), não qualquer
+    # pessoa com acesso ao processo: ver quem baixou o quê é informação
+    # sobre a ATIVIDADE de outros usuários, não sobre o processo em si.
+    if not (current_user.is_admin or current_user.is_gestor):
+        abort(403)
+    logs = LogAtividade.query.filter_by(
+        entidade="Documento", entidade_id=doc.id, acao="baixou_documento"
+    ).order_by(LogAtividade.criado_em.desc()).all()
+    return render_template("processos/historico_documento.html", doc=doc, logs=logs,
+                            resumir_user_agent=resumir_user_agent)
 
 
 @processos_bp.route("/documentos/<int:documento_id>/excluir", methods=["POST"])

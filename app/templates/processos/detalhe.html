@@ -357,6 +357,11 @@
               <td>{{ d.enviado_em|data_hora_br }}</td>
               <td>
                 <a href="{{ url_for('processos.baixar_documento', documento_id=d.id) }}" class="btn btn-outline-doc btn-sm">Baixar</a>
+                {% if current_user.is_admin or current_user.is_gestor %}
+                <a href="{{ url_for('processos.historico_documento', documento_id=d.id) }}" class="btn btn-outline-doc btn-sm" title="Quem já baixou este documento">
+                  Histórico{% if contagem_downloads_documentos.get(d.id) %} ({{ contagem_downloads_documentos.get(d.id) }}){% endif %}
+                </a>
+                {% endif %}
                 <form method="post" action="{{ url_for('processos.excluir_documento', documento_id=d.id) }}" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-outline-doc btn-sm">Excluir</button>

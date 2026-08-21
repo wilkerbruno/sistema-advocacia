@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Histórico de acesso — {{ doc.nome_original }} — JusControl{% endblock %}
+{% block eyebrow %}Processo · Documento{% endblock %}
+{% block cabecalho %}Quem baixou "{{ doc.nome_original }}"{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Auditoria de acesso a documentos — cada linha é um download real deste
+  arquivo, com quem baixou, quando e de qual IP.
+  <a href="{{ url_for('processos.detalhe', processo_id=doc.processo_id) }}#documentos">Voltar para o processo</a>.
+</p>
+
+<div class="card-doc tab p-0">
+  {% if logs %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Usuário</th>
+        <th>Data/hora</th>
+        <th>IP</th>
+        <th>Navegador/dispositivo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.usuario.nome if log.usuario else "—" }}</td>
+        <td>{{ log.criado_em|data_hora_br }}</td>
+        <td>{{ log.ip or "—" }}</td>
+        <td class="small text-muted-doc">{{ resumir_user_agent(log.user_agent) or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum download registrado</div>
+    <p class="mb-0">Este documento ainda não foi baixado por ninguém desde que a auditoria de acesso passou a existir.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
