@@ -13,6 +13,13 @@ def create_app(config_class=Config):
     app = Flask(__name__)
     app.config.from_object(config_class)
 
+    # Monitoramento de erros (Sentry) — ver app/utils/monitoramento.py e
+    # PENDENCIAS.md, seção -49. Sem SENTRY_DSN configurado, não faz nada.
+    # Cedo de propósito: quanto mais cedo no boot, mais coisa fica coberta
+    # se algo quebrar logo na inicialização.
+    from app.utils.monitoramento import inicializar_sentry
+    inicializar_sentry(app)
+
     # EasyPanel (e a maioria dos hosts em nuvem) coloca o app atrás de um
     # proxy reverso. Sem isso, request.remote_addr sempre traria o IP
     # interno do proxy, não o IP real de quem acessou — o que estragaria
@@ -47,6 +54,15 @@ def create_app(config_class=Config):
         dispositivo_id = req.cookies.get(NOME_COOKIE_DISPOSITIVO)
         g.dispositivo_novo = not dispositivo_id
         g.dispositivo_id = dispositivo_id or uuid.uuid4().hex
+
+    # Anexa usuário/empresa/unidade (nunca nome, e-mail ou outro dado
+    # pessoal) a todo erro reportado ao Sentry nesta requisição — ver
+    # app/utils/monitoramento.py. Não faz nada se SENTRY_DSN não estiver
+    # configurado.
+    @app.before_request
+    def identificar_usuario_no_monitoramento():
+        from app.utils.monitoramento import identificar_usuario_atual
+        identificar_usuario_atual()
 
     @app.after_request
     def persistir_dispositivo_id(response):
@@ -220,5 +236,17 @@ def create_app(config_class=Config):
     def erro_404(e):
         from flask import render_template
         return render_template("erro.html", codigo=404, mensagem="Página não encontrada."), 404
+
+    # Sentry (ver app/utils/monitoramento.py) já captura o erro de verdade
+    # ANTES deste handler rodar — ele só troca a página de erro padrão do
+    # Flask/Werkzeug (feia, em inglês, sem nada da identidade visual) por
+    # uma consistente com o resto do sistema, sem vazar traceback nem
+    # detalhe interno pro usuário final.
+    @app.errorhandler(500)
+    def erro_500(e):
+        from flask import render_template
+        return render_template("erro.html", codigo=500,
+                                mensagem="Ocorreu um erro inesperado. Tente novamente em "
+                                         "alguns instantes — se persistir, avise o suporte."), 500
 
     return app

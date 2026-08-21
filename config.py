@@ -161,3 +161,24 @@ class Config:
     # vez do modelo local — ver histórico do git em app/routes/agente_ia.py.
     ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
     ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-5")
+
+    # Monitoramento de erros em produção via Sentry (ver
+    # app/utils/monitoramento.py e PENDENCIAS.md, seção -49). Mesmo padrão
+    # "degrada honestamente sem credencial" do resto deste arquivo: sem
+    # SENTRY_DSN definido, o sistema roda exatamente igual, só sem reportar
+    # erro nenhum pra lugar nenhum. Cadastro gratuito em https://sentry.io —
+    # cole a DSN do projeto criado lá aqui.
+    SENTRY_DSN = os.environ.get("SENTRY_DSN", "")
+    # Aparece junto de cada erro no Sentry, pra separar o que veio do
+    # servidor de produção do que veio de um teste/ambiente local.
+    SENTRY_ENVIRONMENT = os.environ.get("SENTRY_ENVIRONMENT", "producao")
+    # Rótulo livre (ex: um hash de commit) pra saber em qual versão do
+    # código um erro aconteceu — opcional, sem isso o Sentry só não agrupa
+    # por versão.
+    SENTRY_RELEASE = os.environ.get("SENTRY_RELEASE", "")
+    # Fração das requisições rastreadas por PERFORMANCE (não confundir com
+    # captura de erro, que independe disto e está sempre ligada quando
+    # SENTRY_DSN está definido). Fica em 0 (desligado) por padrão — ligar
+    # isso consome a cota gratuita do Sentry bem mais rápido, e o objetivo
+    # deste item é monitorar ERRO, não performance.
+    SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0"))

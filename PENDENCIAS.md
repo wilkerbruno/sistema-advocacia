@@ -1,5 +1,129 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -49. Monitoramento de erros (Sentry ou similar)
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Escala, Alto impacto — hoje um erro em produção só é descoberto
+se alguém reclamar, ou por acaso, Baixo esforço). Escolhi Sentry (é o
+próprio nome sugerido no item da tabela) — tem plano gratuito que já
+cobre um volume razoável pra um escritório, integra direto com Flask, e
+segue o MESMO padrão de credencial opcional já usado em todo o resto do
+projeto (SMTP, WhatsApp, DataJud): sem configurar nada, o sistema roda
+exatamente igual a antes — só não reporta erro pra lugar nenhum.
+
+**O que mudou:**
+
+1) **`app/utils/monitoramento.py`** (novo) — único ponto de entrada.
+   `inicializar_sentry(app)` só faz alguma coisa se `SENTRY_DSN` estiver
+   definida; senão, retorna sem tocar em nada. Chamada logo no início de
+   `create_app()` — cobre, com o mesmo ponto único, os workers do
+   gunicorn (processo web), o worker da fila de IA em segundo plano
+   (`app/jobs/ia_jobs.py`, que também chama `create_app()`) e todos os
+   scripts `.cron` já existentes (`enviar_lembretes_*.py`,
+   `capturar_movimentacoes.py` etc.) — nenhum precisou ser alterado.
+
+2) **Cuidado deliberado com dado pessoal (LGPD):** `send_default_pii=False`
+   (nunca manda IP, cookie ou corpo bruto da requisição automaticamente)
+   + uma função `before_send` que raspa à força qualquer campo de
+   formulário que ainda viesse sensível (senha, csrf_token, token de
+   API, CPF/CNPJ, cookie de sessão inteiro) do contexto de um evento,
+   como segunda camada de proteção mesmo com `send_default_pii`
+   desligado. O usuário logado é identificado pro Sentry só por ID
+   numérico + papel + empresa/unidade — nunca nome, e-mail ou qualquer
+   outro dado pessoal do usuário ou de cliente.
+
+3) **`app/__init__.py`** — chama `inicializar_sentry(app)` no início de
+   `create_app()`; um `before_request` novo identifica o usuário logado
+   pro Sentry a cada requisição (`identificar_usuario_atual()`, no-op se
+   o Sentry não estiver ativo); e um `@app.errorhandler(500)` novo (não
+   existia nenhum antes) troca a página de erro padrão feia do
+   Flask/Werkzeug por uma consistente com o resto do sistema, sem vazar
+   traceback nem caminho de arquivo interno pro usuário — o Sentry já
+   captura o erro de verdade ANTES deste handler entrar em ação, ele só
+   cuida da resposta que o usuário vê.
+
+4) **`app/jobs/ia_jobs.py`** — os dois jobs de IA em segundo plano
+   (mensagem do Agente de IA e Análise de processo) já tratavam erro com
+   carinho de propósito, pra nunca deixar nada travado em "processando"
+   pra sempre (viram uma mensagem amigável pro usuário em vez de
+   quebrar). Isso tinha um efeito colateral: o RQ nunca via esses jobs
+   como "falhos", então um bug de verdade ali NUNCA apareceria em lugar
+   nenhum. Acrescentei `sentry_sdk.capture_exception(e)` nos dois blocos
+   `except Exception` (só nesses — os outros `except` cobrem situação
+   esperada tipo "IA indisponível", não bug) pra manter a visibilidade
+   sem abrir mão do tratamento gentil pro usuário.
+
+5) **`config.py`** — `SENTRY_DSN`, `SENTRY_ENVIRONMENT` (padrão
+   `"producao"`), `SENTRY_RELEASE` (opcional) e
+   `SENTRY_TRACES_SAMPLE_RATE` (rastreamento de PERFORMANCE, não de
+   erro — fica em `0` por padrão de propósito, ligar isso consome a cota
+   gratuita do Sentry bem mais rápido e o objetivo aqui é capturar erro,
+   não performance).
+
+6) **`requirements.txt`** — `sentry-sdk[flask]==2.68.0`. ⚠️ Isso é uma
+   dependência NOVA de verdade (ao contrário do item anterior, que só
+   mexeu em `requirements-dev.txt`) — precisa entrar na imagem de
+   produção.
+
+7) **`.env.example`** — documentado o `SENTRY_DSN` e as variáveis
+   opcionais, mesmo padrão de comentário do resto do arquivo.
+
+**Testado:** 7 testes novos (`tests/test_monitoramento_erros.py`) —
+sem `SENTRY_DSN`, `inicializar_sentry()` nunca chama `sentry_sdk.init()`
+(confirmado via `sentry_sdk.is_initialized()`); com `SENTRY_DSN`
+configurada, o SDK é inicializado de verdade (sem nunca disparar uma
+captura real — os testes verificam só a inicialização, pra não fazer
+nenhuma chamada de rede de verdade contra o Sentry durante o CI); a
+raspagem de campo sensível (`_before_send`) tira senha/token/csrf/CPF de
+dict aninhado e lista, e sempre remove o bloco de cookies por inteiro
+(achei isso testando — meu primeiro código só raspava por NOME de campo,
+o que não pega o nome de um cookie de sessão tipo "session", que pode
+ser qualquer coisa; corrigido pra sempre remover o bloco de cookies
+inteiro, nunca confiar em bater nome); o hook de identificação de
+usuário não quebra nenhuma requisição normal sem Sentry ativo; e um
+teste força de propósito uma exceção de verdade dentro da rota do Painel
+(via `monkeypatch`) pra confirmar que a página de erro 500 do próprio
+sistema aparece, sem vazar `RuntimeError`/traceback pro usuário. Rodei a
+suíte inteira (65 testes) depois disso — sem regressão, e sem nenhum
+teste anterior quebrar por causa do estado global do SDK do Sentry
+(cada teste que liga o Sentry desliga de novo no final, de propósito).
+Também testei fora do pytest, subindo `create_app()` em processos
+separados (simulando o comportamento real de produção, onde a variável
+de ambiente já existe ANTES do processo Python subir — mesma pegadinha
+de `config.py` já documentada pros outros itens: `SENTRY_DSN`, assim
+como `DATABASE_URL`, só é lida na primeira vez que `config.py` é
+importado no processo): sem a variável, sobe normal e Sentry fica
+desligado; com a variável, sobe normal e Sentry inicializa de verdade.
+
+⚠️ **Ação sua necessária depois do deploy** — isso é diferente de todos
+os outros itens até agora, porque exige uma conta externa pra realmente
+começar a captar erro (o código funciona sozinho, mas sem isso, continua
+em modo "desligado"):
+
+1. Crie uma conta gratuita em https://sentry.io (ou, se preferir, use
+   outra ferramenta compatível com o protocolo do Sentry — o SDK
+   `sentry-sdk` funciona com qualquer serviço que fale esse protocolo,
+   não só o Sentry.io hospedado).
+2. Crie um projeto do tipo "Flask" (ou "Python" genérico).
+3. Copie a DSN que ele mostrar e cole na variável de ambiente
+   `SENTRY_DSN` do serviço no EasyPanel.
+4. Redeploy normal (`git push`) — como este lote adiciona dependência
+   NOVA em `requirements.txt` (não só em `requirements-dev.txt`), o
+   EasyPanel já reconstrói a imagem do zero em qualquer redeploy comum,
+   então não precisa de nenhum passo extra além do de sempre. Não
+   adiciona coluna nova nenhuma (não mexe em nenhum modelo), então
+   **não** precisa rodar `sincronizar_schema.py`; não adiciona `.cron`
+   novo, então **não** precisa de rebuild "especial" nenhum — só o
+   `git push` de sempre já cobre a dependência nova.
+
+Sem fazer os passos 1 a 3 acima, o sistema continua funcionando
+exatamente como está hoje — só sem reportar erro nenhum, como sempre foi.
+
+**Arquivos alterados:** `app/utils/monitoramento.py` (novo),
+`app/__init__.py`, `app/jobs/ia_jobs.py`, `config.py`,
+`requirements.txt`, `.env.example`,
+`tests/test_monitoramento_erros.py` (novo).
+
 ## -48. Testes automatizados / CI
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

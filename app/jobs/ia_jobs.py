@@ -65,6 +65,12 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, system, mensagens_api,
         except agente_ia_router.ProvedorIAIndisponivelError as e:
             resposta_texto = f"⚠️ Agente indisponível: {e}"
         except Exception as e:  # nunca deixa a mensagem travada em "processando" pra sempre
+            # Reporta pro Sentry mesmo tratando com carinho pro usuário (ver
+            # app/utils/monitoramento.py) — sem isso, um bug de verdade aqui
+            # nunca apareceria em lugar nenhum, só como uma mensagem de erro
+            # genérica na tela de quem perguntou.
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
             resposta_texto = f"⚠️ Não foi possível consultar o agente de IA agora: {e}"
 
         mensagem.conteudo = resposta_texto
@@ -107,6 +113,11 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao):
             # cobre uma corrida rara/edge-case, não deveria acontecer na prática.
             analise.resultado = f"⚠️ {e}"
         except Exception as e:
+            # Mesmo motivo do capture_exception em processar_mensagem_agente_ia
+            # acima — reporta pro Sentry sem deixar de tratar com carinho pro
+            # usuário (ver app/utils/monitoramento.py).
+            import sentry_sdk
+            sentry_sdk.capture_exception(e)
             analise.resultado = f"⚠️ Não foi possível gerar a análise agora: {e}"
 
         analise.status = "pronta"
