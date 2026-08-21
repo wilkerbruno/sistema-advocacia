@@ -1,4 +1,112 @@
-# Status das pendências do briefing (atualizado em 20/08/2026)
+# Status das pendências do briefing (atualizado em 21/08/2026)
+
+## -45. Papel financeiro/sócio dedicado no RBAC — dado financeiro deixou de ser visível pra todo mundo
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Permissões, Alto impacto — "dado financeiro hoje aberto a todo
+mundo"). Levantamento confirmou o problema: TODA rota de
+`app/routes/financeiro.py` só exigia `@login_required` — sem checagem de
+papel nenhuma —, então qualquer usuário logado (inclusive
+funcionário/estagiário) via lançamento financeiro, valor de honorário,
+recibo, tudo, contanto que estivesse na mesma unidade. Achei mais dois
+lugares vazando o mesmo tipo de dado que não estavam no escopo original
+do item, mas são a mesma falha: o card de resumo por unidade no painel
+principal (`dashboard/index.html`) já era só-admin (esse já estava
+certo), e a persona **"Agente de Negócios"** do Agente de IA (pensada
+pra sócio) — que expunha receita a receber/atrasada pra QUALQUER usuário
+logado, bastava escolher essa persona na tela do agente, sem nenhuma
+checagem de papel.
+
+**O que mudou:**
+
+1) **Checagem única de acesso financeiro** — `Usuario.pode_ver_financeiro`
+   (novo, em `app/models/usuario.py`): `True` pra `admin`/`gestor`
+   sempre (já é esperado desses dois papéis — o próprio `gestor` já tem
+   "financeiro da unidade" na descrição do papel), ou pra qualquer outro
+   usuário com o novo campo `acesso_financeiro=True` concedido
+   explicitamente.
+
+2) **Novo campo** `Usuario.acesso_financeiro` (booleano, opcional) — a
+   forma de dar acesso financeiro a alguém que não é admin/gestor (ex:
+   um sócio que atua como advogado, sem ser o gestor da unidade). Some
+   usuário admin ou gestor consegue marcar essa caixa no cadastro/edição
+   de usuário (`admin/usuario_form.html`) — nunca é automático.
+
+3) **Novo decorador** `requer_acesso_financeiro`
+   (`app/utils/acesso.py`), aplicado em TODA rota de
+   `app/routes/financeiro.py` (listar, novo, gerar cobrança de horas,
+   atualizar status, duplicar retainer, recibo).
+
+4) **Agente de IA "Negócios"** (`app/routes/agente_ia.py`) — criar uma
+   conversa nova nessa persona agora exige `pode_ver_financeiro`; abrir
+   uma conversa já existente nessa persona ou mandar mensagem nela
+   também exige (cobre o caso de um usuário que tinha acesso quando
+   criou a conversa mas teve o acesso revogado depois — o histórico
+   antigo não vaza o dado de novo). O cartão "Nova conversa" dessa
+   persona só aparece pra quem tem acesso; conversas antigas continuam
+   listadas em "Suas conversas" pelo título (não seria certo elas
+   simplesmente sumirem do histórico), só não abrem mais se o acesso não
+   estiver mais lá.
+
+5) **Menu lateral** — o item "Financeiro" só aparece pra quem tem
+   `pode_ver_financeiro` (`app/templates/base.html`).
+
+⚠️ **Mudança de comportamento real, não só um ajuste de tela — importante
+avaliar antes do deploy:** depois desta rodada, um advogado ou
+funcionário comum (que não seja gestor/admin) **perde** o acesso que
+tinha à aba Financeiro, à geração de cobrança de horas, ao recibo em PDF
+e à persona "Negócios" do Agente de IA, a menos que alguém marque a
+caixa "Acesso a dados financeiros" no cadastro dele. Se hoje algum
+advogado sócio (que não é o gestor cadastrado da unidade) depende de ver
+essas telas no dia a dia, é preciso ou (a) marcar essa caixa pra ele em
+Configurações → Usuários → editar, ou (b) promovê-lo a `gestor`, o que
+já dá esse acesso automaticamente mas também dá permissão de gerenciar
+a equipe da unidade (nem sempre é o que se quer). Vale revisar a lista
+de usuários depois do deploy pra confirmar que ninguém que precisa do
+acesso ficou de fora.
+
+**Testado (sqlite descartável + login real via `test_client` HTTP, 8
+cenários):** admin acessa financeiro; gestor acessa financeiro; advogado
+comum recebe 403 em TODAS as rotas do blueprint financeiro (listar,
+novo, recibo) e não vê o link "Financeiro" no menu; funcionário recebe
+403; advogado com `acesso_financeiro=True` acessa financeiro normalmente
+e vê o link no menu; advogado comum não consegue criar conversa
+"negócios" no Agente de IA (403) nem vê o cartão dela na tela; advogado
+comum com uma conversa "negócios" antiga (criada antes desta rodada) não
+consegue mais reabri-la nem mandar mensagem nela (403 nos dois casos).
+Regressão completa: todos os scripts de teste de rodadas anteriores
+(lembretes, LGPD, conflito de interesses, relatório por área, modelos de
+cobrança, timesheet/faturamento) rodados de novo depois desta mudança —
+todos continuam passando, nenhuma regressão.
+
+Bug pego durante o próprio teste, corrigido antes de entregar: a
+primeira versão desta mudança filtrava o dicionário de personas do
+Agente de IA ANTES de mandar pro template, o que quebrava a tela
+inteira (erro 500) pra qualquer usuário sem acesso financeiro que já
+tivesse uma conversa "negócios" antiga no histórico — o template tentava
+achar o título dela num dicionário de onde "negócios" tinha sido
+removido. Corrigido mandando o dicionário completo pro template (pra
+"Suas conversas" sempre achar o título de qualquer conversa antiga) e
+filtrando só a lista usada pra desenhar os cartões de "nova conversa".
+
+⚠️ **Este lote adiciona uma coluna nova** (`Usuario.acesso_financeiro`,
+opcional, nenhum dado existente é afetado — todo usuário existente
+começa sem a concessão extra, valendo só a regra por papel de
+admin/gestor). Depois do deploy: `git push` de sempre + rodar
+`python sincronizar_schema.py` no Terminal do container. Não mexe em
+nenhum `.cron`/Dockerfile — não precisa de rebuild completo desta vez,
+um redeploy normal já é suficiente.
+
+**Arquivos alterados:** `app/models/usuario.py` (coluna
+`acesso_financeiro` + propriedade `pode_ver_financeiro`),
+`app/utils/acesso.py` (decorador `requer_acesso_financeiro`),
+`app/routes/financeiro.py` (decorador aplicado em todas as rotas),
+`app/routes/agente_ia.py` (checagem na persona "negócios" em 3 pontos +
+filtro do cartão de nova conversa), `app/routes/admin.py` (salva o campo
+no cadastro/edição de usuário), `app/templates/base.html` (item de menu
+condicional), `app/templates/agente_ia/index.html` (cartões filtrados),
+`app/templates/admin/usuario_form.html` (checkbox novo + texto
+explicativo).
 
 ## -44. Lembrete de prazo/audiência por WhatsApp/e-mail
 

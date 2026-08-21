@@ -43,6 +43,24 @@ def apenas_admin(f):
     return login_papel_requerido("admin")(f)
 
 
+def requer_acesso_financeiro(f):
+    """
+    Restringe uma view a quem tem `Usuario.pode_ver_financeiro` (ver
+    PENDENCIAS.md, seção -45): admin, gestor, ou quem recebeu a concessão
+    explícita `acesso_financeiro=True`. Usado em todas as rotas de
+    app/routes/financeiro.py e nos pontos do Agente de IA que expõem
+    número financeiro (persona "Negócios").
+    """
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if not current_user.is_authenticated:
+            abort(401)
+        if not current_user.pode_ver_financeiro:
+            abort(403)
+        return f(*args, **kwargs)
+    return wrapper
+
+
 def apenas_admin_desenvolvedor(f):
     """Restringe a view aos admins da empresa dona da plataforma."""
     @wraps(f)

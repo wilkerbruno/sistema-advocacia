@@ -7,7 +7,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
 from app.models import Lancamento, Processo, Cliente, Unidade, Apontamento
-from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo
+from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo, requer_acesso_financeiro
 from app.utils.notificacoes import registrar_log
 from app.utils.financeiro_util import filtro_conta_terceiros as _filtro_conta_terceiros
 
@@ -50,6 +50,7 @@ def _parse_decimal(valor):
 
 @financeiro_bp.route("/")
 @login_required
+@requer_acesso_financeiro
 def listar():
     # "conta" (ver PENDENCIAS.md, seção -39): separa o caixa OPERACIONAL do
     # escritório (receita/despesa de verdade — o padrão, é o que esta tela
@@ -112,6 +113,7 @@ def listar():
 
 @financeiro_bp.route("/novo", methods=["GET", "POST"])
 @login_required
+@requer_acesso_financeiro
 def novo():
     unidades = unidades_do_escopo() if current_user.is_admin else None
     processos = aplicar_escopo_unidade(Processo.query, Processo).order_by(Processo.numero_processo).all()
@@ -169,6 +171,7 @@ def novo():
 
 @financeiro_bp.route("/gerar-cobranca-horas", methods=["GET", "POST"])
 @login_required
+@requer_acesso_financeiro
 def gerar_cobranca_horas():
     """
     Fecha a lacuna apontada no relatório de avaliação de 20/08/2026 ("Vínculo
@@ -263,6 +266,7 @@ def gerar_cobranca_horas():
 
 @financeiro_bp.route("/<int:lancamento_id>/status", methods=["POST"])
 @login_required
+@requer_acesso_financeiro
 def atualizar_status(lancamento_id):
     lancamento = db.get_or_404(Lancamento, lancamento_id)
     checar_acesso_unidade_ou_403(lancamento.unidade_id)
@@ -279,6 +283,7 @@ def atualizar_status(lancamento_id):
 
 @financeiro_bp.route("/<int:lancamento_id>/duplicar-retainer", methods=["POST"])
 @login_required
+@requer_acesso_financeiro
 def duplicar_retainer(lancamento_id):
     """
     Fecha a parte "retainer" do item "Modelos de cobrança" do relatório de
@@ -322,6 +327,7 @@ def duplicar_retainer(lancamento_id):
 
 @financeiro_bp.route("/<int:lancamento_id>/recibo")
 @login_required
+@requer_acesso_financeiro
 def recibo(lancamento_id):
     """
     Gera um recibo em PDF pra um lançamento já pago — parte "PDF de

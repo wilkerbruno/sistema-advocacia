@@ -68,6 +68,20 @@
         <input type="password" name="senha" class="form-control" {% if not usuario %}required{% endif %}>
       </div>
 
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="acesso_financeiro" id="acessoFinanceiro"
+                 {{ "checked" if usuario and usuario.acesso_financeiro }}>
+          <label class="form-check-label small" for="acessoFinanceiro">Acesso a dados financeiros (aba Financeiro, geração de cobrança, agente de IA "Negócios")</label>
+        </div>
+        <p class="small text-muted-doc mt-1 mb-0">
+          Admin e gestor já têm este acesso garantido pelo próprio papel — marque isto só pra dar
+          visão financeira a quem NÃO é admin/gestor (ex: um sócio que atua como advogado, sem ser
+          o gestor da unidade). Antes desta rodada, todo usuário logado enxergava dado financeiro,
+          inclusive funcionário/estagiário — isso deixou de valer (ver PENDENCIAS.md, seção -45).
+        </p>
+      </div>
+
       {% if usuario %}
       <div class="col-12">
         <div class="form-check">

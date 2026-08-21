@@ -139,6 +139,7 @@ def novo_usuario():
             telefone=request.form.get("telefone"),
             whatsapp=request.form.get("whatsapp"),
             unidade_id=unidade_id,
+            acesso_financeiro=bool(request.form.get("acesso_financeiro")),
         )
         usuario.set_senha(request.form["senha"])
         db.session.add(usuario)
@@ -184,6 +185,7 @@ def editar_usuario(usuario_id):
         usuario.telefone = request.form.get("telefone")
         usuario.whatsapp = request.form.get("whatsapp")
         usuario.ativo = bool(request.form.get("ativo"))
+        usuario.acesso_financeiro = bool(request.form.get("acesso_financeiro"))
 
         if current_user.is_admin:
             usuario.papel = request.form.get("papel", usuario.papel)

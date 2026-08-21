@@ -13,6 +13,19 @@ class Usuario(db.Model, UserMixin):
       - gestor      -> gerencia sua própria unidade (equipe, financeiro da unidade)
       - advogado    -> cria/edita processos e demais dados da sua unidade
       - funcionario -> uso operacional (secretaria/estagiário) restrito à sua unidade
+
+    Acesso a dados financeiros (ver PENDENCIAS.md, seção -45): até esta
+    rodada, QUALQUER papel logado enxergava a aba Financeiro (inclusive
+    funcionário/estagiário) — falha de compliance apontada no relatório de
+    avaliação de 20/08/2026. admin e gestor continuam com acesso
+    financeiro garantido pelo próprio papel (faz parte do que já se espera
+    desses dois cargos). Para os demais (ex: um sócio que atua como
+    advogado, sem ser o gestor da unidade), o campo `acesso_financeiro`
+    abaixo é a forma explícita de conceder essa visão — sempre uma
+    concessão pontual feita por um admin/gestor, nunca automática. Ver
+    `pode_ver_financeiro` logo abaixo, que é a checagem única usada em
+    todo o sistema (nunca comparar `papel` diretamente para decidir acesso
+    financeiro em uma view nova).
     """
     __tablename__ = "usuarios"
 
@@ -30,6 +43,12 @@ class Usuario(db.Model, UserMixin):
     # o lembrete de compromisso da Agenda passar a avisar o responsável
     # pelo WhatsApp além do cliente (ver app/utils/whatsapp.py).
     whatsapp = db.Column(db.String(30))
+    # Concessão explícita de acesso a dados financeiros para quem não é
+    # admin/gestor (ver docstring da classe e `pode_ver_financeiro`
+    # abaixo). Nullable de propósito — ver sincronizar_schema.py, que não
+    # suporta DEFAULT em ALTER TABLE; None é tratado como False em todo
+    # lugar que lê este campo.
+    acesso_financeiro = db.Column(db.Boolean, default=False, nullable=True)
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     ultimo_login = db.Column(db.DateTime)
@@ -51,6 +70,17 @@ class Usuario(db.Model, UserMixin):
     @property
     def is_gestor(self):
         return self.papel == "gestor"
+
+    @property
+    def pode_ver_financeiro(self):
+        """
+        Checagem única de acesso a dado financeiro (Lancamento, aba
+        Financeiro, agente de IA "Negócios") — ver PENDENCIAS.md, seção
+        -45. admin e gestor sempre têm acesso pelo próprio papel; os
+        demais só se tiverem `acesso_financeiro=True` explicitamente
+        concedido.
+        """
+        return self.papel in ("admin", "gestor") or self.acesso_financeiro is True
 
     @property
     def empresa(self):

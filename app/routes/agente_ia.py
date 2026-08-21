@@ -220,8 +220,23 @@ def index():
         .order_by(ConversaAgenteIA.atualizado_em.desc()).all()
     configurado = agente_ia_router.provedor_disponivel(current_user.empresa)
     provedor_texto = agente_ia_router.descricao_provedor(current_user.empresa)
+    # Persona "negócios" expõe receita a receber/atrasada (ver
+    # _contexto_negocios) — não mostra o cartão de "nova conversa" pra
+    # quem não tem acesso financeiro (PENDENCIAS.md, seção -45).
+    # `personas` (completo) continua indo pro template porque a tabela de
+    # "Suas conversas" precisa achar o título de conversas antigas
+    # (inclusive uma eventual conversa "negócios" já existente, mesmo que
+    # o cartão de criar uma nova não apareça mais) — só o conjunto de
+    # CARTÕES de "nova conversa" é filtrado, em `personas_disponiveis`.
+    # Abrir/mandar mensagem numa conversa "negócios" antiga continua
+    # bloqueado em conversa()/enviar_mensagem() logo abaixo.
+    personas_disponiveis = {
+        chave: p for chave, p in PERSONA_CONFIG.items()
+        if chave != "negocios" or current_user.pode_ver_financeiro
+    }
     return render_template("agente_ia/index.html", conversas=conversas,
-                            personas=PERSONA_CONFIG, configurado=configurado, provedor_texto=provedor_texto)
+                            personas=PERSONA_CONFIG, personas_disponiveis=personas_disponiveis,
+                            configurado=configurado, provedor_texto=provedor_texto)
 
 
 @agente_ia_bp.route("/nova", methods=["POST"])
@@ -231,6 +246,12 @@ def nova_conversa():
     if persona not in ConversaAgenteIA.PERSONAS:
         flash("Selecione um agente válido.", "danger")
         return redirect(url_for("agente_ia.index"))
+    if persona == "negocios" and not current_user.pode_ver_financeiro:
+        # Mesma regra de acesso financeiro do resto do sistema (ver
+        # PENDENCIAS.md, seção -45) — sem isso, qualquer usuário logado
+        # conseguia ver receita a receber/atrasada só escolhendo esta
+        # persona, mesmo sem acesso à aba Financeiro.
+        abort(403)
     if not current_user.unidade_id:
         flash("Seu usuário não está vinculado a uma unidade — não é possível usar o agente de IA.", "danger")
         return redirect(url_for("agente_ia.index"))
@@ -247,6 +268,11 @@ def conversa(conversa_id):
     conversa = db.get_or_404(ConversaAgenteIA, conversa_id)
     if conversa.usuario_id != current_user.id and not current_user.is_admin:
         abort(403)
+    if conversa.persona == "negocios" and not current_user.pode_ver_financeiro:
+        # Cobre conversa antiga: se o acesso financeiro do usuário foi
+        # revogado depois de criada, a conversa "Negócios" não pode mais
+        # ser reaberta (ver PENDENCIAS.md, seção -45).
+        abort(403)
     configurado = agente_ia_router.provedor_disponivel(current_user.empresa)
     provedor_texto = agente_ia_router.descricao_provedor(current_user.empresa)
     return render_template("agente_ia/conversa.html", conversa=conversa,
@@ -259,6 +285,11 @@ def conversa(conversa_id):
 def enviar_mensagem(conversa_id):
     conversa = db.get_or_404(ConversaAgenteIA, conversa_id)
     if conversa.usuario_id != current_user.id:
+        abort(403)
+    if conversa.persona == "negocios" and not current_user.pode_ver_financeiro:
+        # Mesma checagem de conversa() — é aqui, de fato, que
+        # _contexto_negocios() roda e consulta Lancamento (ver
+        # PENDENCIAS.md, seção -45).
         abort(403)
 
     texto = request.form.get("mensagem", "").strip()
