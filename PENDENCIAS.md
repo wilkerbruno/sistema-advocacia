@@ -1,5 +1,120 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -48. Testes automatizados / CI
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Escala, Alto impacto em segurança contra regressão, Médio
+esforço). Até esta rodada, todo teste feito neste projeto era um script
+avulso descartável (rodado com `python3 arquivo.py` e depois jogado
+fora) — funcionava pra validar cada entrega na hora, mas nada ficava
+guardado pra rodar de novo automaticamente quando um código futuro
+mexesse sem querer em alguma regra já validada. Este item troca isso por
+uma suíte de testes de verdade (`tests/`, framework `pytest`) que fica
+no repositório e roda sozinha a cada `git push`/pull request via GitHub
+Actions.
+
+**O que mudou:**
+
+1) **`tests/conftest.py`** — a infraestrutura compartilhada de toda a
+   suíte: sobe a aplicação Flask uma única vez contra um banco SQLite
+   descartável (nunca o MySQL de produção, nunca precisa de credencial
+   nenhuma), com `db.create_all()`/`drop_all()` isolando cada teste
+   individualmente mesmo rodando todos no mesmo processo. Fixtures
+   prontas pra todo teste reaproveitar: `client` (cliente HTTP de
+   teste), `login(email)` (loga de verdade, extraindo o csrf_token real
+   da tela de login), `post_csrf(url, dados)` (POST com csrf_token
+   válido, sem precisar escrever a extração do token em cada teste),
+   `empresa_basica` (empresa + licença ativa + unidade — o mínimo que
+   quase todo teste precisa, já que sem licença ativa o middleware de
+   licenciamento bloqueia qualquer rota com 402) e `criar_usuario`
+   (cria usuário de teste com senha já criptografada).
+
+2) **`tests/test_smoke.py`** — confirma que a própria infraestrutura de
+   teste funciona (app sobe, login funciona, cada teste começa com
+   banco vazio de verdade).
+
+3) **Portados pra testes permanentes** (antes eram scripts avulsos em
+   `/tmp`, feitos e descartados durante o desenvolvimento de cada item
+   anterior da tabela): `test_rbac_financeiro.py` (seção -45),
+   `test_desligamento_usuario.py` (seção -46), `test_paginacao.py`
+   (seção -47), `test_lgpd.py`, `test_conflito_interesse.py`,
+   `test_modelos_cobranca.py`, `test_relatorio_financeiro_area.py`,
+   `test_timesheet_faturamento.py` (cobre CSRF em várias telas +
+   conta_terceiros + gerar cobrança por horas), e
+   `test_lembretes_prazos_audiencias.py` (testa o próprio script
+   agendado `.cron`, chamando a função Python diretamente). No total,
+   **58 testes** cobrindo o que já tinha sido validado manualmente em
+   rodadas anteriores.
+
+4) **`requirements-dev.txt`** — só acrescenta `pytest` em cima do
+   `requirements.txt` de sempre; nunca instalado na imagem de produção
+   (o `Dockerfile` continua usando só `requirements.txt`).
+
+5) **`pytest.ini`** — configura `pytest` pra descobrir os testes em
+   `tests/` automaticamente, sem precisar passar caminho na mão.
+
+6) **`.github/workflows/tests.yml`** — roda a suíte inteira a cada
+   `git push` e a cada pull request, em qualquer branch. O passo de
+   instalação espelha de propósito a mesma linha de `pip install` do
+   `Dockerfile` (mesmo `--extra-index-url` do wheel pré-compilado do
+   `llama-cpp-python`), pra pegar cedo qualquer incompatibilidade de
+   dependência que só apareceria no build de produção — sem precisar
+   subir MySQL nenhum no CI, já que a suíte inteira roda em SQLite.
+
+**Sobre um bug real encontrado ao escrever os testes:** o teste que
+confirma que o admin da plataforma (dono do sistema, enxerga todas as
+empresas clientes) nunca pode escolher um substituto de reatribuição de
+outra empresa (seção -46) estava mirando no usuário errado — testava a
+tela de desligamento de um usuário SEM nenhuma pendência, e a tela só
+monta a lista de candidatos a substituto quando existe pendência de
+verdade pra reatribuir. Corrigido apontando o teste pro usuário certo
+(o que tem processos/prazos/tarefas em aberto); não era um bug do
+sistema, só do próprio teste anterior — mas só foi pego escrevendo o
+teste de verdade em vez de rodar o script avulso uma vez e confiar.
+
+**Testado:** os 58 testes rodam juntos, na mesma suíte, sem interferir
+uns nos outros (isolamento por teste confirmado mesmo com toda a
+infraestrutura — app, banco, csrf — compartilhada entre eles pra não
+pagar o custo de recriar tudo a cada teste). Rodei tanto `pytest tests/`
+quanto só `pytest` (sem argumento nenhum, exatamente como o CI vai
+rodar) direto da raiz do projeto, pra confirmar que o `pytest.ini`
+resolve o caminho sozinho.
+
+⚠️ **Regra nova pra manter ao adicionar teste novo no futuro:** nunca
+fazer `from tests.conftest import algumacoisa` dentro de um arquivo de
+teste — isso faz o `pytest` carregar `conftest.py` duas vezes sob nomes
+diferentes, o que reexecuta a configuração do banco no meio da suíte e
+corrompe a conexão SQLite compartilhada (erro observado durante o
+desenvolvimento: `sqlite3.OperationalError: attempt to write a readonly
+database`). Tudo que um teste precisa de `conftest.py` tem que estar
+exposto como fixture (`@pytest.fixture()`), nunca como função importável
+direto.
+
+Este lote não adiciona coluna nova nenhuma nem `.cron` novo (só testes e
+config de CI) — depois do deploy, só o `git push` de sempre, sem
+precisar rodar `sincronizar_schema.py` nem rebuild completo. Rodar a
+suíte não é obrigatório pra produção funcionar — é rede de segurança pra
+mudança futura, não faz parte do runtime da aplicação.
+
+**Arquivos novos:** `tests/conftest.py`, `tests/test_smoke.py`,
+`tests/test_rbac_financeiro.py`, `tests/test_desligamento_usuario.py`,
+`tests/test_paginacao.py`, `tests/test_lgpd.py`,
+`tests/test_conflito_interesse.py`, `tests/test_modelos_cobranca.py`,
+`tests/test_relatorio_financeiro_area.py`,
+`tests/test_timesheet_faturamento.py`,
+`tests/test_lembretes_prazos_audiencias.py`, `requirements-dev.txt`,
+`pytest.ini`, `.github/workflows/tests.yml`.
+
+**Não incluído nesta rodada:** cobertura de captura DataJud, fila de
+triagem, Agente de IA e outras áreas que já tinham script avulso de
+teste em rodadas bem anteriores a esta (antes da tabela de prioridades
+atual) não foram portadas pra `tests/` — só o que foi construído/testado
+nas rodadas mais recentes (RBAC financeiro, desligamento, paginação,
+LGPD, conflito de interesses, modelos de cobrança, relatório por área,
+timesheet e lembretes). Se fizer sentido portar o resto também, é só
+pedir — o padrão de fixtures em `conftest.py` já está pronto pra
+reaproveitar.
+
 ## -47. Paginação em listas grandes (processos, painel)
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

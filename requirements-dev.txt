@@ -1,0 +1,5 @@
+# Dependências extras só pra rodar a suíte de testes (tests/) e o CI —
+# nunca instaladas na imagem de produção (ver Dockerfile). PENDENCIAS.md,
+# seção -48 ("Testes automatizados / CI").
+-r requirements.txt
+pytest==8.3.3
