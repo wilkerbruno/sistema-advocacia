@@ -2,14 +2,14 @@ import io
 import json
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file
+from flask import Blueprint, render_template, request, redirect, url_for, flash, abort, send_file, current_app
 from flask_login import login_required, current_user
 from app.extensions import db
 from app.models import Cliente, Unidade
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo, apenas_admin
 from app.utils.notificacoes import registrar_log
 from app.utils.conflito_interesse import conflitos_para_cliente
-from app.utils.lgpd import montar_export_dados_cliente, anonimizar_cliente
+from app.utils.lgpd import montar_export_dados_cliente, montar_pacote_completo_cliente, anonimizar_cliente
 from app.utils.paginacao import paginar
 
 clientes_bp = Blueprint("clientes", __name__)
@@ -191,6 +191,41 @@ def exportar_dados_lgpd(cliente_id):
     buffer = io.BytesIO(conteudo)
     nome_arquivo = f"dados_lgpd_cliente_{cliente.id}.json"
     return send_file(buffer, mimetype="application/json", as_attachment=True, download_name=nome_arquivo)
+
+
+@clientes_bp.route("/<int:cliente_id>/exportar-pacote-completo")
+@login_required
+def exportar_pacote_completo(cliente_id):
+    """
+    Exportação em massa de dados de um cliente (PENDENCIAS.md, seção
+    -52) — complementa a exportação LGPD acima, que só devolve os
+    metadados estruturados: este pacote é um .zip com esse mesmo JSON
+    MAIS os arquivos de documento de verdade (contrato, procuração,
+    petição, decisão...) anexados a cada processo do cliente, tudo num
+    download só.
+    """
+    cliente = db.get_or_404(Cliente, cliente_id)
+    checar_acesso_unidade_ou_403(cliente.unidade_id)
+
+    buffer, documentos_incluidos, avisos = montar_pacote_completo_cliente(
+        cliente, current_app.config["UPLOAD_FOLDER"]
+    )
+
+    detalhe_log = f"{cliente.nome} — {len(documentos_incluidos)} documento(s) incluído(s)"
+    if avisos:
+        detalhe_log += f", {len(avisos)} arquivo(s) ausente(s) no armazenamento"
+    registrar_log(current_user, "exportou_pacote_completo_cliente", "Cliente", cliente.id, detalhe_log)
+    # Auditoria de acesso a documentos (PENDENCIAS.md, seção -51): um
+    # documento incluído no pacote foi, na prática, baixado — registra
+    # cada um também como "baixou_documento", pro histórico de acesso de
+    # CADA documento (Processo → Documentos → "Histórico") não ficar cego
+    # pra esta forma de download em lote.
+    for doc in documentos_incluidos:
+        registrar_log(current_user, "baixou_documento", "Documento", doc.id, doc.nome_original)
+    db.session.commit()
+
+    nome_arquivo = f"pacote_completo_cliente_{cliente.id}.zip"
+    return send_file(buffer, mimetype="application/zip", as_attachment=True, download_name=nome_arquivo)
 
 
 @clientes_bp.route("/<int:cliente_id>/anonimizar", methods=["GET", "POST"])

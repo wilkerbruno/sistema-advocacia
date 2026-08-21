@@ -17,6 +17,10 @@ não "garantia automática de conformidade" — a decisão de que uma
 anonimização é apropriada (não há mais base legal pra reter o dado) é
 sempre humana.
 """
+import io
+import json
+import os
+import zipfile
 from datetime import datetime, date
 from decimal import Decimal
 
@@ -112,6 +116,60 @@ def montar_export_dados_cliente(cliente):
         })
 
     return dados
+
+
+def montar_pacote_completo_cliente(cliente, upload_folder):
+    """
+    Exportação em massa de dados de um cliente (PENDENCIAS.md, seção -52)
+    — complementa `montar_export_dados_cliente` acima: aquela função só
+    devolve METADADO estruturado (JSON); esta monta um .zip com esse
+    mesmo JSON MAIS os arquivos de documento de verdade (contrato,
+    procuração, petição, decisão...) anexados a cada processo do
+    cliente, organizados numa pasta por processo dentro do zip.
+
+    Devolve (buffer: BytesIO já com o ponteiro no início, documentos_incluidos:
+    list[Documento], avisos: list[str]). `avisos` cobre o caso (raro, mas
+    possível: arquivo movido/apagado do disco manualmente, por exemplo)
+    de um `Documento` cujo arquivo não é mais encontrado no
+    armazenamento — nesse caso o registro simplesmente não entra no zip
+    em vez de derrubar a exportação inteira, e o aviso some junto no
+    próprio zip (`AVISOS.txt`) pra quem gerou o pacote saber que faltou
+    alguma coisa.
+    """
+    dados = montar_export_dados_cliente(cliente)
+    buffer = io.BytesIO()
+    documentos_incluidos = []
+    avisos = []
+
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("dados_lgpd.json", json.dumps(dados, ensure_ascii=False, indent=2))
+
+        for processo in cliente.processos:
+            identificador = processo.numero_interno or processo.numero_processo or f"processo_{processo.id}"
+            pasta_processo = os.path.join(upload_folder, str(processo.id))
+            nomes_usados = {}
+            for doc in processo.documentos:
+                caminho = os.path.join(pasta_processo, doc.nome_arquivo)
+                if not os.path.exists(caminho):
+                    avisos.append(
+                        f'Arquivo do documento "{doc.nome_original}" (processo {identificador}) '
+                        "não foi encontrado no armazenamento e não pôde ser incluído."
+                    )
+                    continue
+                nome_no_zip = doc.nome_original
+                repeticao = nomes_usados.get(doc.nome_original, 0)
+                if repeticao:
+                    raiz, ext = os.path.splitext(doc.nome_original)
+                    nome_no_zip = f"{raiz} ({repeticao}){ext}"
+                nomes_usados[doc.nome_original] = repeticao + 1
+                zf.write(caminho, arcname=f"documentos/{identificador}/{nome_no_zip}")
+                documentos_incluidos.append(doc)
+
+        if avisos:
+            zf.writestr("AVISOS.txt", "\n".join(avisos) + "\n")
+
+    buffer.seek(0)
+    return buffer, documentos_incluidos, avisos
 
 
 CAMPOS_ANONIMIZADOS_PLACEHOLDER = {

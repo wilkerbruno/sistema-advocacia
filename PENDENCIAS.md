@@ -1,5 +1,78 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -52. Exportação em massa de dados de um cliente
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Compliance, Impacto médio, Esforço pequeno-médio) — item
+DIFERENTE do "Ferramentas de LGPD" já entregue antes (seção -43, ainda
+mais acima neste arquivo): aquele item deu o botão "Exportar dados
+(LGPD)", que baixa um JSON com todo o CADASTRO estruturado do cliente
+(processos, financeiro, horas, agenda). Mas isso nunca incluiu os
+arquivos de documento em si — se o cliente pedisse "quero uma cópia de
+tudo que vocês têm sobre mim", o JSON sozinho não entregava os
+contratos, procurações e petições de verdade, só os NOMES deles. Esta é
+exatamente a lacuna que "exportação em MASSA" cobre: um único .zip com
+o cadastro estruturado **e** todos os arquivos reais anexados aos
+processos do cliente.
+
+**O que mudou:**
+
+1) **`app/utils/lgpd.py`, função nova `montar_pacote_completo_cliente()`**
+   — reaproveita a `montar_export_dados_cliente()` já existente pro JSON
+   e monta um .zip em memória com `dados_lgpd.json` na raiz e uma pasta
+   `documentos/<identificador do processo>/` por processo do cliente,
+   com o arquivo de cada `Documento` real (não só o metadado). Dois
+   documentos com o MESMO nome original (ex: duas versões de
+   "procuracao.pdf") nunca se sobrescrevem dentro do zip — o segundo
+   ganha um sufixo `(1)`, `(2)` etc. automaticamente.
+
+2) **Resiliência a arquivo ausente no disco:** se o registro do
+   documento existe no banco mas o arquivo sumiu do armazenamento (ex:
+   alguém mexeu manualmente na pasta de uploads), a exportação inteira
+   NÃO quebra — só aquele arquivo fica de fora, e entra um `AVISOS.txt`
+   dentro do próprio zip listando o que não pôde ser incluído, pra quem
+   gerou a exportação saber que faltou algo em vez de assumir que está
+   tudo lá.
+
+3) **Rota nova `GET /clientes/<id>/exportar-pacote-completo`** e botão
+   "Exportar pacote completo (.zip)" na tela do cliente, ao lado do
+   "Exportar dados (LGPD)" já existente — os dois continuam
+   coexistindo, o JSON puro ainda serve pra quem só quer o dado
+   estruturado (ex: importar em outro sistema) sem baixar um zip
+   grande.
+
+4) **Conecta com a auditoria de acesso a documentos (seção -51, item
+   anterior desta mesma rodada):** baixar um documento dentro do pacote
+   em massa conta como "baixou_documento" pra cada documento incluído —
+   sem isso, a exportação em massa seria um jeito de baixar qualquer
+   documento do cliente sem deixar rastro nenhum no histórico "quem
+   baixou este documento", o que anularia a auditoria que acabou de ser
+   entregue. Além disso, um log próprio (`exportou_pacote_completo_cliente`)
+   registra a exportação em si, com quantos documentos entraram e
+   quantos ficaram de fora por aviso.
+
+**Testado:** 6 testes novos (`tests/test_exportacao_massa_cliente.py`)
+— o zip inclui o JSON e os documentos de dois processos diferentes do
+mesmo cliente, com o conteúdo real do arquivo (não só o nome); dois
+documentos com nome igual não se sobrescrevem no zip; um documento sem
+arquivo no disco não derruba a exportação e aparece no `AVISOS.txt`;
+exportar registra o log da exportação em si E um log de download por
+documento incluído (auditoria da seção -51 continua completa mesmo pra
+esta forma de download); cliente sem nenhum documento gera um zip só
+com o JSON, sem quebrar; e usuário de outra unidade leva 403, mesma
+regra de escopo já aplicada em todo o resto do sistema. Rodei a suíte
+inteira depois (90 testes) — sem regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — este lote não mexe em
+nenhum modelo (não adiciona coluna nem tabela nova), então **não**
+precisa rodar `sincronizar_schema.py`; não adiciona `.cron` novo, então
+também **não** precisa de rebuild especial — só o `git push`/deploy de
+sempre.
+
+**Arquivos alterados:** `app/utils/lgpd.py`, `app/routes/clientes.py`,
+`app/templates/clientes/detalhe.html`,
+`tests/test_exportacao_massa_cliente.py` (novo).
+
 ## -51. Auditoria de acesso a documentos (quem baixou o quê)
 
 **Contexto:** próximo item da tabela de prioridades do relatório de
