@@ -1,5 +1,99 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -46. Reatribuição de casos no desligamento de usuário
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Operação, Médio impacto, Pequeno esforço). Antes desta rodada,
+desativar um usuário (desmarcar "Usuário ativo" em Configurações →
+Usuários) não fazia nenhuma verificação: o usuário virava inativo mesmo
+tendo processo, prazo, audiência, tarefa ou compromisso futuro sob a
+responsabilidade dele — o registro continua existindo, mas fica "órfão",
+sem ninguém que consiga logar pra tratar aquilo nem receber lembrete
+(o lembrete de prazo/audiência da seção -44, por exemplo, simplesmente
+para de disparar pra esse item, porque o `responsavel_id` aponta pra
+alguém inativo).
+
+**O que mudou:**
+
+1) **Checagem antes de desligar** (`app/utils/desligamento.py`, novo) —
+   `itens_em_aberto(usuario_id)` conta, por categoria, quanto ainda está
+   em aberto sob a responsabilidade do usuário: processo ativo, prazo
+   pendente (não conta "cumprido", "perdido" nem "historico_anterior" —
+   esse último é propositalmente neutro, ver docstring de `Prazo`),
+   audiência agendada, tarefa pendente/em andamento, e compromisso
+   agendado ainda no futuro (um compromisso que já passou da hora não
+   muda mais nada sendo reatribuído).
+
+2) **Desligamento direto continua funcionando** pelo mesmo checkbox de
+   sempre (`admin/usuario_form.html`) quando o usuário **não** tem nada
+   em aberto — não criei fricção nenhuma pro caso comum (alguém que já
+   entregou tudo antes de sair).
+
+3) **Quando HÁ algo em aberto**, desmarcar o checkbox não desliga mais
+   sozinho: os outros campos do formulário (nome, telefone, papel etc.)
+   são salvos normalmente, mas o usuário continua ativo, com um aviso
+   explicando quantos itens de cada tipo estão pendentes e um link pra
+   tela nova, dedicada.
+
+4) **Tela nova "Desligar usuário"** (`/admin/usuarios/<id>/desligar`,
+   `app/routes/admin.py::desligar_usuario` +
+   `admin/desligar_usuario.html`) — lista as pendências por categoria,
+   exige escolher um substituto (dropdown com usuário ativo dentro do
+   escopo de quem está desligando — gestor só vê a própria unidade,
+   admin só a própria empresa) e marcar uma caixa de ciência antes de
+   confirmar. Ao confirmar, numa única transação: todo item EM ABERTO
+   (mesmos filtros do passo 1) muda de responsável pro substituto
+   escolhido, e só depois o usuário é marcado como inativo — nunca fica
+   num estado parcial (ou os dois acontecem juntos, ou nenhum). Fica
+   registrado no log de atividade tanto a reatribuição (quantos itens de
+   cada tipo, de quem pra quem) quanto o desligamento em si.
+
+5) **Nunca mexe em campo de auditoria histórica** — `criado_por_id`
+   (Tarefa, Compromisso), `alterado_por_id`/`regularizado_por_id`
+   (Prazo) continuam apontando pra quem realmente criou/alterou o
+   registro; só `responsavel_id` (quem é o dono AGORA) é reatribuído.
+   Pelo mesmo motivo, item já FECHADO (processo encerrado, prazo
+   cumprido/perdido/histórico, audiência cancelada, tarefa
+   concluída/cancelada, compromisso já realizado ou no passado)
+   continua com o nome do usuário desligado — reescrever isso apagaria
+   rastro real do que aconteceu.
+
+6) **Isolamento multi-tenant reforçado** — mesmo o admin desenvolvedor
+   (que enxerga usuário de qualquer empresa cliente) só pode escolher um
+   substituto da MESMA empresa de quem está sendo desligado. Sem essa
+   trava extra, dava pra um processo de uma empresa cliente acabar
+   reatribuído pra alguém de outra empresa cliente — quebraria o
+   isolamento entre tenants que o resto do sistema toma tanto cuidado
+   pra manter (ver `app/utils/acesso.py`).
+
+**Testado (sqlite descartável + login real via `test_client` HTTP, 11
+cenários):** desligamento direto funciona quando não há pendência;
+desligamento fica bloqueado quando há pendência, mas os outros campos do
+formulário são salvos mesmo assim; a tela de desligamento mostra a
+contagem certa por categoria (e confirma que item já fechado/histórico/
+passado NÃO entra na contagem); gestor só vê candidato a substituto da
+própria unidade; POST sem escolher substituto não desliga; POST sem
+marcar a caixa de ciência não desliga; desligamento completo move só os
+itens em aberto pro substituto e deixa os fechados intocados com o
+usuário antigo; ninguém consegue desligar o próprio usuário por essa
+tela; tentar desligar quem já está inativo só avisa, sem erro; usuário
+comum (não admin/gestor) recebe 403 na tela; admin desenvolvedor não
+consegue escolher substituto de outra empresa cliente mesmo enxergando
+todo mundo. Regressão completa: todos os scripts de teste de rodadas
+anteriores (lembretes, LGPD, conflito de interesses, relatório por área,
+modelos de cobrança, timesheet/faturamento, RBAC financeiro) rodados de
+novo depois desta mudança — todos continuam passando.
+
+Este lote não adiciona coluna nova nenhuma (só usa campos que já
+existiam) — depois do deploy, só o `git push` de sempre, sem precisar
+rodar `sincronizar_schema.py` nem rebuild completo desta vez.
+
+**Arquivos alterados:** `app/utils/desligamento.py` (novo — contagem e
+reatribuição), `app/routes/admin.py` (checagem em `editar_usuario` +
+rota nova `desligar_usuario`), `app/templates/admin/usuario_form.html`
+(aviso + botão "Desligar usuário"), `app/templates/admin/
+desligar_usuario.html` (novo — tela de confirmação).
+
 ## -45. Papel financeiro/sócio dedicado no RBAC — dado financeiro deixou de ser visível pra todo mundo
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

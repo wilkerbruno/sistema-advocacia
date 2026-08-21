@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block titulo %}Desligar {{ usuario.nome }} — JusControl{% endblock %}
+{% block eyebrow %}Gestão · Usuários{% endblock %}
+{% block cabecalho %}Desligar usuário{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 700px;">
+  <p class="small mb-3">
+    Desligando <strong>{{ usuario.nome }}</strong> ({{ usuario.email }}). Isto vai marcar o
+    usuário como inativo — ele deixa de conseguir logar.
+  </p>
+
+  {% if total_pendencias > 0 %}
+  <div class="alert alert-warning small">
+    <strong>Este usuário tem item em aberto sob a responsabilidade dele.</strong> Antes de
+    desligar, escolha quem assume cada um deles — sem isso, ficariam sem ninguém responsável,
+    sem receber lembrete de prazo nem notificação nenhuma.
+  </div>
+  <ul class="small text-muted-doc">
+    {% if pendencias.processos %}<li>{{ pendencias.processos }} processo(s) ativo(s)</li>{% endif %}
+    {% if pendencias.prazos %}<li>{{ pendencias.prazos }} prazo(s) pendente(s)</li>{% endif %}
+    {% if pendencias.audiencias %}<li>{{ pendencias.audiencias }} audiência(s) agendada(s)</li>{% endif %}
+    {% if pendencias.tarefas %}<li>{{ pendencias.tarefas }} tarefa(s) em aberto</li>{% endif %}
+    {% if pendencias.compromissos %}<li>{{ pendencias.compromissos }} compromisso(s) futuro(s) na agenda</li>{% endif %}
+  </ul>
+  {% else %}
+  <div class="alert alert-info small">
+    Este usuário não tem nenhum item em aberto sob a responsabilidade dele — pode desligar
+    direto, sem precisar reatribuir nada.
+  </div>
+  {% endif %}
+
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% if total_pendencias > 0 %}
+    <div class="mb-3">
+      <label class="form-label small">Reatribuir tudo isso para *</label>
+      <select name="novo_responsavel_id" class="form-select" required>
+        <option value="">— selecione —</option>
+        {% for u in candidatos %}
+        <option value="{{ u.id }}">{{ u.nome }} ({{ u.papel|capitalize }}{% if u.unidade %} — {{ u.unidade.codigo }}{% endif %})</option>
+        {% endfor %}
+      </select>
+      {% if not candidatos %}
+      <p class="small text-muted-doc mt-1 mb-0">
+        Não há outro usuário ativo disponível no seu escopo pra assumir esses itens — cadastre
+        ou reative alguém antes de desligar {{ usuario.nome }}.
+      </p>
+      {% endif %}
+    </div>
+
+    <div class="form-check mb-3">
+      <input type="checkbox" name="ciente" value="1" class="form-check-input" id="ciente" required>
+      <label class="form-check-label small" for="ciente">
+        Estou ciente de que todo processo/prazo/audiência/tarefa/compromisso em aberto listado
+        acima será reatribuído ao usuário escolhido, e que {{ usuario.nome }} será desativado
+        em seguida.
+      </label>
+    </div>
+    {% else %}
+    <p class="small text-muted-doc mb-3">Nenhuma reatribuição necessária — basta confirmar o desligamento.</p>
+    {% endif %}
+
+    <div class="d-flex gap-2">
+      <button type="submit" class="btn btn-danger" {% if total_pendencias > 0 and not candidatos %}disabled{% endif %}>
+        {% if total_pendencias > 0 %}Reatribuir e desligar{% else %}Desligar usuário{% endif %}
+      </button>
+      <a href="{{ url_for('admin.editar_usuario', usuario_id=usuario.id) }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

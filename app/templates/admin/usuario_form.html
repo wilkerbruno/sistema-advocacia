@@ -88,11 +88,27 @@
           <input class="form-check-input" type="checkbox" name="ativo" id="ativo" {{ "checked" if usuario.ativo }}>
           <label class="form-check-label small" for="ativo">Usuário ativo</label>
         </div>
+        {% if usuario.ativo and pendencias and pendencias.values()|sum > 0 %}
+        <p class="small text-muted-doc mt-1 mb-0">
+          Este usuário tem
+          {% if pendencias.processos %}{{ pendencias.processos }} processo(s) ativo(s), {% endif %}
+          {% if pendencias.prazos %}{{ pendencias.prazos }} prazo(s) pendente(s), {% endif %}
+          {% if pendencias.audiencias %}{{ pendencias.audiencias }} audiência(s) agendada(s), {% endif %}
+          {% if pendencias.tarefas %}{{ pendencias.tarefas }} tarefa(s) em aberto, {% endif %}
+          {% if pendencias.compromissos %}{{ pendencias.compromissos }} compromisso(s) futuro(s), {% endif %}
+          sob a responsabilidade dele — desmarcar "Usuário ativo" aqui não vai funcionar sozinho.
+          Use <a href="{{ url_for('admin.desligar_usuario', usuario_id=usuario.id) }}">"Desligar usuário"</a>
+          abaixo pra reatribuir esses itens antes de desativar.
+        </p>
+        {% endif %}
       </div>
       {% endif %}
     </div>
     <div class="d-flex gap-2 mt-4">
       <button type="submit" class="btn btn-brass">Salvar usuário</button>
+      {% if usuario and usuario.ativo and usuario.id != current_user.id %}
+      <a href="{{ url_for('admin.desligar_usuario', usuario_id=usuario.id) }}" class="btn btn-outline-doc">Desligar usuário</a>
+      {% endif %}
       <a href="{{ url_for('admin.usuarios') }}" class="btn btn-outline-doc">Cancelar</a>
     </div>
   </form>

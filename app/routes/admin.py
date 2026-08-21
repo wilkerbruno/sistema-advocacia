@@ -4,10 +4,11 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
 from app.models import Unidade, Usuario, Processo, Cliente, Lancamento, LogAtividade, Empresa
-from app.utils.acesso import apenas_admin, login_papel_requerido, checar_acesso_unidade_ou_403
+from app.utils.acesso import apenas_admin, login_papel_requerido, checar_acesso_unidade_ou_403, usuarios_do_escopo
 from app.utils.notificacoes import registrar_log
 from app.utils.rede import resumir_user_agent
 from app.utils.financeiro_util import filtro_conta_terceiros
+from app.utils.desligamento import itens_em_aberto, tem_itens_em_aberto, reatribuir_itens_em_aberto
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -184,8 +185,23 @@ def editar_usuario(usuario_id):
         usuario.oab = request.form.get("oab")
         usuario.telefone = request.form.get("telefone")
         usuario.whatsapp = request.form.get("whatsapp")
-        usuario.ativo = bool(request.form.get("ativo"))
         usuario.acesso_financeiro = bool(request.form.get("acesso_financeiro"))
+
+        # Desligamento por aqui (desmarcar "Usuário ativo") só é permitido
+        # direto quando o usuário não tem NENHUM item em aberto sob a
+        # responsabilidade dele (ver PENDENCIAS.md, seção -46) — senão
+        # ficaria processo/prazo/audiência/tarefa/compromisso "órfão", sem
+        # ninguém pra ser notificado. Reativar (False -> True) continua
+        # direto, sem nenhuma checagem — não implica reatribuir nada.
+        ativo_solicitado = bool(request.form.get("ativo"))
+        desligamento_bloqueado = False
+        if usuario.ativo and not ativo_solicitado:
+            if tem_itens_em_aberto(usuario.id):
+                desligamento_bloqueado = True
+            else:
+                usuario.ativo = False
+        else:
+            usuario.ativo = ativo_solicitado
 
         if current_user.is_admin:
             usuario.papel = request.form.get("papel", usuario.papel)
@@ -200,10 +216,126 @@ def editar_usuario(usuario_id):
 
         registrar_log(current_user, "editou", "Usuario", usuario.id, usuario.email)
         db.session.commit()
+
+        if desligamento_bloqueado:
+            flash(
+                "Os demais dados foram salvos, mas este usuário tem processo/prazo/audiência/tarefa/"
+                "compromisso em aberto sob a responsabilidade dele — para desativá-lo, use \"Desligar "
+                "usuário\" abaixo, que reatribui esses itens antes de desativar.", "warning",
+            )
+            return redirect(url_for("admin.editar_usuario", usuario_id=usuario.id))
+
         flash("Usuário atualizado com sucesso.", "success")
         return redirect(url_for("admin.usuarios"))
 
-    return render_template("admin/usuario_form.html", usuario=usuario, unidades=unidades)
+    pendencias = itens_em_aberto(usuario.id) if usuario.ativo else None
+    return render_template("admin/usuario_form.html", usuario=usuario, unidades=unidades, pendencias=pendencias)
+
+
+@admin_bp.route("/usuarios/<int:usuario_id>/desligar", methods=["GET", "POST"])
+@login_required
+@login_papel_requerido("admin", "gestor")
+def desligar_usuario(usuario_id):
+    """
+    Tela dedicada de desligamento com reatribuição (PENDENCIAS.md, seção
+    -46) — separada do formulário geral de edição de propósito: exige um
+    passo explícito (escolher o substituto + marcar ciência) antes de
+    mexer em qualquer processo/prazo/audiência/tarefa/compromisso, nunca
+    reatribui nada sozinho.
+    """
+    usuario = db.get_or_404(Usuario, usuario_id)
+
+    if usuario.is_admin_desenvolvedor and not current_user.is_admin_desenvolvedor:
+        flash("Usuário não encontrado.", "danger")
+        return redirect(url_for("admin.usuarios"))
+
+    if not current_user.is_admin_desenvolvedor:
+        if current_user.is_admin:
+            if usuario.empresa_id_atual != current_user.empresa_id_atual:
+                flash("Você não pode desligar usuários de outra empresa.", "danger")
+                return redirect(url_for("admin.usuarios"))
+        elif usuario.unidade_id != current_user.unidade_id:
+            flash("Você não pode desligar usuários de outra unidade.", "danger")
+            return redirect(url_for("admin.usuarios"))
+
+    if usuario.id == current_user.id:
+        flash("Você não pode desligar o próprio usuário por aqui.", "danger")
+        return redirect(url_for("admin.editar_usuario", usuario_id=usuario.id))
+
+    if not usuario.ativo:
+        flash("Este usuário já está inativo.", "info")
+        return redirect(url_for("admin.editar_usuario", usuario_id=usuario.id))
+
+    pendencias = itens_em_aberto(usuario.id)
+    total_pendencias = sum(pendencias.values())
+
+    # Substitutos possíveis: qualquer usuário ativo dentro do MESMO escopo
+    # de quem está desligando (gestor só vê a própria unidade; admin, a
+    # própria empresa; admin desenvolvedor, todo mundo) — nunca o próprio
+    # usuário sendo desligado.
+    # Reforço deliberado além de usuarios_do_escopo(): mesmo pro admin
+    # desenvolvedor (que enxerga usuário de QUALQUER empresa cliente),
+    # o substituto só pode ser alguém da MESMA empresa de quem está
+    # sendo desligado — sem isso, um processo/prazo de uma empresa
+    # cliente poderia acabar reatribuído pra usuário de outra empresa
+    # cliente, o que quebraria o isolamento multi-tenant (ver
+    # app/utils/acesso.py).
+    candidatos = [
+        u for u in usuarios_do_escopo(apenas_ativos=True)
+        if u.id != usuario.id and u.empresa_id_atual == usuario.empresa_id_atual
+    ]
+
+    if request.method == "POST":
+        novo_responsavel_id = request.form.get("novo_responsavel_id")
+        ciente = bool(request.form.get("ciente"))
+
+        if total_pendencias > 0:
+            if not novo_responsavel_id:
+                flash("Escolha quem vai assumir os itens em aberto antes de desligar.", "danger")
+                return render_template("admin/desligar_usuario.html", usuario=usuario,
+                                        pendencias=pendencias, total_pendencias=total_pendencias,
+                                        candidatos=candidatos)
+            novo_responsavel = next((u for u in candidatos if u.id == int(novo_responsavel_id)), None)
+            if not novo_responsavel:
+                flash("Substituto inválido — escolha alguém da lista.", "danger")
+                return render_template("admin/desligar_usuario.html", usuario=usuario,
+                                        pendencias=pendencias, total_pendencias=total_pendencias,
+                                        candidatos=candidatos)
+            if not ciente:
+                flash("Marque a caixa de ciência antes de confirmar o desligamento.", "danger")
+                return render_template("admin/desligar_usuario.html", usuario=usuario,
+                                        pendencias=pendencias, total_pendencias=total_pendencias,
+                                        candidatos=candidatos)
+
+            movidos = reatribuir_itens_em_aberto(usuario.id, novo_responsavel.id)
+            registrar_log(
+                current_user, "reatribuiu_itens_desligamento", "Usuario", usuario.id,
+                f"de {usuario.email} para {novo_responsavel.email}: "
+                f"{movidos['processos']} processo(s), {movidos['prazos']} prazo(s), "
+                f"{movidos['audiencias']} audiência(s), {movidos['tarefas']} tarefa(s), "
+                f"{movidos['compromissos']} compromisso(s)",
+            )
+        else:
+            movidos = None
+
+        usuario.ativo = False
+        registrar_log(current_user, "desligou", "Usuario", usuario.id, usuario.email)
+        db.session.commit()
+
+        if movidos:
+            flash(
+                f"Usuário desligado. Reatribuído para {novo_responsavel.nome}: "
+                f"{movidos['processos']} processo(s), {movidos['prazos']} prazo(s), "
+                f"{movidos['audiencias']} audiência(s), {movidos['tarefas']} tarefa(s) e "
+                f"{movidos['compromissos']} compromisso(s).", "success",
+            )
+        else:
+            flash("Usuário desligado — não havia item em aberto sob a responsabilidade dele.", "success")
+        return redirect(url_for("admin.usuarios"))
+
+    return render_template("admin/desligar_usuario.html", usuario=usuario,
+                            pendencias=pendencias, total_pendencias=total_pendencias,
+                            candidatos=candidatos)
 
 
 # ---------------------- Relatórios consolidados (somente admin) ----------------------
