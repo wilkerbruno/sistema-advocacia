@@ -57,6 +57,21 @@ class Empresa(db.Model):
     # sessão (= um número conectado) por empresa em vez de uma só global.
     whatsapp_sessao = db.Column(db.String(80))
 
+    # Alçada de aprovação em múltiplos níveis para DESPESAS (ver
+    # app/utils/alcada.py e PENDENCIAS.md, seção -50) — decisão de
+    # governança de cada empresa, nunca imposta por padrão: com
+    # `alcada_nivel1_valor` vazio (None), a alçada fica DESLIGADA pra essa
+    # empresa e nenhuma despesa precisa de aprovação nenhuma, exatamente o
+    # comportamento de sempre. Configurada e regras completas em
+    # /admin/alcada-aprovacao.
+    # - despesa <= nivel1 (ou nivel1 não configurado): sem aprovação.
+    # - nivel1 < despesa <= nivel2 (ou nivel2 não configurado): 1 aprovação.
+    # - despesa > nivel2: 2 aprovações, de dois usuários DISTINTOS.
+    # nullable=True DE PROPÓSITO — mesma razão de sempre neste arquivo
+    # (sincronizar_schema.py só sabe adicionar coluna sem DEFAULT).
+    alcada_nivel1_valor = db.Column(db.Numeric(14, 2), nullable=True)
+    alcada_nivel2_valor = db.Column(db.Numeric(14, 2), nullable=True)
+
     unidades = db.relationship("Unidade", back_populates="empresa", lazy="dynamic")
     licenca = db.relationship("Licenca", back_populates="empresa", uselist=False)
     # Módulos vendidos separadamente (ver app/models/modulo.py e

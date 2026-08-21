@@ -9,6 +9,7 @@ from app.utils.notificacoes import registrar_log
 from app.utils.rede import resumir_user_agent
 from app.utils.financeiro_util import filtro_conta_terceiros
 from app.utils.desligamento import itens_em_aberto, tem_itens_em_aberto, reatribuir_itens_em_aberto
+from decimal import Decimal, InvalidOperation
 
 admin_bp = Blueprint("admin", __name__)
 
@@ -443,3 +444,54 @@ def auditoria():
         filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim,
         filtro_ip=ip_filtro, filtro_dispositivo=dispositivo_filtro, resumir_user_agent=resumir_user_agent,
     )
+
+
+# ---------------------- Alçada de aprovação (financeiro) ----------------------
+# Ver app/utils/alcada.py e PENDENCIAS.md, seção -50. Cada empresa
+# configura os próprios valores (nunca imposto pela plataforma) — mesmo
+# padrão de app/routes/integracoes.py: acessível a qualquer admin,
+# inclusive o admin desenvolvedor (configura a alçada da própria empresa
+# dona da plataforma, se um dia fizer sentido usar o módulo Financeiro
+# por lá também).
+
+def _parse_decimal_alcada(valor):
+    if valor is None or str(valor).strip() == "":
+        return None
+    try:
+        return Decimal(str(valor).replace(",", "."))
+    except InvalidOperation:
+        return None
+
+
+@admin_bp.route("/alcada-aprovacao", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def alcada_aprovacao():
+    empresa = current_user.empresa
+    if empresa is None:
+        flash("Seu usuário não está vinculado a uma empresa.", "warning")
+        return redirect(url_for("dashboard.index"))
+
+    if request.method == "POST":
+        nivel1 = _parse_decimal_alcada(request.form.get("alcada_nivel1_valor"))
+        nivel2 = _parse_decimal_alcada(request.form.get("alcada_nivel2_valor"))
+
+        if nivel2 is not None and nivel1 is None:
+            flash("Pra configurar o nível 2 (2 aprovações), o nível 1 precisa estar preenchido também.", "danger")
+            return redirect(url_for("admin.alcada_aprovacao"))
+        if nivel1 is not None and nivel2 is not None and nivel2 <= nivel1:
+            flash("O valor do nível 2 precisa ser maior que o do nível 1.", "danger")
+            return redirect(url_for("admin.alcada_aprovacao"))
+
+        empresa.alcada_nivel1_valor = nivel1
+        empresa.alcada_nivel2_valor = nivel2
+        registrar_log(current_user, "editou_alcada_aprovacao", "Empresa", empresa.id,
+                      f"nível 1: {nivel1}, nível 2: {nivel2}")
+        db.session.commit()
+        if nivel1 is None:
+            flash("Alçada de aprovação desligada — nenhuma despesa vai precisar de aprovação.", "success")
+        else:
+            flash("Alçada de aprovação atualizada.", "success")
+        return redirect(url_for("admin.alcada_aprovacao"))
+
+    return render_template("admin/alcada_aprovacao.html", empresa=empresa)

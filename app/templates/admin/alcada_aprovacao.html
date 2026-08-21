@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{% block titulo %}Alçada de aprovação — JusControl{% endblock %}
+{% block eyebrow %}Gestão{% endblock %}
+{% block cabecalho %}Alçada de aprovação (financeiro){% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 700px;">
+  <p class="small text-muted-doc">
+    Controla quando uma <strong>despesa</strong> precisa de aprovação de um admin/gestor antes de
+    poder ser marcada como paga (receita nunca precisa — receber de um cliente não é "gasto"). Deixe
+    os dois campos em branco para desligar a alçada por completo: nenhuma despesa vai precisar de
+    aprovação, exatamente como hoje.
+  </p>
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Nível 1 — acima deste valor, exige 1 aprovação</label>
+        <div class="input-group">
+          <span class="input-group-text">R$</span>
+          <input type="text" name="alcada_nivel1_valor" class="form-control"
+                 value="{{ empresa.alcada_nivel1_valor if empresa.alcada_nivel1_valor is not none else '' }}"
+                 placeholder="ex: 1000,00">
+        </div>
+        <p class="small text-muted-doc mt-1 mb-0">
+          Despesa de valor até este limite (ou se o campo ficar vazio) não precisa de aprovação nenhuma.
+        </p>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Nível 2 — acima deste valor, exige 2 aprovações</label>
+        <div class="input-group">
+          <span class="input-group-text">R$</span>
+          <input type="text" name="alcada_nivel2_valor" class="form-control"
+                 value="{{ empresa.alcada_nivel2_valor if empresa.alcada_nivel2_valor is not none else '' }}"
+                 placeholder="opcional">
+        </div>
+        <p class="small text-muted-doc mt-1 mb-0">
+          Opcional — precisa do Nível 1 preenchido primeiro. Se ficar vazio, toda despesa acima do
+          Nível 1 exige só 1 aprovação, não importa o valor.
+        </p>
+      </div>
+    </div>
+    <p class="small text-muted-doc mt-3 mb-0">
+      As duas aprovações de uma mesma despesa (quando o Nível 2 se aplica) precisam ser de usuários
+      <strong>diferentes</strong> entre si, e nunca de quem lançou a própria despesa — mesma pessoa
+      não pode aprovar duas vezes nem aprovar o que ela mesma cadastrou.
+    </p>
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">Salvar</button>
+      <a href="{{ url_for('financeiro.aprovacoes_pendentes') }}" class="btn btn-outline-doc">Ver aprovações pendentes</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

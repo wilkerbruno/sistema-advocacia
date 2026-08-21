@@ -6,10 +6,11 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
-from app.models import Lancamento, Processo, Cliente, Unidade, Apontamento
+from app.models import Lancamento, AprovacaoLancamento, Processo, Cliente, Unidade, Apontamento
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo, requer_acesso_financeiro
 from app.utils.notificacoes import registrar_log
 from app.utils.financeiro_util import filtro_conta_terceiros as _filtro_conta_terceiros
+from app.utils import alcada as alcada_util
 
 financeiro_bp = Blueprint("financeiro", __name__)
 
@@ -105,10 +106,33 @@ def listar():
 
     unidades = unidades_do_escopo() if current_user.is_admin else None
 
+    # Alçada de aprovação (ver app/utils/alcada.py, PENDENCIAS.md, seção
+    # -50): anota em cada lançamento despesa/pendente desta página quantas
+    # aprovações ainda faltam (0 = pode marcar como pago normalmente),
+    # pra listar.html mostrar isso direto na linha em vez de só deixar o
+    # usuário descobrir clicando em "Marcar pago" e levando um flash de
+    # erro. `_alcada_faltando` é um atributo solto (nunca persistido —
+    # SQLAlchemy não grava atributo que não é uma Column), só pra esta
+    # renderização.
+    for l in lancamentos:
+        l._alcada_faltando = alcada_util.aprovacoes_faltando(l) if l.natureza == "despesa" and l.status == "pendente" else 0
+
+    # Contagem do "badge" do botão "Aprovações pendentes" — deliberadamente
+    # uma query À PARTE, sem nenhum filtro de tela (nem `conta`, nem
+    # `status`, nem `natureza`) aplicado: é o total real esperando alçada
+    # no escopo do usuário, não só o que a página atual está mostrando.
+    despesas_pendentes_escopo = aplicar_escopo_unidade(Lancamento.query, Lancamento).filter(
+        Lancamento.natureza == "despesa", Lancamento.status == "pendente",
+    ).all()
+    qtd_aprovacoes_pendentes = sum(
+        1 for l in despesas_pendentes_escopo if alcada_util.aprovacoes_faltando(l) > 0
+    )
+
     return render_template("financeiro/listar.html", lancamentos=lancamentos, unidades=unidades,
                             total_a_receber=total_a_receber, total_recebido_mes=total_recebido_mes,
                             total_atrasado=total_atrasado, saldo_terceiros=saldo_terceiros,
-                            conta=conta, status=status, natureza=natureza)
+                            conta=conta, status=status, natureza=natureza,
+                            qtd_aprovacoes_pendentes=qtd_aprovacoes_pendentes)
 
 
 @financeiro_bp.route("/novo", methods=["GET", "POST"])
@@ -154,7 +178,19 @@ def novo():
         db.session.flush()
         registrar_log(current_user, "criou", "Lancamento", lancamento.id, lancamento.descricao)
         db.session.commit()
-        flash("Lançamento financeiro criado.", "success")
+        # Alçada de aprovação (ver app/utils/alcada.py, PENDENCIAS.md,
+        # seção -50) — só um aviso, nunca impede o cadastro em si; o
+        # bloqueio de verdade acontece só na hora de marcar como pago
+        # (ver atualizar_status), pra não travar quem só está registrando
+        # a despesa (ex: já chegou a nota fiscal, mas o pagamento é daqui
+        # a 30 dias).
+        necessario = alcada_util.nivel_aprovacao_necessario(lancamento)
+        if necessario:
+            flash(f"Lançamento financeiro criado. Como o valor ultrapassa a alçada configurada, "
+                  f"vai precisar de {necessario} aprovação(ões) antes de poder ser marcado como pago "
+                  "— veja \"Aprovações pendentes\".", "success")
+        else:
+            flash("Lançamento financeiro criado.", "success")
         return redirect(url_for("financeiro.listar"))
 
     # Valor da causa de cada processo, pra tela sugerir automaticamente o
@@ -272,6 +308,17 @@ def atualizar_status(lancamento_id):
     checar_acesso_unidade_ou_403(lancamento.unidade_id)
     novo_status = request.form.get("status")
     if novo_status in Lancamento.STATUS:
+        # Alçada de aprovação (ver app/utils/alcada.py, PENDENCIAS.md
+        # seção -50): só entra em jogo pra marcar como PAGO uma despesa
+        # que ultrapassa a alçada configurada pela empresa — nunca bloqueia
+        # nenhum outro status (pendente/atrasado/cancelado sempre livres,
+        # cancelar uma despesa não movimenta dinheiro nenhum).
+        if novo_status == "pago" and not alcada_util.pode_ser_marcado_pago(lancamento):
+            faltando = alcada_util.aprovacoes_faltando(lancamento)
+            flash(f"Este lançamento precisa de mais {faltando} aprovação(ões) de alçada antes de "
+                  "poder ser marcado como pago — veja \"Aprovações pendentes\".", "danger")
+            return redirect(url_for("financeiro.listar"))
+
         lancamento.status = novo_status
         if novo_status == "pago" and not lancamento.data_pagamento:
             lancamento.data_pagamento = date.today()
@@ -279,6 +326,102 @@ def atualizar_status(lancamento_id):
         db.session.commit()
         flash("Status do lançamento atualizado.", "info")
     return redirect(url_for("financeiro.listar"))
+
+
+@financeiro_bp.route("/aprovacoes")
+@login_required
+@requer_acesso_financeiro
+def aprovacoes_pendentes():
+    """
+    Tela dedicada de alçada (ver app/utils/alcada.py, PENDENCIAS.md, seção
+    -50) — lista toda despesa do escopo do usuário logado que ultrapassou
+    a alçada configurada pela empresa e ainda não reuniu as aprovações
+    necessárias. Só admin/gestor vê algo útil aqui pra aprovar de verdade
+    (ver alcada_util.usuario_pode_aprovar), mas a listagem em si é
+    acessível a qualquer um com acesso financeiro — mesma régua de
+    transparência do resto do módulo Financeiro.
+    """
+    candidatas = aplicar_escopo_unidade(Lancamento.query, Lancamento).filter(
+        Lancamento.natureza == "despesa", Lancamento.status == "pendente",
+    ).order_by(Lancamento.valor.desc()).all()
+
+    pendentes = []
+    for l in candidatas:
+        necessario = alcada_util.nivel_aprovacao_necessario(l)
+        if necessario == 0:
+            continue
+        faltando = alcada_util.aprovacoes_faltando(l)
+        if faltando == 0:
+            continue
+        pode, motivo = alcada_util.usuario_pode_aprovar(l, current_user)
+        pendentes.append(dict(lancamento=l, necessario=necessario, faltando=faltando,
+                               aprovacoes=alcada_util.aprovacoes_concedidas(l),
+                               pode_aprovar=pode, motivo_bloqueio=motivo))
+
+    return render_template("financeiro/aprovacoes.html", pendentes=pendentes)
+
+
+@financeiro_bp.route("/<int:lancamento_id>/aprovar", methods=["POST"])
+@login_required
+@requer_acesso_financeiro
+def aprovar(lancamento_id):
+    lancamento = db.get_or_404(Lancamento, lancamento_id)
+    checar_acesso_unidade_ou_403(lancamento.unidade_id)
+
+    pode, motivo = alcada_util.usuario_pode_aprovar(lancamento, current_user)
+    if not pode:
+        flash(motivo, "danger")
+        return redirect(url_for("financeiro.aprovacoes_pendentes"))
+
+    aprovacao = AprovacaoLancamento(
+        lancamento_id=lancamento.id, aprovador_id=current_user.id,
+        comentario=request.form.get("comentario") or None,
+    )
+    db.session.add(aprovacao)
+    registrar_log(current_user, "aprovou_alcada", "Lancamento", lancamento.id,
+                  f"{lancamento.descricao} (R$ {lancamento.valor})")
+    db.session.commit()
+
+    if alcada_util.pode_ser_marcado_pago(lancamento):
+        flash("Aprovação registrada — este lançamento já pode ser marcado como pago.", "success")
+    else:
+        flash(f"Aprovação registrada — falta {alcada_util.aprovacoes_faltando(lancamento)} "
+              "aprovação(ões) para liberar o pagamento.", "success")
+    return redirect(url_for("financeiro.aprovacoes_pendentes"))
+
+
+@financeiro_bp.route("/<int:lancamento_id>/rejeitar-alcada", methods=["POST"])
+@login_required
+@requer_acesso_financeiro
+def rejeitar_alcada(lancamento_id):
+    """
+    Rejeita uma despesa em análise de alçada — reaproveita o status
+    "cancelado" que já existe (nunca criei um status novo só pra isso: uma
+    despesa rejeitada por governança e uma despesa cancelada por qualquer
+    outro motivo são, pro resto do sistema, a mesma coisa — "não vai ser
+    paga"). O que diferencia uma rejeição de um cancelamento comum é só o
+    rastro no log de auditoria (ação "rejeitou_alcada" + motivo).
+    """
+    lancamento = db.get_or_404(Lancamento, lancamento_id)
+    checar_acesso_unidade_ou_403(lancamento.unidade_id)
+
+    if not (current_user.is_admin or current_user.is_gestor):
+        abort(403)
+    if alcada_util.nivel_aprovacao_necessario(lancamento) == 0:
+        flash("Este lançamento não está em análise de alçada.", "danger")
+        return redirect(url_for("financeiro.aprovacoes_pendentes"))
+
+    motivo = request.form.get("motivo", "").strip()
+    if not motivo:
+        flash("Informe o motivo da rejeição.", "danger")
+        return redirect(url_for("financeiro.aprovacoes_pendentes"))
+
+    lancamento.status = "cancelado"
+    registrar_log(current_user, "rejeitou_alcada", "Lancamento", lancamento.id,
+                  f"{lancamento.descricao} (R$ {lancamento.valor}) — motivo: {motivo}")
+    db.session.commit()
+    flash("Lançamento rejeitado e cancelado.", "info")
+    return redirect(url_for("financeiro.aprovacoes_pendentes"))
 
 
 @financeiro_bp.route("/<int:lancamento_id>/duplicar-retainer", methods=["POST"])

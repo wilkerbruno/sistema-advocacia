@@ -79,3 +79,34 @@ class Lancamento(db.Model):
     criado_por = db.relationship("Usuario")
 
     apontamentos = db.relationship("Apontamento", back_populates="lancamento")
+
+    # Alçada de aprovação em múltiplos níveis (ver app/utils/alcada.py e
+    # PENDENCIAS.md, seção -50) — cada linha aqui é UMA aprovação
+    # concedida por UM usuário; quantas são exigidas antes do lançamento
+    # poder ser marcado como pago depende do valor e da configuração da
+    # empresa (Empresa.alcada_nivel1_valor/alcada_nivel2_valor), nunca
+    # deste modelo. cascade="all, delete-orphan": se o lançamento em si
+    # for excluído, as aprovações associadas somem junto (não fazem
+    # sentido soltas, sem o lançamento que aprovavam).
+    aprovacoes = db.relationship("AprovacaoLancamento", back_populates="lancamento",
+                                  cascade="all, delete-orphan", order_by="AprovacaoLancamento.aprovado_em")
+
+
+class AprovacaoLancamento(db.Model):
+    """
+    Uma aprovação concedida por um usuário a um lançamento financeiro
+    (sempre despesa — ver app/utils/alcada.py) que ultrapassou a alçada
+    configurada pela empresa. Nunca é criada/apagada por conta própria do
+    sistema — é sempre uma ação explícita de um admin/gestor, via
+    /financeiro/<id>/aprovar (ver app/routes/financeiro.py).
+    """
+    __tablename__ = "aprovacoes_lancamento"
+
+    id = db.Column(db.Integer, primary_key=True)
+    lancamento_id = db.Column(db.Integer, db.ForeignKey("lancamentos_financeiros.id"), nullable=False)
+    aprovador_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    aprovado_em = db.Column(db.DateTime, default=datetime.utcnow)
+    comentario = db.Column(db.Text, nullable=True)
+
+    lancamento = db.relationship("Lancamento", back_populates="aprovacoes")
+    aprovador = db.relationship("Usuario")

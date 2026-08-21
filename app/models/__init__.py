@@ -3,7 +3,7 @@ from .unidade import Unidade
 from .usuario import Usuario
 from .cliente import Cliente
 from .processo import Processo, Andamento, Prazo, Audiencia, Documento, ProcessoAcessoRestrito
-from .financeiro import Lancamento
+from .financeiro import Lancamento, AprovacaoLancamento
 from .tarefa import Tarefa
 from .log import LogAtividade
 from .notificacao import Notificacao
@@ -31,6 +31,7 @@ __all__ = [
     "Documento",
     "ProcessoAcessoRestrito",
     "Lancamento",
+    "AprovacaoLancamento",
     "Tarefa",
     "LogAtividade",
     "Notificacao",

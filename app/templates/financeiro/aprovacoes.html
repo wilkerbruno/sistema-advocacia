@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block titulo %}Aprovações pendentes — JusControl{% endblock %}
+{% block eyebrow %}Financeiro{% endblock %}
+{% block cabecalho %}Aprovações pendentes (alçada){% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Despesas que ultrapassaram a alçada configurada pela empresa e ainda não reuniram as aprovações
+  necessárias para poder ser marcadas como pagas.
+  {% if current_user.is_admin %}
+  <a href="{{ url_for('admin.alcada_aprovacao') }}">Configurar alçada</a>.
+  {% endif %}
+</p>
+
+<div class="card-doc tab p-0">
+  {% if pendentes %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Descrição</th>
+        <th>Valor</th>
+        <th>Lançado por</th>
+        <th>Aprovações</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in pendentes %}
+      <tr>
+        <td>
+          {{ item.lancamento.descricao }}
+          {% if item.lancamento.processo %}<br><span class="small text-muted-doc">{{ item.lancamento.processo.numero_processo or item.lancamento.processo.numero_interno }}</span>{% endif %}
+        </td>
+        <td class="text-danger">{{ item.lancamento.valor|moeda }}</td>
+        <td>{{ item.lancamento.criado_por.nome if item.lancamento.criado_por else "—" }}</td>
+        <td>
+          {% if item.aprovacoes %}
+          <div class="small mb-1">
+            {% for a in item.aprovacoes %}
+            <div>✓ {{ a.aprovador.nome }} — {{ a.aprovado_em|data_hora_br }}{% if a.comentario %} <span class="text-muted-doc">"{{ a.comentario }}"</span>{% endif %}</div>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <span class="badge-status badge-pendente">falta {{ item.faltando }} de {{ item.necessario }}</span>
+        </td>
+        <td>
+          <div class="d-flex flex-wrap gap-1">
+            {% if item.pode_aprovar %}
+            <form method="post" action="{{ url_for('financeiro.aprovar', lancamento_id=item.lancamento.id) }}" class="d-flex gap-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="comentario" class="form-control form-control-sm" placeholder="Comentário (opcional)" style="width: 160px;">
+              <button class="btn btn-brass btn-sm">Aprovar</button>
+            </form>
+            {% elif item.motivo_bloqueio %}
+            <span class="small text-muted-doc" title="{{ item.motivo_bloqueio }}">Não pode aprovar</span>
+            {% endif %}
+            {% if current_user.is_admin or current_user.is_gestor %}
+            <button type="button" class="btn btn-outline-doc btn-sm" data-bs-toggle="collapse" data-bs-target="#rejeitar{{ item.lancamento.id }}">Rejeitar</button>
+            {% endif %}
+          </div>
+          {% if current_user.is_admin or current_user.is_gestor %}
+          <div class="collapse mt-2" id="rejeitar{{ item.lancamento.id }}">
+            <form method="post" action="{{ url_for('financeiro.rejeitar_alcada', lancamento_id=item.lancamento.id) }}" class="d-flex gap-1">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="text" name="motivo" class="form-control form-control-sm" placeholder="Motivo da rejeição *" required style="width: 200px;">
+              <button class="btn btn-outline-doc btn-sm">Confirmar rejeição</button>
+            </form>
+          </div>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhuma aprovação pendente</div>
+    <p class="mb-0">Toda despesa dentro da alçada configurada, ou sem nenhuma alçada exigida.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

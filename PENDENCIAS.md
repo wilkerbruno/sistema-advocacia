@@ -1,5 +1,140 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -50. Alçada/aprovação em múltiplos níveis (financeiro)
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Governança financeira, Alto impacto — hoje qualquer usuário com
+acesso ao financeiro pode marcar uma despesa gigante como paga sozinho,
+sem ninguém revisar antes do dinheiro sair, Esforço médio). A ideia é
+simples e deliberadamente restrita ao que o item pede: um limite
+configurável por empresa, em dois degraus, que passa a EXIGIR aprovação
+de outra pessoa antes de uma despesa poder ser marcada como paga. Nada
+disso mexe em receita, nem bloqueia o cadastro do lançamento — só o
+"marcar como pago".
+
+**Regra de negócio implementada:**
+
+1. Cada empresa configura dois valores opcionais,
+   `alcada_nivel1_valor` e `alcada_nivel2_valor` (em Configurações →
+   Alçada de aprovação, só admin vê). Por padrão os dois ficam vazios —
+   **desligado**, ninguém precisa configurar nada e o sistema continua
+   se comportando exatamente como sempre se comportou.
+2. Despesa até o nível 1 (ou sem alçada configurada): marca como pago
+   direto, como sempre.
+3. Despesa acima do nível 1 e até o nível 2 (ou sem nível 2
+   configurado): precisa de **1 aprovação** de outra pessoa antes de
+   poder ser paga.
+4. Despesa acima do nível 2: precisa de **2 aprovações de pessoas
+   diferentes**.
+5. Só pode aprovar quem é admin ou gestor — um usuário comum, mesmo com
+   acesso ao financeiro liberado (como o caso do "sócio" resolvido duas
+   rodadas atrás), não aprova alçada.
+6. Quem lançou a despesa nunca pode aprovar a própria — mesmo sendo
+   admin ou gestor.
+7. O mesmo aprovador nunca conta duas vezes: se ele tentar aprovar de
+   novo, o sistema avisa que ele já aprovou e não soma uma segunda
+   aprovação.
+8. Existe também "Rejeitar" (motivo obrigatório) — cancela o lançamento
+   (reaproveitei o status "cancelado" que já existia, não criei status
+   novo) em vez de deixá-lo pendurado pendente pra sempre.
+9. Receita **nunca** passa por nada disso, não importa o valor.
+
+**O que mudou:**
+
+1) **`app/models/empresa.py`** — duas colunas novas, `Numeric(14,2)`,
+   `nullable=True` (nenhuma das duas tem valor por padrão — é assim que
+   o recurso fica "desligado" sem precisar de uma flag separada).
+
+2) **`app/models/financeiro.py`** — tabela nova `aprovacoes_lancamento`
+   (modelo `AprovacaoLancamento`): quem aprovou, quando, comentário
+   opcional. Relação `Lancamento.aprovacoes`.
+
+3) **`app/utils/alcada.py`** (novo) — toda a regra de negócio
+   concentrada aqui, sem duplicar lógica entre rota e template:
+   `nivel_aprovacao_necessario`, `aprovacoes_faltando`,
+   `pode_ser_marcado_pago`, `usuario_pode_aprovar` (com o motivo do
+   bloqueio, pra mostrar mensagem específica em vez de um "não" seco).
+
+4) **`app/routes/financeiro.py`**:
+   - `novo()` — cadastro nunca é bloqueado; se a despesa nascer acima
+     da alçada, só avisa (flash) quantas aprovações vai precisar antes
+     de poder ser paga.
+   - `atualizar_status()` — é o único ponto realmente bloqueado: se
+     tentar marcar "pago" sem ter reunido as aprovações necessárias, o
+     sistema recusa e explica quantas ainda faltam.
+   - rota nova `GET /financeiro/aprovacoes` — lista central de tudo que
+     está esperando aprovação, com botão de aprovar (só aparece pra
+     quem pode) e de rejeitar.
+   - rotas novas `POST /financeiro/<id>/aprovar` e
+     `POST /financeiro/<id>/rejeitar-alcada`.
+   - `listar()` — cada linha de despesa pendente que está esperando
+     alçada mostra "Aguardando alçada (N)" no lugar do botão "Marcar
+     pago", com link direto pra tela de aprovação; e um contador no
+     topo da tela avisa quantas aprovações estão pendentes no total
+     (contagem real, não só da página filtrada atual).
+
+5) **`app/routes/admin.py`** — tela nova
+   `/admin/alcada-aprovacao` (só admin, inclusive admin da
+   plataforma) pra configurar os dois valores. Aceita vírgula ou ponto
+   decimal. Não deixa configurar o nível 2 sem o nível 1 preenchido
+   também (não faria sentido pular um degrau), e o nível 2 precisa ser
+   maior que o nível 1.
+
+6) **`app/templates/admin/alcada_aprovacao.html`** (novo),
+   **`app/templates/financeiro/aprovacoes.html`** (novo),
+   **`app/templates/financeiro/listar.html`** e **`app/templates/base.html`**
+   (link novo no menu Gestão) — telas e ajustes de interface pra tudo
+   acima.
+
+**Testado:** 12 testes novos (`tests/test_alcada_aprovacao.py`) —
+sem alçada configurada marca pago direto igual sempre; receita nunca é
+bloqueada mesmo com valor gigante; despesa abaixo do nível 1 paga
+direto; despesa entre nível 1 e 2 fica bloqueada até 1 aprovação de
+outra pessoa; despesa acima do nível 2 exige 2 aprovações de usuários
+DISTINTOS (uma só não libera); o mesmo usuário aprovando duas vezes não
+conta como duas aprovações; quem lançou a despesa não consegue aprovar
+a própria; advogado comum (sem papel de gestão) não consegue aprovar;
+rejeitar cancela o lançamento; configurar a alçada pela tela de admin
+salva certo; configurar nível 2 sem nível 1 é recusado; e criar uma
+despesa acima da alçada mostra o aviso no cadastro sem bloquear a
+criação. Rodei a suíte inteira depois (77 testes) — sem regressão.
+
+⚠️ **Pegadinha encontrada e corrigida só nos TESTES** (não é bug do
+sistema): a rota `/login` redireciona direto pro painel se o usuário já
+estiver autenticado — comportamento correto e sempre existiu. Isso
+quebrou meus primeiros testes que tentavam trocar de usuário (ex:
+aprovar como gestor depois de já estar logado como admin) sem antes
+fazer `/logout`. Corrigido nos testes; a aplicação em si nunca teve
+esse problema.
+
+⚠️ **Ação sua necessária depois do deploy** — este lote adiciona duas
+colunas novas em `empresas` (`alcada_nivel1_valor`,
+`alcada_nivel2_valor`) **e** uma tabela inteira nova
+(`aprovacoes_lancamento`). Depois do `git push`/deploy de sempre,
+entre no Terminal/Console do container no EasyPanel e rode:
+
+```
+python sincronizar_schema.py
+```
+
+Isso cria a tabela nova e adiciona as duas colunas novas sem tocar em
+nada que já existe (`sincronizar_schema.py` só cria tabela/coluna que
+falta, nunca apaga nem torna nada obrigatório). Não adiciona nenhum
+`.cron` novo, então **não** precisa de rebuild especial — só o
+`sincronizar_schema.py` depois do deploy normal.
+
+Sem configurar nenhum valor de alçada, o sistema continua se
+comportando exatamente como hoje — nenhuma despesa pede aprovação até
+você decidir ligar isso em Configurações → Alçada de aprovação.
+
+**Arquivos alterados:** `app/models/empresa.py`,
+`app/models/financeiro.py`, `app/models/__init__.py`,
+`app/utils/alcada.py` (novo), `app/routes/financeiro.py`,
+`app/routes/admin.py`, `app/templates/admin/alcada_aprovacao.html`
+(novo), `app/templates/financeiro/aprovacoes.html` (novo),
+`app/templates/financeiro/listar.html`, `app/templates/base.html`,
+`tests/test_alcada_aprovacao.py` (novo).
+
 ## -49. Monitoramento de erros (Sentry ou similar)
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

@@ -108,6 +108,9 @@
       <a class="nav-item {{ 'active' if request.endpoint == 'admin.auditoria' }}" href="{{ url_for('admin.auditoria') }}">
         <span class="tab-index">09</span> Auditoria
       </a>
+      <a class="nav-item {{ 'active' if request.endpoint == 'admin.alcada_aprovacao' }}" href="{{ url_for('admin.alcada_aprovacao') }}">
+        <span class="tab-index">09b</span> Alçada de aprovação
+      </a>
       {% endif %}
 
       {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}

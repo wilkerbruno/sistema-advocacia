@@ -63,7 +63,10 @@
     {% endfor %}
   </select>
   {% endif %}
-  <a href="{{ url_for('financeiro.gerar_cobranca_horas') }}" class="btn btn-outline-doc ms-auto">Gerar cobrança a partir de horas</a>
+  <a href="{{ url_for('financeiro.aprovacoes_pendentes') }}" class="btn btn-outline-doc ms-auto">
+    Aprovações pendentes{% if qtd_aprovacoes_pendentes %} <span class="badge-status badge-urgente">{{ qtd_aprovacoes_pendentes }}</span>{% endif %}
+  </a>
+  <a href="{{ url_for('financeiro.gerar_cobranca_horas') }}" class="btn btn-outline-doc">Gerar cobrança a partir de horas</a>
   <a href="{{ url_for('financeiro.novo') }}" class="btn btn-brass">+ Novo lançamento</a>
 </form>
 
@@ -97,10 +100,16 @@
         <td>
           <div class="d-flex flex-wrap gap-1">
             {% if l.status == "pendente" %}
-            <form method="post" action="{{ url_for('financeiro.atualizar_status', lancamento_id=l.id) }}" class="d-flex gap-1">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <button name="status" value="pago" class="btn btn-outline-doc btn-sm">Marcar pago</button>
-            </form>
+              {% if l._alcada_faltando %}
+              <a href="{{ url_for('financeiro.aprovacoes_pendentes') }}" class="btn btn-outline-doc btn-sm" title="Precisa de {{ l._alcada_faltando }} aprovação(ões) de alçada antes de poder ser paga">
+                Aguardando alçada ({{ l._alcada_faltando }})
+              </a>
+              {% else %}
+              <form method="post" action="{{ url_for('financeiro.atualizar_status', lancamento_id=l.id) }}" class="d-flex gap-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button name="status" value="pago" class="btn btn-outline-doc btn-sm">Marcar pago</button>
+              </form>
+              {% endif %}
             {% endif %}
             {% if l.status == "pago" %}
             <a href="{{ url_for('financeiro.recibo', lancamento_id=l.id) }}" class="btn btn-outline-doc btn-sm">Recibo (PDF)</a>
