@@ -24,6 +24,7 @@ from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoE
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
 from app.utils.conflito_interesse import conflitos_para_parte_contraria
+from app.utils.paginacao import paginar
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -148,10 +149,15 @@ def listar():
     if current_user.is_admin and unidade_filtro:
         query = query.filter(Processo.unidade_id == int(unidade_filtro))
 
-    processos = query.order_by(Processo.atualizado_em.desc()).all()
+    # Paginação (PENDENCIAS.md, seção -47) — antes disto, esta tela carregava
+    # TODOS os processos do escopo numa `.all()` só, o que em escritório de
+    # grande porte (milhares de processos) deixa a página lenta pra carregar
+    # e pesada pro banco a cada filtro. `paginar()` lê "pagina"/"por_pagina"
+    # da própria URL e nunca deixa passar de POR_PAGINA_MAXIMO.
+    paginacao = paginar(query.order_by(Processo.atualizado_em.desc()))
     unidades = unidades_do_escopo() if current_user.is_admin else None
-    return render_template("processos/listar.html", processos=processos, unidades=unidades,
-                            status=status, area=area, termo=termo)
+    return render_template("processos/listar.html", processos=paginacao.items, paginacao=paginacao,
+                            unidades=unidades, status=status, area=area, termo=termo)
 
 
 @processos_bp.route("/novo", methods=["GET", "POST"])

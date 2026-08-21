@@ -37,6 +37,7 @@ from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_moviment
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils import tribunais_datajud
+from app.utils.paginacao import paginar, limitar_com_total
 from app.utils.conflito_interesse import varrer_conflitos_da_empresa
 
 governanca_bp = Blueprint("governanca", __name__)
@@ -502,9 +503,14 @@ def fila_intimacoes():
         query = query.filter(Processo.unidade_id == current_user.unidade_id)
     query = filtrar_processos_visiveis(query)
 
-    prazos = query.order_by(Prazo.data_vencimento).all()
+    # Paginação (PENDENCIAS.md, seção -47) — esta era a listagem mais
+    # arriscada do sistema depois de Processos: TODO prazo em aberto do
+    # escopo inteiro, sem limite, numa tela pensada pra ser a "fila de
+    # trabalho do dia".
+    paginacao = paginar(query.order_by(Prazo.data_vencimento))
     hoje = date.today()
-    return render_template("governanca/fila_intimacoes.html", prazos=prazos, hoje=hoje)
+    return render_template("governanca/fila_intimacoes.html", prazos=paginacao.items,
+                            paginacao=paginacao, hoje=hoje)
 
 
 # ---------- Painel de governança (seção 8) ----------
@@ -521,19 +527,26 @@ def painel():
     prazos_base = filtrar_processos_visiveis(prazos_base).filter(Prazo.deletado_em.is_(None))
 
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora das
-    # três listas abaixo de propósito — já foi revisado e regularizado em
-    # lote, não é um prazo em aberto precisando de atenção.
-    prazos_7d = prazos_base.filter(
+    # três contagens abaixo de propósito — já foi revisado e regularizado
+    # em lote, não é um prazo em aberto precisando de atenção.
+    #
+    # Paginação/escala (PENDENCIAS.md, seção -47): estes 3 números só
+    # alimentam os cartões de estatística do topo do painel
+    # (`|length` no template antigo) — nunca uma tabela linha a linha.
+    # Antes disto, cada um carregava a lista INTEIRA de prazos só pra
+    # contar o tamanho; `.count()` faz a mesma conta no próprio banco,
+    # sem trazer nenhuma linha pra memória do servidor.
+    prazos_7d_count = prazos_base.filter(
         Prazo.status.notin_(["cumprido", "historico_anterior"]),
         Prazo.data_vencimento.between(hoje, hoje + timedelta(days=7)),
-    ).order_by(Prazo.data_vencimento).all()
-    prazos_15d = prazos_base.filter(
+    ).count()
+    prazos_15d_count = prazos_base.filter(
         Prazo.status.notin_(["cumprido", "historico_anterior"]),
         Prazo.data_vencimento.between(hoje + timedelta(days=8), hoje + timedelta(days=15)),
-    ).order_by(Prazo.data_vencimento).all()
-    prazos_vencidos_sem_evidencia = prazos_base.filter(
+    ).count()
+    prazos_vencidos_sem_evidencia_count = prazos_base.filter(
         Prazo.status.notin_(["cumprido", "historico_anterior"]), Prazo.data_vencimento < hoje
-    ).order_by(Prazo.data_vencimento).all()
+    ).count()
 
     limite_30 = hoje - timedelta(days=30)
     limite_60 = hoje - timedelta(days=60)
@@ -570,14 +583,23 @@ def painel():
         movimentacoes_criticas = movimentacoes_criticas.filter(Processo.unidade_id == current_user.unidade_id)
     movimentacoes_criticas = movimentacoes_criticas.order_by(Movimentacao.data.desc()).limit(20).all()
 
-    processos_nao_monitoraveis = processos_q.filter(Processo.monitoravel.is_(False)).all()
+    # Esta lista, diferente das 3 contagens acima, é mesmo renderizada
+    # linha a linha no template — aqui o risco real é carregar milhares
+    # de processo numa tabela só. `limitar_com_total` mostra os N mais
+    # recentes (o teto padrão, 50) e o total de verdade, pra tela poder
+    # avisar "mostrando 50 de 312" em vez de fingir que cabia tudo.
+    processos_nao_monitoraveis, total_nao_monitoraveis = limitar_com_total(
+        processos_q.filter(Processo.monitoravel.is_(False)).order_by(Processo.criado_em.desc())
+    )
 
     return render_template(
         "governanca/painel.html", hoje=hoje,
-        prazos_7d=prazos_7d, prazos_15d=prazos_15d, prazos_vencidos_sem_evidencia=prazos_vencidos_sem_evidencia,
+        prazos_7d_count=prazos_7d_count, prazos_15d_count=prazos_15d_count,
+        prazos_vencidos_sem_evidencia_count=prazos_vencidos_sem_evidencia_count,
         parados_30=parados_30, parados_60=parados_60, parados_90=parados_90,
         distribuicao_fase=distribuicao_fase, distribuicao_area=distribuicao_area, distribuicao_unidade=distribuicao_unidade,
         exposicao_por_fase=exposicao_por_fase, exposicao_por_risco=exposicao_por_risco,
+        total_nao_monitoraveis=total_nao_monitoraveis,
         movimentacoes_criticas=movimentacoes_criticas, processos_nao_monitoraveis=processos_nao_monitoraveis,
     )
 

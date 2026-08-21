@@ -1,5 +1,97 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -47. Paginação em listas grandes (processos, painel)
+
+**Contexto:** próximo item da tabela de prioridades do relatório de
+20/08 (Escala, Alto impacto em volume real de escritório grande, Médio
+esforço). Levantamento (`grep ".all()"` em todo `app/routes/`) achou
+várias telas montando a query certa, filtrada e ordenada, mas
+carregando a tabela INTEIRA de uma vez, sem limite — o problema mais
+grave em **Processos** (`processos.listar`, a listagem principal do
+sistema) e no **Painel de governança** (`governanca.painel`).
+
+⚠️ **Importante sobre como testei isto:** meu ambiente de testes
+(sandbox) não tinha cópia local de `processos/listar.html`,
+`clientes/listar.html` nem `governanca/fila_intimacoes.html` (mesmo
+problema já avisado antes, nas seções -26/-28). Desta vez, em vez de
+editar às cegas ou reconstruir esses arquivos do zero, busquei a versão
+ATUAL de cada um direto do seu computador (a pasta já está conectada)
+antes de mexer — então as mudanças abaixo foram feitas em cima do
+arquivo real, não de uma suposição.
+
+**O que mudou:**
+
+1) **Utilitário novo e único** (`app/utils/paginacao.py`) — `paginar(query)`
+   aplica paginação de verdade (Anterior/Próxima) lendo `?pagina=N` e
+   `?por_pagina=N` da própria URL, sempre limitado a no máximo 100 por
+   página mesmo que alguém edite a URL na mão, e nunca quebra a tela com
+   erro por causa de um número de página inválido (`error_out=False` —
+   página fora do intervalo só mostra lista vazia). Um segundo helper,
+   `limitar_com_total(query, teto=50)`, é pra widget de dashboard (não
+   uma lista navegável): devolve os N primeiros itens JUNTO com o total
+   real, pra tela poder avisar "mostrando 50 de 312" honestamente.
+
+2) **Processos** (`processos.listar`) — agora paginado, 25 por página
+   por padrão. Os filtros já existentes (status, área, busca, unidade)
+   continuam funcionando normalmente e são preservados ao trocar de
+   página.
+
+3) **Clientes** (`clientes.listar`) — mesmo tratamento (achei durante o
+   levantamento — mesma classe de risco que Processos, não estava no
+   escopo original do item mas é a mesma causa).
+
+4) **Fila de intimações** (`governanca.fila_intimacoes`) — a "tela de
+   trabalho do dia" (todo prazo em aberto do escopo, sem filtro nenhum
+   antes disto) também paginada, mesmo padrão.
+
+5) **Painel de governança** (`governanca.painel`) — tratamento diferente
+   dos itens acima, porque aqui a maioria dos números é só ESTATÍSTICA
+   (cartão com uma contagem), não uma tabela navegável:
+   - Os 3 cartões "Prazos fatais — 7 dias / 8 a 15 dias / vencidos sem
+     evidência" viravam uma lista inteira carregada na memória só pra
+     contar o tamanho (`|length` no template) — trocado por `.count()`
+     direto no banco, sem trazer nenhuma linha.
+   - "Processos não monitoráveis automaticamente" é a única lista deste
+     painel que É mesmo desenhada linha a linha — essa usa
+     `limitar_com_total` (top 50 mais recentes + total real), com aviso
+     "mostrando os 50 mais recentes de N" quando ultrapassa o teto, e
+     link pra tela de Processos (já paginada) pra ver o resto.
+
+**Testado (sqlite descartável + login real via `test_client` HTTP, 8
+cenários, com massa de dados grande de propósito — 40 processos, 30
+clientes, 30 prazos, 51 processos não monitoráveis):** página 1 de
+Processos mostra 25 linhas e o total certo; página 2 mostra outro
+conjunto; filtro de status combinado com paginação funciona e o link de
+"Próxima" preserva o filtro na URL; página inválida (além do total,
+texto não-numérico, negativa) nunca quebra a tela; `por_pagina`
+customizado funciona e é limitado ao teto mesmo com valor absurdo na
+URL; Clientes e Fila de intimações mostram o total certo; Painel de
+governança mostra o total REAL (51) mesmo listando só os 50 primeiros,
+com o aviso de truncamento aparecendo. Regressão completa: todos os
+scripts de teste de rodadas anteriores (lembretes, LGPD, conflito de
+interesses, relatório por área, modelos de cobrança, timesheet/
+faturamento, RBAC financeiro, desligamento de usuário) rodados de novo
+depois desta mudança — todos continuam passando.
+
+Este lote não adiciona coluna nova nenhuma (é só código de leitura,
+nada no modelo de dados muda) — depois do deploy, só o `git push` de
+sempre, sem precisar rodar `sincronizar_schema.py` nem rebuild completo.
+
+**Arquivos alterados:** `app/utils/paginacao.py` (novo), `app/__init__.py`
+(registra `url_pagina` como global do Jinja), `app/templates/_paginacao.html`
+(novo — partial reutilizável de controles Anterior/Próxima),
+`app/routes/processos.py`, `app/routes/clientes.py`, `app/routes/governanca.py`
+(rotas `fila_intimacoes` e `painel`), `app/templates/processos/listar.html`,
+`app/templates/clientes/listar.html`, `app/templates/governanca/fila_intimacoes.html`,
+`app/templates/governanca/painel.html`.
+
+**Não incluído nesta rodada (mesma classe de problema, fora do escopo
+explícito deste item — "processos, painel"):** listagens de Financeiro,
+Tarefas e Timesheet também usam `.all()` sem limite. Se algum escritório
+já sentir lentidão nessas telas específicas antes de eu chegar nelas na
+tabela, é só avisar que aplico o mesmo `paginar()` — a infraestrutura já
+está pronta, é reaproveitar.
+
 ## -46. Reatribuição de casos no desligamento de usuário
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

@@ -1,0 +1,18 @@
+{# Partial reutilizável de paginação (PENDENCIAS.md, seção -47).
+   Espera uma variável `paginacao` (objeto Pagination do
+   app/utils/paginacao.py::paginar) no contexto de quem faz o include.
+   `url_pagina(n)` é global do Jinja (registrado em app/__init__.py),
+   monta a URL da página N mantendo os demais filtros da querystring. #}
+{% if paginacao and paginacao.pages > 1 %}
+<nav class="d-flex justify-content-between align-items-center flex-wrap gap-2 px-3 py-2" aria-label="Paginação">
+  <div class="small text-muted-doc">
+    Página {{ paginacao.page }} de {{ paginacao.pages }} — {{ paginacao.total }} registro(s) no total
+  </div>
+  <div class="d-flex gap-1">
+    <a class="btn btn-sm btn-outline-doc {{ 'disabled' if not paginacao.has_prev }}"
+       {% if paginacao.has_prev %}href="{{ url_pagina(paginacao.prev_num) }}"{% endif %}>&laquo; Anterior</a>
+    <a class="btn btn-sm btn-outline-doc {{ 'disabled' if not paginacao.has_next }}"
+       {% if paginacao.has_next %}href="{{ url_pagina(paginacao.next_num) }}"{% endif %}>Próxima &raquo;</a>
+  </div>
+</nav>
+{% endif %}

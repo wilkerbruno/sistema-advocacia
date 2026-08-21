@@ -181,12 +181,16 @@ def create_app(config_class=Config):
                             "Fale com o administrador da sua conta."), 403
 
     from app.utils.notificacoes import contar_notificacoes_nao_lidas
+    from app.utils.paginacao import url_pagina
 
     @app.context_processor
     def injetar_globais():
         from flask_login import current_user
         qtd_notif = contar_notificacoes_nao_lidas(current_user) if current_user.is_authenticated else 0
-        return dict(qtd_notificacoes=qtd_notif)
+        # url_pagina: usado pelo partial templates/_paginacao.html (ver
+        # app/utils/paginacao.py, PENDENCIAS.md seção -47) pra montar o
+        # link de cada página mantendo os filtros da URL atual.
+        return dict(qtd_notificacoes=qtd_notif, url_pagina=url_pagina)
 
     @app.template_filter("moeda")
     def formatar_moeda(valor):

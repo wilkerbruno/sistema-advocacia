@@ -9,19 +9,22 @@
   <div class="col-md-4">
     <div class="card-doc tab p-3">
       <div class="small text-muted-doc">Prazos fatais — próximos 7 dias</div>
-      <div class="fs-3">{{ prazos_7d|length }}</div>
+      <div class="fs-3">{{ prazos_7d_count }}</div>
     </div>
   </div>
   <div class="col-md-4">
     <div class="card-doc tab p-3">
       <div class="small text-muted-doc">Prazos fatais — 8 a 15 dias</div>
-      <div class="fs-3">{{ prazos_15d|length }}</div>
+      <div class="fs-3">{{ prazos_15d_count }}</div>
     </div>
   </div>
   <div class="col-md-4">
     <div class="card-doc tab p-3">
       <div class="small text-muted-doc">Vencidos sem evidência de cumprimento</div>
-      <div class="fs-3" style="color: var(--status-danger);">{{ prazos_vencidos_sem_evidencia|length }}</div>
+      <div class="fs-3" style="color: var(--status-danger);">{{ prazos_vencidos_sem_evidencia_count }}</div>
+      {% if prazos_vencidos_sem_evidencia_count %}
+      <a class="small" href="{{ url_for('governanca.fila_intimacoes') }}">ver na fila de intimações →</a>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -135,7 +138,7 @@
 </div>
 
 <div class="card-doc tab p-3">
-  <div class="small text-muted-doc mb-2">Processos não monitoráveis automaticamente ({{ processos_nao_monitoraveis|length }})</div>
+  <div class="small text-muted-doc mb-2">Processos não monitoráveis automaticamente ({{ total_nao_monitoraveis }})</div>
   {% if processos_nao_monitoraveis %}
   <table class="table-doc">
     <thead><tr><th>Processo</th><th>Cliente</th><th>Motivo</th></tr></thead>
@@ -149,6 +152,12 @@
       {% endfor %}
     </tbody>
   </table>
+  {% if total_nao_monitoraveis > processos_nao_monitoraveis|length %}
+  <p class="small text-muted-doc mb-0">
+    Mostrando os {{ processos_nao_monitoraveis|length }} mais recentes de {{ total_nao_monitoraveis }} —
+    use os filtros de <a href="{{ url_for('processos.listar') }}">Processos</a> pra ver o restante.
+  </p>
+  {% endif %}
   {% else %}
   <p class="text-muted-doc small mb-0">Toda a carteira está com forma de acompanhamento definida.</p>
   {% endif %}

@@ -10,6 +10,7 @@ from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_regist
 from app.utils.notificacoes import registrar_log
 from app.utils.conflito_interesse import conflitos_para_cliente
 from app.utils.lgpd import montar_export_dados_cliente, anonimizar_cliente
+from app.utils.paginacao import paginar
 
 clientes_bp = Blueprint("clientes", __name__)
 
@@ -44,8 +45,10 @@ def listar():
     if termo:
         like = f"%{termo}%"
         query = query.filter(db.or_(Cliente.nome.ilike(like), Cliente.cpf_cnpj.ilike(like)))
-    clientes = query.order_by(Cliente.nome).all()
-    return render_template("clientes/listar.html", clientes=clientes, termo=termo)
+    # Paginação (PENDENCIAS.md, seção -47) — mesmo motivo de Processos.
+    paginacao = paginar(query.order_by(Cliente.nome))
+    return render_template("clientes/listar.html", clientes=paginacao.items,
+                            paginacao=paginacao, termo=termo)
 
 
 @clientes_bp.route("/novo", methods=["GET", "POST"])
