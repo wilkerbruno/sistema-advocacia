@@ -56,9 +56,28 @@ class PublicacaoCapturada:
     hash_dedup: str
 
 
+@dataclass
+class ProcessoEncontradoDueDiligence:
+    """
+    Um processo encontrado numa busca por parte (CPF/CNPJ/nome) — due
+    diligence de cliente novo, PENDENCIAS.md seção -53. Só metadado de
+    identificação/situação, nunca o inteiro teor (isso é
+    `consultar_processo`, chamado depois se o advogado decidir acompanhar
+    o processo de verdade).
+    """
+    numero_processo: str
+    tribunal: str | None
+    classe: str | None
+    assunto: str | None
+    situacao: str | None  # "ativo", "arquivado", "baixado"... conforme o vocabulário da fonte
+    data_distribuicao: object | None  # date
+    polo_da_parte_buscada: str | None  # "autor", "réu", "outro"...
+    fonte: str  # nome_fonte do conector que encontrou
+
+
 class ConectorCaptura(ABC):
-    """Contrato que um conector real (Judit/Escavador/Digesto/Codilo/scraper
-    de DJE ou PJe) precisa implementar."""
+    """Contrato que um conector real (Judit/Escavador/Digesto/Codilo/Jusbrasil
+    Soluções/scraper de DJE ou PJe) precisa implementar."""
 
     nome_fonte: str
 
@@ -75,6 +94,22 @@ class ConectorCaptura(ABC):
     @abstractmethod
     def monitorar_publicacoes_por_oab(self, numero_oab: str, uf: str) -> list[PublicacaoCapturada]:
         """Deve devolver as publicações novas no DJE para a OAB informada."""
+        raise NotImplementedError
+
+    @abstractmethod
+    def buscar_processos_por_parte(self, cpf_cnpj: str | None = None,
+                                    nome: str | None = None) -> list[ProcessoEncontradoDueDiligence]:
+        """
+        Due diligence de cliente novo (PENDENCIAS.md, seção -53): busca
+        TODO processo no Brasil em que a pessoa/empresa informada (por
+        CPF/CNPJ, ou por nome quando o documento não for informado) apareça
+        como parte — não só nos processos já cadastrados neste escritório
+        (isso é `app/utils/conflito_interesse.py`, uma checagem diferente e
+        gratuita). Pelo menos um dos dois parâmetros deve vir preenchido.
+
+        Este é exatamente o tipo de busca que o DataJud (gratuito) NÃO
+        cobre — exige um provedor pago (ver `obter_conector` abaixo).
+        """
         raise NotImplementedError
 
 
@@ -123,7 +158,25 @@ def obter_conector(nome_fonte: str, empresa=None) -> ConectorCaptura:
             "defina DATAJUD_API_KEY no .env do servidor (ou cada empresa pode cadastrar sua "
             "própria chave em \"Minhas Integrações\"). Para cobrir o que o DataJud não cobre "
             "(busca por nome/CPF sem número, inteiro teor, publicação por OAB), seria necessário "
-            "um provedor pago (Judit, Escavador, Digesto ou Codilo) — não implementado."
+            "um provedor pago (Judit, Escavador, Digesto, Codilo ou Jusbrasil Soluções) — não "
+            "implementado."
+        )
+
+    if nome_fonte == "due_diligence":
+        # Ponto de extensão pronto (PENDENCIAS.md, seção -53), mas SEM
+        # nenhum provedor implementado — mesma regra do resto deste módulo:
+        # nunca implementar contra um provedor pago sem credencial e
+        # documentação reais dele (arriscaria devolver dado errado/incompleto
+        # silenciosamente). Quando um for contratado, implemente uma
+        # subclasse de ConectorCaptura (ex: ConectorJudit) com os 3 métodos
+        # do contrato e registre aqui — o resto do sistema (rota, template)
+        # já está pronto pra chamar `buscar_processos_por_parte`.
+        raise ConectorNaoConfiguradoError(
+            "Nenhum provedor de due diligence (busca de processo por CPF/CNPJ/nome em todo o "
+            "Brasil) configurado. Isso exige contratar um provedor pago — as opções conhecidas hoje "
+            "são Judit, Escavador, Digesto, Codilo ou Jusbrasil Soluções (cada um com contrato de "
+            "API próprio e preço diferente). Depois de escolher e contratar um, é só implementar "
+            "esse conector aqui (o ponto de extensão já existe)."
         )
 
     raise ConectorNaoConfiguradoError(

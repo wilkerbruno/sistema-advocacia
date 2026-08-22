@@ -11,6 +11,7 @@ from app.utils.notificacoes import registrar_log
 from app.utils.conflito_interesse import conflitos_para_cliente
 from app.utils.lgpd import montar_export_dados_cliente, montar_pacote_completo_cliente, anonimizar_cliente
 from app.utils.paginacao import paginar
+from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 
 clientes_bp = Blueprint("clientes", __name__)
 
@@ -226,6 +227,43 @@ def exportar_pacote_completo(cliente_id):
 
     nome_arquivo = f"pacote_completo_cliente_{cliente.id}.zip"
     return send_file(buffer, mimetype="application/zip", as_attachment=True, download_name=nome_arquivo)
+
+
+@clientes_bp.route("/<int:cliente_id>/due-diligence")
+@login_required
+def due_diligence(cliente_id):
+    """
+    Due diligence de cliente novo (PENDENCIAS.md, seção -53): busca TODO
+    processo no Brasil em que este cliente apareça como parte, não só nos
+    processos já cadastrados neste escritório — diferente da verificação
+    de conflito de interesses (app/utils/conflito_interesse.py), que só
+    cruza contra os clientes já cadastrados no próprio sistema.
+
+    Exige um provedor pago (Judit/Escavador/Digesto/Codilo/Jusbrasil
+    Soluções — nenhum contratado ainda, ver app/utils/captura_conectores.py)
+    — a tela mostra isso com clareza em vez de fingir uma busca que não
+    acontece. Restrita a admin/gestor (mesmo critério de outras ferramentas
+    de governança/custo desta rodada, ex. alçada de aprovação): é uma busca
+    que, quando um provedor estiver configurado, tem custo por consulta.
+    """
+    cliente = db.get_or_404(Cliente, cliente_id)
+    checar_acesso_unidade_ou_403(cliente.unidade_id)
+    if not (current_user.is_admin or current_user.is_gestor):
+        abort(403)
+
+    empresa = cliente.unidade.empresa if cliente.unidade else None
+    resultados = None
+    erro = None
+    try:
+        conector = obter_conector("due_diligence", empresa=empresa)
+        resultados = conector.buscar_processos_por_parte(cpf_cnpj=cliente.cpf_cnpj, nome=cliente.nome)
+        registrar_log(current_user, "consultou_due_diligence", "Cliente", cliente.id,
+                      f"{cliente.nome} — {len(resultados)} processo(s) encontrado(s) via {conector.nome_fonte}")
+        db.session.commit()
+    except ConectorNaoConfiguradoError as e:
+        erro = str(e)
+
+    return render_template("clientes/due_diligence.html", cliente=cliente, resultados=resultados, erro=erro)
 
 
 @clientes_bp.route("/<int:cliente_id>/anonimizar", methods=["GET", "POST"])

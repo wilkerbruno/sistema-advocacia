@@ -25,6 +25,9 @@
 <div class="d-flex justify-content-end gap-2 mb-3">
   <a href="{{ url_for('clientes.exportar_dados_lgpd', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Exportar dados (LGPD)</a>
   <a href="{{ url_for('clientes.exportar_pacote_completo', cliente_id=cliente.id) }}" class="btn btn-outline-doc" title="Cadastro, processos, financeiro e todos os documentos anexados, num único .zip">Exportar pacote completo (.zip)</a>
+  {% if current_user.is_admin or current_user.is_gestor %}
+  <a href="{{ url_for('clientes.due_diligence', cliente_id=cliente.id) }}" class="btn btn-outline-doc" title="Busca processo em nome deste cliente em todo o Brasil, não só nos já cadastrados aqui">Due diligence</a>
+  {% endif %}
   {% if current_user.is_admin and not cliente.anonimizado_em %}
   <a href="{{ url_for('clientes.anonimizar', cliente_id=cliente.id) }}" class="btn btn-outline-doc">Anonimizar</a>
   {% endif %}

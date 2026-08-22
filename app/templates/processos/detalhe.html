@@ -482,7 +482,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2 align-items-start">
               <div class="col-md-4">
-                <select name="tipo" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)');">
+                <select name="tipo" id="tipo-analise-ia" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)'); document.getElementById('campo-documento-referencia').style.display = (this.value === 'rascunho_peticao' ? 'block' : 'none');">
                   <option value="resumo">Resumo dos autos</option>
                   <option value="rascunho_peticao">Rascunho de petição</option>
                 </select>
@@ -497,6 +497,20 @@
                   Se aparecer um aviso de "pedido grande demais", encurte o texto aqui (peça o mais
                   essencial primeiro, refine numa segunda geração) e tente de novo.
                 </div>
+              </div>
+            </div>
+            <div id="campo-documento-referencia" class="mt-2" style="display: none;">
+              <label class="form-label small mb-1">Usar um documento já anexado como referência de estilo (opcional)</label>
+              <select name="documento_referencia_id" class="form-select form-select-sm">
+                <option value="">Nenhum — gerar só a partir dos dados do processo</option>
+                {% for d in processo.documentos %}
+                <option value="{{ d.id }}">{{ d.nome_original }}</option>
+                {% endfor %}
+              </select>
+              <div class="small text-muted-doc mt-1">
+                Só influencia o TOM e a ESTRUTURA do rascunho (nunca fato, valor ou fundamento — isso
+                continua vindo só dos dados do processo). Funciona com .pdf, .docx e .txt com texto
+                de verdade (não PDF escaneado); outros tipos são ignorados com aviso.
               </div>
             </div>
             <button type="submit" id="botao-gerar-analise-ia" class="btn btn-brass btn-sm mt-2" {{ "disabled" if not ia_configurada }}>Gerar análise</button>
@@ -528,6 +542,7 @@
               {{ "Rascunho de petição" if a.tipo == "rascunho_peticao" else "Resumo dos autos" }}
               — {{ a.solicitado_por.nome if a.solicitado_por else "—" }} em {{ a.criado_em|data_hora_br }}
               {% if a.digest_truncado %}<span class="badge-status badge-pendente ms-1">histórico truncado</span>{% endif %}
+              {% if a.documento_referencia %}<span class="badge-status badge-normal ms-1">estilo de "{{ a.documento_referencia.nome_original }}"</span>{% endif %}
             </div>
             <form method="post" action="{{ url_for('processos.excluir_analise_ia', analise_id=a.id) }}"
                   onsubmit="return confirm('Excluir esta análise?');">

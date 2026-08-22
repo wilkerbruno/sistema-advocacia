@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block titulo %}Due diligence — {{ cliente.nome }} — JusControl{% endblock %}
+{% block eyebrow %}Cliente · Compliance{% endblock %}
+{% block cabecalho %}Due diligence de "{{ cliente.nome }}"{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Busca todo processo no Brasil em que este cliente apareça como parte — diferente da
+  <a href="{{ url_for('clientes.detalhe', cliente_id=cliente.id) }}">verificação de conflito de
+  interesses</a>, que só cruza contra os clientes já cadastrados neste escritório.
+  <a href="{{ url_for('clientes.detalhe', cliente_id=cliente.id) }}">Voltar para o cliente</a>.
+</p>
+
+{% if erro %}
+<div class="alert alert-warning small">
+  <strong>Busca não realizada.</strong> {{ erro }}
+</div>
+<div class="card-doc tab p-3">
+  <p class="font-display mb-2">Por que isso acontece</p>
+  <p class="small mb-2">
+    Buscar processo por CPF/CNPJ/nome em todo o Brasil (sem já saber o número) não é algo que a
+    API pública e gratuita do CNJ (DataJud, já usada pelo resto do sistema) ofereça — ela exige
+    saber de antemão em qual tribunal procurar. Essa cobertura só existe hoje contratando um
+    provedor pago especializado nisso.
+  </p>
+  <p class="small mb-0">
+    Opções conhecidas no mercado: <strong>Judit</strong>, <strong>Escavador</strong>,
+    <strong>Digesto</strong>, <strong>Codilo</strong> ou <strong>Jusbrasil Soluções</strong> — cada
+    um com contrato de API e preço próprios. Depois de escolher e contratar um, é só avisar: o
+    ponto de integração já está pronto no código (<code>app/utils/captura_conectores.py</code>),
+    falta só a implementação contra o provedor escolhido.
+  </p>
+</div>
+{% else %}
+<div class="card-doc tab p-0">
+  {% if resultados %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Processo</th>
+        <th>Tribunal</th>
+        <th>Classe / assunto</th>
+        <th>Situação</th>
+        <th>Distribuição</th>
+        <th>Polo do cliente</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in resultados %}
+      <tr>
+        <td>{{ r.numero_processo }}</td>
+        <td>{{ r.tribunal or "—" }}</td>
+        <td>{{ r.classe or "—" }}{% if r.assunto %} — {{ r.assunto }}{% endif %}</td>
+        <td>{{ r.situacao or "—" }}</td>
+        <td>{{ r.data_distribuicao|data_br if r.data_distribuicao else "—" }}</td>
+        <td>{{ r.polo_da_parte_buscada or "—" }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhum processo encontrado</div>
+    <p class="mb-0">A busca não encontrou nenhum processo em nome deste cliente.</p>
+  </div>
+  {% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,5 +1,100 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -53. Comparação com o Jusbrasil: referência de estilo na minuta por IA + due diligence de cliente novo
+
+**Contexto:** fora da tabela de prioridades original — surgiu de uma pergunta sobre o que dava pra
+aproveitar do Jusbrasil (plataforma de pesquisa jurídica/dados processuais, categoria diferente do
+JusControl, que é gestão do escritório). Comparação honesta primeiro: não dá pra "pegar" conteúdo
+deles (jurisprudência, design, dado) — isso é vedado pelos Termos de Uso e por direito autoral —, só
+dá pra se inspirar na ideia e construir a própria versão, ou contratar a API paga deles como mais um
+fornecedor de dados. Duas coisas concretas saíram disso, uma construída de verdade e outra preparada
+pra quando você contratar um provedor:
+
+**1) Referência de estilo no rascunho de petição por IA** — o Jus IA (Jusbrasil) usa peças reais e
+validadas em tribunais como inspiração de estilo. O JusControl já tinha um gerador de rascunho de
+petição por IA local (aba "Análise IA" de cada processo, com proteção contra invenção de fato/valor/
+lei — isso é de uma rodada anterior, não desta). O que faltava era deixar o advogado escolher um
+documento JÁ anexado a este processo (uma petição anterior que já funcionou) como referência de
+ESTILO/ESTRUTURA — mais relevante que um banco genérico, porque é prática real do próprio escritório,
+e sem depender de nenhum fornecedor externo.
+
+- **`app/utils/extracao_documento.py`** (novo) — lê o texto de um documento já anexado (.pdf, .docx,
+  .txt; outros tipos recusados com erro claro, PDF escaneado sem camada de texto também). Nunca
+  quebra a geração: qualquer falha de leitura vira um aviso, e a geração segue sem referência.
+- **`app/utils/analise_processo_ia.py`** — `gerar_analise()` ganhou o parâmetro opcional
+  `texto_referencia`, injetado no prompt com uma instrução explícita e reforçada: é PROIBIDO copiar
+  fato, nome, valor ou fundamento do documento de referência — só estilo. Crucial: o texto de
+  referência fica FORA do "digest" usado pela checagem automática de grounding — então, se algum
+  valor do documento de referência vazar pro rascunho novo, ele continua sendo sinalizado como
+  não-lastreado, exatamente como se fosse invenção do modelo (testado explicitamente).
+- **`app/models/agente_ia.py`** — `AnaliseProcessoIA.documento_referencia_id` (nova coluna, nullable)
+  guarda qual documento foi usado, só quando a extração deu certo de verdade.
+- **`app/routes/processos.py` / `app/jobs/ia_jobs.py`** — a extração acontece na rota (síncrona,
+  rápida, só leitura de arquivo) ANTES de enfileirar o job de geração (que continua rodando em
+  segundo plano, sem mudança nesse ponto); o texto já extraído é repassado pro job.
+- **`app/templates/processos/detalhe.html`** — seletor novo (só aparece com "Rascunho de petição")
+  listando os documentos já anexados a ESTE processo; a análise gerada mostra um selo "estilo de
+  ‘X’" quando uma referência foi realmente usada.
+- **`requirements.txt`** — `pypdf` e `python-docx` (novas dependências, leitura de PDF/DOCX).
+
+**2) Due diligence de cliente novo (busca por CPF/CNPJ em todo o Brasil)** — recurso que a API paga
+do Jusbrasil (Jusbrasil Soluções) oferece e que é genuinamente diferente da verificação de conflito
+de interesses que o JusControl já tem: conflito de interesses só cruza contra os clientes JÁ
+cadastrados neste escritório; due diligence buscaria em TODO o histórico processual do Brasil antes
+de aceitar um cliente novo. Isso exige um provedor pago — mesma trava de sempre neste projeto: nunca
+implementar contra um provedor sem credencial e documentação reais (arriscaria devolver dado errado/
+incompleto silenciosamente).
+
+- **`app/utils/captura_conectores.py`** — novo método abstrato `buscar_processos_por_parte` no
+  contrato `ConectorCaptura` (o mesmo ponto de extensão já usado pelo DataJud), e um novo
+  `dataclass ProcessoEncontradoDueDiligence`. `obter_conector("due_diligence")` sempre levanta
+  `ConectorNaoConfiguradoError` hoje, com a lista de provedores conhecidos (Judit, Escavador,
+  Digesto, Codilo, **Jusbrasil Soluções** — adicionado nesta rodada às opções já listadas antes)
+  — nunca finge uma busca que não roda.
+- **`app/utils/conector_datajud.py`** — `ConectorDataJud` implementa o método novo só pra explicar
+  por que o DataJud gratuito não cobre isso (exige saber o tribunal de antemão; due diligence
+  precisa buscar em todos).
+- **`app/routes/clientes.py` / `app/templates/clientes/due_diligence.html`** (novo) — tela nova
+  "Due diligence" no cliente (botão só pra admin/gestor — é uma ferramenta de governança com custo
+  por consulta quando um provedor estiver ativo, mesmo critério de acesso da alçada financeira).
+  Hoje sempre mostra a explicação de que falta contratar um provedor, com as opções listadas; o
+  código já está pronto pra mostrar uma tabela de resultados reais assim que
+  `buscar_processos_por_parte` tiver uma implementação de verdade por trás.
+
+**Testado:** 18 testes novos (`tests/test_referencia_estilo_minuta.py`, 12 testes, e
+`tests/test_due_diligence.py`, 6 testes) — extração de texto funciona pra .pdf/.docx/.txt e recusa
+tipo não suportado/arquivo ausente/texto vazio com erro claro; texto grande é cortado no limite;
+um valor "vazado" do texto de referência pro rascunho gerado continua sendo sinalizado pela checagem
+de grounding (prova de que a referência não vira "fato confiável"); tipo "resumo" ignora qualquer
+referência passada; a rota extrai a referência antes de enfileirar e não bloqueia a geração quando o
+documento é de outro processo ou de tipo não suportado (só avisa e segue sem referência); o conector
+DataJud recusa `buscar_processos_por_parte` com erro claro; `obter_conector("due_diligence")` sempre
+lista os 5 provedores conhecidos; a tela de due diligence mostra a explicação sem provedor
+configurado e não grava log nenhum (nenhuma busca de verdade aconteceu); gestor acessa, advogado
+comum leva 403; e — com um conector FALSO (sem depender de nenhuma credencial real de provedor
+nenhum) — a tela mostra resultado de verdade e grava o log de auditoria, provando que a integração
+funciona de ponta a ponta assim que um provedor real for implementado atrás da mesma interface.
+Rodei a suíte inteira depois (108 testes) — sem regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — este lote adiciona uma coluna nova
+(`AnaliseProcessoIA.documento_referencia_id`, nullable) e uma dependência nova em `requirements.txt`
+(`pypdf`, `python-docx`): depois do `git push` de sempre, rode `python sincronizar_schema.py` no
+Terminal do container. Como há dependência nova em `requirements.txt` (não só em
+`requirements-dev.txt`), o EasyPanel já reconstrói a imagem do zero num redeploy comum — não precisa
+de nenhum passo extra além desse.
+
+A due diligence continua **bloqueada** até você escolher e contratar um dos 5 provedores listados
+(Judit, Escavador, Digesto, Codilo ou Jusbrasil Soluções) — mesma decisão pendente do item "Captura
+paga" (agora com uma opção a mais na lista). Quando decidir, a integração fica rápida: só implementar
+uma subclasse de `ConectorCaptura` contra a documentação real do provedor escolhido.
+
+**Arquivos alterados:** `app/utils/extracao_documento.py` (novo), `app/utils/analise_processo_ia.py`,
+`app/models/agente_ia.py`, `app/routes/processos.py`, `app/jobs/ia_jobs.py`,
+`app/templates/processos/detalhe.html`, `requirements.txt`, `app/utils/captura_conectores.py`,
+`app/utils/conector_datajud.py`, `app/routes/clientes.py`,
+`app/templates/clientes/due_diligence.html` (novo), `app/templates/clientes/detalhe.html`,
+`tests/test_referencia_estilo_minuta.py` (novo), `tests/test_due_diligence.py` (novo).
+
 ## -52. Exportação em massa de dados de um cliente
 
 **Contexto:** próximo item da tabela de prioridades do relatório de

@@ -93,6 +93,17 @@ class AnaliseProcessoIA(db.Model):
 
     tipo = db.Column(db.String(20), nullable=False)  # ver TIPOS
     instrucao = db.Column(db.Text)  # pedido de quem solicitou (obrigatório para rascunho_peticao)
+
+    # Documento de referência de estilo (PENDENCIAS.md, seção -53) — opcional,
+    # só usado em rascunho_peticao. Guarda qual documento JÁ anexado ao
+    # processo foi usado como referência de estrutura/estilo pro rascunho
+    # (nunca de fato/conteúdo — ver app/utils/analise_processo_ia.py). Fica
+    # NULL quando nenhuma referência foi escolhida, ou quando o texto do
+    # documento escolhido não pôde ser extraído (nesse caso a geração segue
+    # sem referência, nunca bloqueia por isso).
+    documento_referencia_id = db.Column(db.Integer, db.ForeignKey("documentos.id"), nullable=True)
+    documento_referencia = db.relationship("Documento")
+
     # nullable=False mas pode ser "" enquanto status="processando" (ver
     # abaixo) — o job de fundo preenche de verdade quando terminar.
     resultado = db.Column(db.Text, nullable=False, default="")

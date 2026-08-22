@@ -361,3 +361,17 @@ class ConectorDataJud(ConectorCaptura):
             "essa funcionalidade seria necessário contratar um provedor pago (Judit, "
             "Escavador, Digesto ou Codilo) ou integrar diretamente o DJEN."
         )
+
+    def buscar_processos_por_parte(self, cpf_cnpj=None, nome=None):
+        # Due diligence de cliente novo (PENDENCIAS.md, seção -53). A API
+        # pública do DataJud exige informar o TRIBUNAL de antemão pra
+        # consultar por parte (não existe endpoint de busca nacional único
+        # por CPF/CNPJ/nome), o que a torna inviável pra este uso — o
+        # objetivo aqui é "todo processo no Brasil", não "processo neste
+        # tribunal que eu já suspeito". Continua sendo terreno exclusivo de
+        # provedor pago.
+        raise FuncionalidadeNaoDisponivelError(
+            "A API pública do DataJud não oferece busca nacional de processos por CPF/CNPJ/nome "
+            "sem já saber o tribunal — para due diligence de cliente novo seria necessário "
+            "contratar um provedor pago (Judit, Escavador, Digesto, Codilo ou Jusbrasil Soluções)."
+        )

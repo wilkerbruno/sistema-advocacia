@@ -78,12 +78,17 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, system, mensagens_api,
         db.session.commit()
 
 
-def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao):
+def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, texto_referencia=None):
     """
     Gera o resumo/rascunho de petição de um processo (ver
     app/utils/analise_processo_ia.py::gerar_analise) e grava direto na
     linha AnaliseProcessoIA já criada (com status="processando", resultado
     vazio) pela rota web.
+
+    `texto_referencia` (PENDENCIAS.md, seção -53): trecho de documento já
+    extraído pela rota ANTES de enfileirar — o job nunca lê arquivo do
+    disco, só recebe o texto já pronto (ver
+    app/routes/processos.py::gerar_analise_ia).
     """
     app = _obter_app()
     with app.app_context():
@@ -103,7 +108,7 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao):
             return
 
         try:
-            resultado, truncado = gerar_analise(processo, tipo, instrucao)
+            resultado, truncado = gerar_analise(processo, tipo, instrucao, texto_referencia=texto_referencia)
             analise.resultado = resultado
             analise.digest_truncado = truncado
         except agente_ia_router.ProvedorIAIndisponivelError as e:

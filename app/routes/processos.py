@@ -27,6 +27,7 @@ from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_moviment
 from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
 from app.utils.rede import resumir_user_agent
+from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSuportadaError
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -849,6 +850,25 @@ def gerar_analise_ia(processo_id):
               "chave da API do Claude não cadastrada — confira em \"Minhas Integrações\").", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
+    # Documento de referência de estilo (PENDENCIAS.md, seção -53) — opcional,
+    # só faz sentido em rascunho_peticao. A extração acontece AQUI (síncrona,
+    # só leitura de arquivo local, rápida) em vez de dentro do job de
+    # segundo plano, pra já validar/avisar antes de enfileirar. Falha na
+    # extração NUNCA bloqueia a geração — só segue sem referência, com um
+    # aviso claro do motivo (mesmo princípio de degradação graciosa usado
+    # em toda integração opcional deste sistema).
+    documento_referencia_id = request.form.get("documento_referencia_id", type=int)
+    texto_referencia = None
+    if tipo == "rascunho_peticao" and documento_referencia_id:
+        doc_referencia = db.session.get(Documento, documento_referencia_id)
+        if doc_referencia is None or doc_referencia.processo_id != processo.id:
+            flash("Documento de referência inválido — a geração vai seguir sem referência de estilo.", "warning")
+        else:
+            try:
+                texto_referencia, _ = extrair_texto_documento(doc_referencia, current_app.config["UPLOAD_FOLDER"])
+            except (ExtracaoNaoSuportadaError, ValueError) as e:
+                flash(f"Não usei \"{doc_referencia.nome_original}\" como referência de estilo: {e}", "warning")
+
     # A geração em si (chamada ao modelo, pode levar minutos) roda em
     # segundo plano — ver app/jobs/ia_jobs.py e PENDENCIAS.md, seção -32.
     # Aqui só cria o registro como "processando" e devolve a tela na hora;
@@ -856,12 +876,18 @@ def gerar_analise_ia(processo_id):
     analise = AnaliseProcessoIA(
         processo_id=processo.id, solicitado_por_id=current_user.id, tipo=tipo,
         instrucao=instrucao or None, resultado="", status="processando",
+        # Só grava a referência quando o texto realmente foi extraído — se a
+        # extração falhou (não suportado/ilegível), fica None: mais honesto
+        # do que mostrar "baseado no estilo de X" pra algo que não influenciou
+        # a geração de verdade.
+        documento_referencia_id=(doc_referencia.id if texto_referencia else None),
     )
     db.session.add(analise)
     registrar_log(current_user, "gerou_analise_ia", "Processo", processo.id, tipo)
     db.session.commit()
 
-    enfileirar("app.jobs.ia_jobs.processar_analise_processo_ia", analise.id, processo.id, tipo, instrucao)
+    enfileirar("app.jobs.ia_jobs.processar_analise_processo_ia", analise.id, processo.id, tipo, instrucao,
+               texto_referencia)
 
     flash("Gerando análise em segundo plano — acompanhe na aba \"Análise IA\" (atualiza sozinha; "
           "pode levar alguns minutos no modelo local). É sempre um rascunho para conferência humana.",

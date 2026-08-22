@@ -263,6 +263,25 @@ RASCUNHO_SYSTEM = (
     "de usar, protocolar ou enviar a qualquer parte."
 )
 
+# Anexado ao fim do prompt SÓ quando o advogado escolhe um documento já
+# anexado ao processo como referência de estilo (PENDENCIAS.md, seção
+# -53) — nunca um dado factual do processo em si, por isso fica separado
+# do "digest" usado por `_checar_grounding` abaixo: qualquer valor em R$
+# ou citação legal que vaze do texto de referência pro rascunho novo tem
+# que continuar sendo sinalizado como não-lastreado, exatamente como se
+# fosse invenção do modelo — é a mesma classe de erro (fato de UM
+# processo/caso aparecendo em outro sem checagem).
+INSTRUCAO_REFERENCIA_ESTILO = (
+    "\n\nAbaixo, um trecho de um documento REAL já usado neste escritório (em outro momento do "
+    "processo, ou em outro caso), fornecido SÓ como referência de ESTILO E ESTRUTURA — forma de "
+    "organizar seções, tom, jeito de escrever. É PROIBIDO copiar deste trecho qualquer fato, nome de "
+    "parte, número de processo, valor em R$, data ou fundamentação jurídica — todo o CONTEÚDO do "
+    "rascunho novo vem exclusivamente dos \"Dados do processo\" informados acima. Se este trecho "
+    "estiver ilegível, incompleto ou não fizer sentido como petição, ignore-o e escreva o rascunho "
+    "normalmente, só com base nos dados do processo.\n\n"
+    "Trecho de referência (só estilo/estrutura, nunca fato):\n"
+)
+
 
 def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_chars=LIMITE_PADRAO_CHARS):
     """Monta o texto de contexto real do processo injetado no prompt. Devolve
@@ -330,7 +349,7 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
     return texto, truncado
 
 
-def gerar_analise(processo, tipo, instrucao=None):
+def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
     """
     Gera o resumo ou rascunho de petição para `processo`. Levanta ValueError
     para erro de uso (tipo inválido, instrução obrigatória faltando) e deixa
@@ -338,12 +357,27 @@ def gerar_analise(processo, tipo, instrucao=None):
     de IA configurado para a empresa do processo (modelo local ou Claude
     BYOK) não está pronto — quem chama decide como exibir isso.
 
+    `texto_referencia` (opcional, só usado em rascunho_peticao): trecho de
+    texto de um documento já anexado a outro momento do processo (ou outro
+    caso), escolhido pelo advogado como referência de ESTILO/ESTRUTURA da
+    peça (PENDENCIAS.md, seção -53) — ver
+    app/utils/extracao_documento.py::extrair_texto_documento. Ignorado
+    silenciosamente pra tipo="resumo" (não faz sentido ali).
+
     Devolve (resultado_texto, digest_truncado).
     """
     if tipo not in ("resumo", "rascunho_peticao"):
         raise ValueError(f"Tipo de análise desconhecido: {tipo}")
 
-    digest, truncado = montar_digest_processo(processo)
+    usa_referencia = tipo == "rascunho_peticao" and texto_referencia
+    # Com referência de estilo, o digest do processo abre mão de parte do
+    # próprio orçamento pra abrir espaço pro trecho de referência dentro da
+    # janela de contexto pequena do modelo local (ver comentário de
+    # max_tokens logo abaixo) — sem isso, um processo com histórico grande
+    # MAIS uma referência de estilo grande estourariam a janela juntos.
+    digest, truncado = montar_digest_processo(
+        processo, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS
+    )
 
     if tipo == "resumo":
         system = RESUMO_SYSTEM + "\n\nDados do processo:\n" + digest
@@ -360,6 +394,8 @@ def gerar_analise(processo, tipo, instrucao=None):
         if not instrucao or not instrucao.strip():
             raise ValueError("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").")
         system = RASCUNHO_SYSTEM + "\n\nDados do processo:\n" + digest
+        if usa_referencia:
+            system += INSTRUCAO_REFERENCIA_ESTILO + texto_referencia
         pedido = instrucao.strip()
         max_tokens = 1400
 
