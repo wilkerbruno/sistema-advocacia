@@ -51,28 +51,43 @@ def index():
     else:
         ultimo_dia = date(ano, mes + 1, 1) - timedelta(days=1)
 
-    prazos_q = Prazo.query.join(Processo).filter(
-        Prazo.deletado_em.is_(None),
-        Prazo.data_vencimento.between(primeiro_dia, ultimo_dia),
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): isto usava
+    # `if not current_user.is_admin: filter(unidade_id == ...)`, o que só
+    # restringia usuário comum — QUALQUER admin (inclusive admin de uma
+    # empresa cliente comum, não só o admin desenvolvedor) via a Agenda
+    # prazos/audiências/tarefas/compromissos de TODAS as empresas do
+    # sistema, não só da própria. `aplicar_escopo_unidade` já implementa a
+    # regra certa das 3 camadas (admin desenvolvedor vê tudo, admin de
+    # empresa vê só a própria empresa, demais só a própria unidade).
+    prazos_q = aplicar_escopo_unidade(
+        Prazo.query.join(Processo).filter(
+            Prazo.deletado_em.is_(None),
+            Prazo.data_vencimento.between(primeiro_dia, ultimo_dia),
+        ),
+        Processo,
     )
-    audiencias_q = Audiencia.query.join(Processo).filter(
-        Audiencia.data_hora >= primeiro_dia,
-        Audiencia.data_hora < ultimo_dia + timedelta(days=1),
+    audiencias_q = aplicar_escopo_unidade(
+        Audiencia.query.join(Processo).filter(
+            Audiencia.data_hora >= primeiro_dia,
+            Audiencia.data_hora < ultimo_dia + timedelta(days=1),
+        ),
+        Processo,
     )
-    tarefas_q = Tarefa.query.filter(
-        Tarefa.data_vencimento.isnot(None),
-        Tarefa.data_vencimento.between(primeiro_dia, ultimo_dia),
+    tarefas_q = aplicar_escopo_unidade(
+        Tarefa.query.filter(
+            Tarefa.data_vencimento.isnot(None),
+            Tarefa.data_vencimento.between(primeiro_dia, ultimo_dia),
+        ),
+        Tarefa,
     )
-    compromissos_q = Compromisso.query.filter(
-        Compromisso.status != "cancelado",
-        Compromisso.data_hora >= primeiro_dia,
-        Compromisso.data_hora < ultimo_dia + timedelta(days=1),
+    compromissos_q = aplicar_escopo_unidade(
+        Compromisso.query.filter(
+            Compromisso.status != "cancelado",
+            Compromisso.data_hora >= primeiro_dia,
+            Compromisso.data_hora < ultimo_dia + timedelta(days=1),
+        ),
+        Compromisso,
     )
-    if not current_user.is_admin:
-        prazos_q = prazos_q.filter(Processo.unidade_id == current_user.unidade_id)
-        audiencias_q = audiencias_q.filter(Processo.unidade_id == current_user.unidade_id)
-        tarefas_q = tarefas_q.filter(Tarefa.unidade_id == current_user.unidade_id)
-        compromissos_q = compromissos_q.filter(Compromisso.unidade_id == current_user.unidade_id)
 
     eventos_por_dia = {}
 

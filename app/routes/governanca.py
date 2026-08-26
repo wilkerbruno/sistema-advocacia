@@ -495,12 +495,18 @@ def fila_intimacoes():
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora da
     # fila de propósito — já foi revisado e regularizado em lote, não
     # precisa de ninguém tratando de novo aqui.
-    query = Prazo.query.join(Processo).filter(
-        Prazo.deletado_em.is_(None),
-        Prazo.status.notin_(["cumprido", "historico_anterior"]),
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): `if not
+    # current_user.is_admin: filter(...)` deixava QUALQUER admin (não só
+    # o admin desenvolvedor) ver a fila de intimações de TODAS as
+    # empresas do sistema — troca por `aplicar_escopo_unidade`, que já
+    # implementa a regra certa das 3 camadas.
+    query = aplicar_escopo_unidade(
+        Prazo.query.join(Processo).filter(
+            Prazo.deletado_em.is_(None),
+            Prazo.status.notin_(["cumprido", "historico_anterior"]),
+        ),
+        Processo,
     )
-    if not current_user.is_admin:
-        query = query.filter(Processo.unidade_id == current_user.unidade_id)
     query = filtrar_processos_visiveis(query)
 
     # Paginação (PENDENCIAS.md, seção -47) — esta era a listagem mais
@@ -520,10 +526,11 @@ def fila_intimacoes():
 def painel():
     hoje = date.today()
     processos_q = aplicar_escopo_unidade(Processo.query, Processo)
-    if not current_user.is_admin:
-        prazos_base = Prazo.query.join(Processo).filter(Processo.unidade_id == current_user.unidade_id)
-    else:
-        prazos_base = Prazo.query.join(Processo)
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo problema do
+    # `fila_intimacoes` acima — QUALQUER admin via os cartões "Prazos
+    # fatais"/"Vencidos sem evidência" deste painel somando TODAS as
+    # empresas do sistema, não só a própria.
+    prazos_base = aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
     prazos_base = filtrar_processos_visiveis(prazos_base).filter(Prazo.deletado_em.is_(None))
 
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora das
@@ -576,12 +583,15 @@ def painel():
 
     limite_24h = datetime.utcnow() - timedelta(hours=24)
     tipos_criticos = ["sentenca", "decisao", "penhora", "bloqueio", "audiencia", "intimacao_pessoal", "auto_de_infracao"]
-    movimentacoes_criticas = Movimentacao.query.join(Processo).filter(
-        Movimentacao.criado_em >= limite_24h, Movimentacao.deletado_em.is_(None),
-    )
-    if not current_user.is_admin:
-        movimentacoes_criticas = movimentacoes_criticas.filter(Processo.unidade_id == current_user.unidade_id)
-    movimentacoes_criticas = movimentacoes_criticas.order_by(Movimentacao.data.desc()).limit(20).all()
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo problema —
+    # QUALQUER admin via movimentação crítica das últimas 24h de TODAS as
+    # empresas do sistema.
+    movimentacoes_criticas = aplicar_escopo_unidade(
+        Movimentacao.query.join(Processo).filter(
+            Movimentacao.criado_em >= limite_24h, Movimentacao.deletado_em.is_(None),
+        ),
+        Processo,
+    ).order_by(Movimentacao.data.desc()).limit(20).all()
 
     # Esta lista, diferente das 3 contagens acima, é mesmo renderizada
     # linha a linha no template — aqui o risco real é carregar milhares
@@ -610,10 +620,10 @@ def painel():
 @login_required
 def metricas():
     processos_q = aplicar_escopo_unidade(Processo.query, Processo)
-    if not current_user.is_admin:
-        prazos_q = Prazo.query.join(Processo).filter(Processo.unidade_id == current_user.unidade_id)
-    else:
-        prazos_q = Prazo.query.join(Processo)
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo problema —
+    # QUALQUER admin via a taxa de cumprido/perdido somando TODAS as
+    # empresas do sistema.
+    prazos_q = aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
     prazos_q = prazos_q.filter(Prazo.deletado_em.is_(None))
 
     total_prazos_finalizados = prazos_q.filter(Prazo.status.in_(["cumprido", "perdido"])).count()
@@ -903,9 +913,16 @@ def relatorio_semanal_preview():
     fim_semana = inicio_semana + timedelta(days=6)
     semana_passada_inicio = inicio_semana - timedelta(days=7)
 
-    prazos_q = Prazo.query.join(Processo).filter(Prazo.deletado_em.is_(None))
-    if not current_user.is_admin:
-        prazos_q = prazos_q.filter(Processo.unidade_id == current_user.unidade_id)
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): isto usava
+    # `if not current_user.is_admin: filter(unidade_id == ...)`, o que só
+    # restringia usuário comum — QUALQUER admin (inclusive admin de uma
+    # empresa cliente comum, não só o admin desenvolvedor) via o preview do
+    # relatório semanal prazos de TODAS as empresas do sistema, não só da
+    # própria. `aplicar_escopo_unidade` já implementa a regra certa das 3
+    # camadas.
+    prazos_q = aplicar_escopo_unidade(
+        Prazo.query.join(Processo).filter(Prazo.deletado_em.is_(None)), Processo
+    )
 
     prazos_da_semana = prazos_q.filter(
         Prazo.data_vencimento.between(inicio_semana, fim_semana), Prazo.status != "cumprido"
@@ -924,11 +941,15 @@ def relatorio_semanal_preview():
     ).limit(20).all()
 
     inicio_semana_dt = datetime.combine(inicio_semana, datetime.min.time())
-    movimentacoes_semana = Movimentacao.query.join(Processo).filter(
-        Movimentacao.criado_em >= inicio_semana_dt, Movimentacao.deletado_em.is_(None),
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo padrão —
+    # QUALQUER admin (não só o admin desenvolvedor) recebia movimentações
+    # de TODAS as empresas do sistema no preview do relatório semanal.
+    movimentacoes_semana = aplicar_escopo_unidade(
+        Movimentacao.query.join(Processo).filter(
+            Movimentacao.criado_em >= inicio_semana_dt, Movimentacao.deletado_em.is_(None),
+        ),
+        Processo,
     )
-    if not current_user.is_admin:
-        movimentacoes_semana = movimentacoes_semana.filter(Processo.unidade_id == current_user.unidade_id)
     movimentacoes_semana = movimentacoes_semana.order_by(Movimentacao.data.desc()).limit(30).all()
 
     return render_template(

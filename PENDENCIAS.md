@@ -1,5 +1,109 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -54. 🔴 CORREÇÃO DE SEGURANÇA CRÍTICA: prazos/audiências/movimentações/tarefas/compromissos de uma empresa apareciam para admin de OUTRA empresa
+
+**Reportado por você:** "prazos em atenção e prazos perdidos aparecem para empresas diferentes das
+que o processo foi cadastrado, corrija isso".
+
+**Gravidade — leia isto:** este era um vazamento real de dado entre empresas clientes (tenants)
+diferentes, na plataforma multi-empresa. Não é um problema cosmético nem um bug de exibição — é uma
+falha de isolamento de dado (multi-tenancy), a categoria mais grave de bug que este sistema pode ter,
+porque significa que o escritório A podia enxergar dado do escritório B (prazo, número de processo,
+descrição do ato, texto de movimentação processual, tarefa, compromisso de agenda) sem nenhuma
+autorização.
+
+**Causa raiz (confirmada lendo o código, não suposição):** várias telas construíam a consulta ao
+banco assim:
+```python
+prazos_q = Prazo.query.join(Processo)
+if not current_user.is_admin:
+    prazos_q = prazos_q.filter(Processo.unidade_id == current_user.unidade_id)
+```
+Repare que o filtro só existe dentro do `if not current_user.is_admin` — ou seja, ele **só
+restringia usuário comum** (advogado/funcionário/gestor). Qualquer usuário com papel "admin"
+caía no `else` implícito e recebia a consulta **sem filtro nenhum de empresa/unidade**. O problema:
+`current_user.is_admin` é `True` para o admin de **qualquer** empresa cliente, não só para o "admin
+desenvolvedor" (o admin da empresa dona da própria plataforma, que É, de propósito, quem deve ver
+tudo). Ou seja: o admin comum de um escritório cliente qualquer também caía nesse `else` e recebia
+prazos, audiências, movimentações e tarefas de **todas as empresas cadastradas no sistema**, não só
+da própria. O helper certo pra isso já existe e já era usado em boa parte do sistema —
+`aplicar_escopo_unidade()` (`app/utils/acesso.py`) — que implementa a regra correta das 3 camadas:
+admin desenvolvedor vê tudo, admin de empresa vê só a própria empresa (todas as unidades dela), os
+demais papéis só a própria unidade. O bug era não usar esse helper nesses pontos específicos —
+provavelmente um padrão colado de uma tela pra outra antes de `aplicar_escopo_unidade` existir, e
+nunca atualizado.
+
+Corrigido um total de **9 pontos** com exatamente esse padrão, em 4 arquivos — achados varrendo TODO
+o projeto por esse padrão (`grep` por `if not current_user.is_admin` combinado com toda consulta
+`.join(Processo)`/`.query` de Prazo, Audiencia, Movimentacao, Tarefa e Compromisso), não só o ponto
+que você reportou, porque um bug desta gravidade merece verificação completa, não um remendo isolado:
+
+- **`app/routes/dashboard.py`** (`index()`, a tela "Painel" — a fonte exata dos cartões "Prazos em
+  atenção" e "Prazos perdidos" que você citou): `prazos_q` e `audiencias_q`. Havia ainda um agravante
+  aqui — um `if False` deixava morto um trecho que já tentava usar `aplicar_escopo_unidade` (mas
+  errado, com `responsavel_id` em vez de `unidade_id`), então na prática rodava sempre a versão sem
+  filtro nenhum.
+- **`app/routes/governanca.py`**: `fila_intimacoes()` (fila de trabalho de prazos), `painel()` (dois
+  pontos — cartões "Prazos fatais"/"Vencidos sem evidência", e a lista de movimentações críticas das
+  últimas 24h), `metricas()` (taxa de prazo cumprido/perdido e "Processos com mais prazos perdidos"),
+  e `relatorio_semanal_preview()` (dois pontos — prazos da semana/perdidos da semana passada, e
+  movimentações da semana).
+- **`app/routes/agenda.py`** (`index()`, a Agenda integrada — mês inteiro): os 4 blocos de eventos do
+  calendário, prazos, audiências, tarefas e compromissos, todos com o mesmo padrão.
+- **`app/routes/agente_ia.py`** (`_escopo_prazos()`, usada pela persona "Operação" do Agente de IA):
+  este é o ponto mais delicado dos 9 — o vazamento aqui não aparecia como uma linha numa tabela, e
+  sim embutido em **texto gerado pela IA** ("Prazos vencendo nos próximos 7 dias: ..."), então um
+  admin podia literalmente perguntar pro assistente e receber, em prosa, prazo de outro escritório.
+
+**O que NÃO foi mexido, de propósito:** dentro de `governanca.metricas()`, a lista `logs_recentes`
+(`LogCaptura`) não tem filtro de empresa nenhum, mas só expõe estatística agregada de sucesso/falha
+de captura automática de processo (infraestrutura), nunca dado de cliente/processo/prazo — fora da
+classe de gravidade deste bug, registrado aqui só pra constar que foi visto e avaliado, não
+esquecido. Em `app/routes/timesheet.py`, o mesmo padrão `if not current_user.is_admin` existe mas
+**já** está corretamente construído em cima de uma consulta que **já passou** por
+`aplicar_escopo_unidade` antes — o `if` ali só reduz ainda mais (mostrar só os apontamentos do
+próprio usuário), nunca amplia; não é o mesmo bug e não precisava de correção.
+
+**A correção**, em todos os 9 pontos: trocar o `if not current_user.is_admin: filter(...)` por uma
+chamada a `aplicar_escopo_unidade(query, Processo)` (ou `..., Tarefa` / `..., Compromisso` nos casos
+em que o modelo já tem `unidade_id` direto, sem precisar de `.join(Processo)`) — o mesmo helper já
+usado (e já testado) em `processos.py`, `clientes.py` e outras telas do sistema, agora aplicado de
+forma consistente em todo lugar que faltava.
+
+**Testado:** novo arquivo `tests/test_isolamento_multi_tenant_prazos.py`, 13 testes — cria DUAS
+empresas clientes reais e independentes (Empresa A e Empresa B), cada uma com seu próprio admin e seu
+próprio processo/prazo/audiência/tarefa/compromisso/movimentação, mais uma terceira empresa marcada
+como dona da plataforma (admin desenvolvedor) e um advogado comum lotado na Empresa A. Provado, para
+cada uma das 6 telas/pontos afetados (Painel, Painel de governança, Fila de intimações, Métricas de
+governança, Agenda, contexto do Agente de IA "Operação"):
+1. o admin da Empresa A nunca vê dado da Empresa B (nem no HTML renderizado, nem no texto do Agente
+   de IA);
+2. o admin desenvolvedor continua vendo dado de ambas as empresas — comportamento que precisa
+   continuar existindo, não foi quebrado pela correção;
+3. um usuário comum (advogado) continua restrito à própria unidade, como sempre foi.
+
+Antes de escrever a correção final, validei que os testes realmente pegam o bug: reverti
+temporariamente um dos 9 pontos pro código antigo e confirmei que o teste correspondente falha; depois
+restaurei a correção e confirmei que volta a passar. Rodei a suíte inteira depois — **121 testes
+passando** (108 já existentes + 13 novos), nenhuma regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — **nenhuma além do `git push` de sempre.** Esta correção
+é só lógica de consulta ao banco (troca de filtro), não adiciona coluna nem tabela nova — não precisa
+rodar `sincronizar_schema.py`. Também não adiciona nenhum `.cron` novo — não precisa de rebuild
+especial do container, só o deploy normal.
+
+**Descoberto de lambuja, sem relação com este bug, registrando pra você decidir:** ao testar
+`relatorio_semanal_preview()` (parte deste lote), percebi que essa tela quebra com erro 500 pra
+**qualquer** usuário, de qualquer empresa — falta o arquivo de template
+`app/templates/governanca/relatorio_semanal_preview.html` (a rota existe, o link no menu existe,
+mas o `.html` nunca foi criado). Isso não é um problema de segurança/vazamento — é uma tela
+quebrada há algum tempo, sem relação com o bug que você reportou — mas fica pendente pra próxima
+rodada, se quiser que eu crie o template.
+
+**Arquivos alterados:** `app/routes/dashboard.py`, `app/routes/governanca.py`,
+`app/routes/agenda.py`, `app/routes/agente_ia.py`, `tests/test_isolamento_multi_tenant_prazos.py`
+(novo).
+
 ## -53. Comparação com o Jusbrasil: referência de estilo na minuta por IA + due diligence de cliente novo
 
 **Contexto:** fora da tabela de prioridades original — surgiu de uma pergunta sobre o que dava pra

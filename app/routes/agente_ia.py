@@ -95,10 +95,15 @@ def _escopo_processos():
 
 
 def _escopo_prazos():
+    # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): isto usava
+    # `if not current_user.is_admin: filter(unidade_id == ...)`, o que só
+    # restringia usuário comum — QUALQUER admin (inclusive admin de uma
+    # empresa cliente comum, não só o admin desenvolvedor) recebia, via a
+    # persona "Operação" do Agente de IA, prazos de TODAS as empresas do
+    # sistema, não só da própria, embutidos em texto gerado pela IA.
+    # `aplicar_escopo_unidade` já implementa a regra certa das 3 camadas.
     query = Prazo.query.join(Processo).filter(Prazo.deletado_em.is_(None))
-    if not current_user.is_admin:
-        query = query.filter(Processo.unidade_id == current_user.unidade_id)
-    return query
+    return aplicar_escopo_unidade(query, Processo)
 
 
 def _contexto_operacao():
