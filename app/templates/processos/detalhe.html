@@ -634,6 +634,35 @@
       </div>
     </div>
 
+    <script>
+    (function () {
+      // Lembra em qual aba o usuário estava DENTRO DESTE PROCESSO (PENDENCIAS.md,
+      // seção -59) — sem isso, qualquer ação (registrar andamento, solicitar
+      // busca de autos, cadastrar prazo etc.) faz um POST -> redirect -> GET
+      // que sempre volta pra aba "Andamentos" (a única marcada "active" no
+      // HTML), mesmo quando a ação foi feita numa aba diferente (ex:
+      // "Documentos"). Guarda no sessionStorage (só desta aba do navegador,
+      // não sincroniza com nada) sempre que uma aba é aberta, e restaura na
+      // carga da página.
+      var chaveAbaAtiva = "jc_aba_processo_{{ processo.id }}";
+      var botoesAba = document.querySelectorAll('#abasProcesso button[data-bs-toggle="tab"]');
+
+      botoesAba.forEach(function (botao) {
+        botao.addEventListener("shown.bs.tab", function (evento) {
+          sessionStorage.setItem(chaveAbaAtiva, evento.target.getAttribute("data-bs-target"));
+        });
+      });
+
+      var abaSalva = sessionStorage.getItem(chaveAbaAtiva);
+      if (abaSalva) {
+        var botaoAlvo = document.querySelector('#abasProcesso button[data-bs-target="' + abaSalva + '"]');
+        if (botaoAlvo && window.bootstrap) {
+          new bootstrap.Tab(botaoAlvo).show();
+        }
+      }
+    })();
+    </script>
+
     {% if tem_processando %}
     <script>
     (function () {

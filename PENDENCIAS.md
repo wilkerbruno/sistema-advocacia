@@ -1,5 +1,60 @@
 # Status das pendências do briefing (atualizado em 03/09/2026)
 
+## -60. Aba do processo voltando pra "Andamentos" depois de qualquer ação + aviso importante sobre o instalador do Agente Local
+
+**Pedido:** "toda vez que eu faço alguma função dentro de um processo ele muda para a aba
+andamentos" — reproduzido com "Solicitar busca" na aba Documentos: ao clicar, a página recarrega e
+volta pra aba Andamentos, mesmo a ação tendo sido na aba Documentos.
+
+**Causa:** `app/templates/processos/detalhe.html` sempre marcava a aba "Andamentos" como `active` no
+HTML — qualquer ação dentro do processo (registrar andamento, solicitar busca de autos, cadastrar
+prazo, anexar documento, etc., em qualquer aba) faz um POST no servidor seguido de redirect pra
+`/processos/<id>` (um GET novo, página carregada do zero), e essa nova carga sempre voltava pra aba
+marcada como `active` no HTML — Andamentos, não importa de qual aba a ação partiu.
+
+**Correção:** adicionei um script na própria página (`detalhe.html`) que lembra, no `sessionStorage`
+do navegador (só desta aba/janela, não sincroniza com nada nem com o servidor), qual aba do processo
+estava aberta por último — sempre que você clica numa aba, ela fica guardada; ao carregar a página de
+novo (inclusive depois de um redirect de qualquer ação), a aba guardada é reaberta automaticamente.
+Corrige o problema para QUALQUER ação em QUALQUER aba (Andamentos, Prazos, Audiências, Documentos,
+Governança, Cofre de senha, Análise IA) — não foi uma correção pontual só do botão "Solicitar busca".
+
+**⚠️ Sobre os erros no log que você mandou junto — leia com atenção:** os 3 erros do log
+(`pje..jus.br` de novo, e "Conector 'projudi' ainda não está implementado") são **esperados** e não
+indicam que a correção da seção -59 não funcionou — eles indicam que o **Agente Local instalado na
+sua máquina ainda é a versão ANTIGA**, de antes da seção -59. Isso é diferente do resto do sistema:
+
+- O **servidor** (JusControl no EasyPanel) atualiza quando você faz `git push` e o EasyPanel builda
+  de novo — é rápido, alguns minutos.
+- O **Agente Local instalado** (o `.exe` rodando na sua máquina, com ícone na bandeja) é um programa
+  compilado à parte, separado do servidor — ele só atualiza quando você gera um instalador NOVO (tag
+  Git nova → GitHub Actions builda → Release nova) e reinstala por cima do que já está rodando. Editar
+  os arquivos em `agente_local_jc/` no repositório NÃO muda o que já está instalado e rodando na sua
+  máquina — só muda o que um instalador FUTURO vai empacotar.
+
+**Pra aplicar a correção do Projudi/PJe (seção -59) e testar de novo:**
+1. Feche o agente atual: clique com o botão direito no ícone da bandeja → **Sair**.
+2. No terminal, na pasta do projeto:
+   ```
+   git add .
+   git commit -m "Conector Projudi + correção do bug do PJe"
+   git push
+   git tag agente-v0.1.2
+   git push origin agente-v0.1.2
+   ```
+   (Se já tiver dado `git add`/`commit`/`push` sem a tag antes, só falta a parte da tag — toda tag
+   `agente-v*` nova dispara um build novo do instalador.)
+3. Espere o build ficar verde nas Actions do GitHub (mesmo processo da seção -57/-58).
+4. Na tela "Meu agente local" do JusControl, clique em **"Baixar agente local (Windows)"** de novo —
+   o link sempre aponta pra Release mais recente, então já vem o `.exe` atualizado.
+5. Rode o instalador baixado — ele atualiza por cima da instalação anterior (mesmo `AppId`, não cria
+   uma segunda instalação).
+6. Teste de novo: "Verificar agora" no menu do ícone, ou espere o próximo ciclo.
+
+**Testado:** a mudança de `detalhe.html` não tem lógica de servidor nova pra testar em pytest (é só
+JavaScript do lado do navegador) — rodei a suíte completa (153 testes) pra confirmar que a página do
+processo continua renderizando normalmente com o script novo, sem regressão.
+
 ## -59. Conector do Projudi (Agente Local) + correção de um bug real que você bateu ao testar
 
 **Pedido:** depois de testar a busca de autos pela primeira vez de verdade (processo público, sem
