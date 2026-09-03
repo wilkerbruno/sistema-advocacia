@@ -21,6 +21,15 @@
 
 name: Build do instalador do Agente Local (Windows)
 
+
+# Sem isso, o GITHUB_TOKEN que o Actions gera sozinho vem só com permissão
+# de LEITURA por padrão — e criar uma Release exige escrita. Sem esta
+# permissão explícita, o build/instalador saem certinho, mas o último
+# passo (publicar a Release) falha com "403 Resource not accessible by
+# integration".
+permissions:
+  contents: write
+  
 on:
   push:
     tags:
