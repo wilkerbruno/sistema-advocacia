@@ -1,4 +1,68 @@
-# Status das pendências do briefing (atualizado em 21/08/2026)
+# Status das pendências do briefing (atualizado em 03/09/2026)
+
+## -59. Conector do Projudi (Agente Local) + correção de um bug real que você bateu ao testar
+
+**Pedido:** depois de testar a busca de autos pela primeira vez de verdade (processo público, sem
+ser você o procurador, conector PJe) e ver o erro `Não foi possível carregar o WSDL de
+https://pje..jus.br/1g/intercomunicacao?wsdl` — "poderia fazer os conectores dos demais tribunais?"
+Perguntei por onde priorizar (você escolheu Projudi, já que o processo de teste usa esse sistema) e
+confirmou que topa construir mesmo sem poder testar contra um tribunal real aqui (mesmo espírito do
+PJe original).
+
+**Bug real encontrado no teste:** o erro que você viu não era falha de rede nem bug do agente — era
+o campo "Tribunal PJe" vazio na configuração avançada, que fazia a URL padrão
+(`https://pje.{tribunal}.jus.br/...`) virar `https://pje..jus.br/...` (dois pontos seguidos, domínio
+inválido). Isso já confirmava que o encanamento inteiro funciona (agente pareado → pegou a tarefa →
+processou → reportou o erro certinho pro servidor) — só faltava o dado. **Aproveitei o refactor desta
+entrega pra também corrigir esse comportamento**: agora, com o tribunal em branco e nenhuma URL
+manual configurada, o conector do PJe levanta um erro claro ("URL do WSDL do PJe não configurada —
+preencha em..."), em vez de montar uma URL quebrada.
+
+**O que foi construído:**
+- **`agente_local_jc/conectores/mni_soap.py`** (novo) — a lógica de consulta MNI/SOAP (protocolo
+  nacional do CNJ, que PJe, Projudi, e-Proc e e-SAJ são todos obrigados a expor, cada um na própria
+  URL) foi extraída do `pje_mni.py` original pra um módulo compartilhado — evita duplicar ~150 linhas
+  de código idêntico a cada tribunal novo.
+- **`agente_local_jc/conectores/pje_mni.py`** — agora é uma casca fina sobre `mni_soap.py`, mesmo
+  comportamento de antes (inclusive a mesma classe `ConectorPjeMni` e constante `PADRAO_URL_WSDL`,
+  pra não quebrar nada que já usava esse conector), **exceto** o bug do "tribunal vazio" acima, que
+  ficou corrigido.
+- **`agente_local_jc/conectores/projudi.py`** (novo) — conector do Projudi, também via MNI/SOAP.
+  Diferença importante em relação ao PJe: **não existe padrão de URL conhecido entre tribunais que
+  usam Projudi** (cada TJ hospeda num domínio próprio, sem convenção nacional confirmada) — por isso
+  este conector NÃO tenta adivinhar a URL do WSDL; ela é obrigatória e precisa ser obtida direto com
+  a área técnica (DTI) do tribunal específico antes de usar.
+- **`app/utils/tribunais_conectores.py`** — "Projudi" saiu da lista "ainda não implementado" e virou
+  uma opção de verdade no dropdown da tela do processo.
+- **`agente_local_jc/config_gui.py`** — seção "Avançado" ganhou uma sub-seção "Projudi" (ID
+  consultante, senha consultante, URL do WSDL) ao lado da sub-seção "PJe" já existente.
+- **`agente_local_jc/config_store.py`**, **`config.py`** (modo dev/`.env`) e **`tray_app.py`** —
+  passam os campos novos (`projudi_id_consultante`, `projudi_senha_consultante`, `projudi_url_wsdl` /
+  `PROJUDI_ID_CONSULTANTE`, `PROJUDI_SENHA_CONSULTANTE`, `PROJUDI_URL_WSDL`) pro conector igual já
+  fazia com o PJe.
+- **`agente_local_jc/.env.exemplo`** — não pôde ser reescrito por aqui (arquivo protegido, mesmo caso
+  da seção -57); mandei o trecho novo pra você colar manualmente.
+
+**⚠️ Mesmo aviso do PJe original: NENHUMA chamada real foi feita contra nenhum tribunal Projudi** —
+escrito só a partir da obrigação legal (resolução do CNJ) de expor o mesmo protocolo MNI que o PJe, e
+compartilhando a lógica já usada por ele. Antes de um processo de verdade: descobrir com o tribunal a
+URL real do WSDL de intercomunicação MNI, testar contra ela, e confirmar se os nomes de campo batem —
+ver aviso completo no topo de `agente_local_jc/conectores/projudi.py`.
+
+**Testado:** 1 teste novo do lado do servidor (`tests/test_agente_local.py`, confirma que a rota
+`/processos/<id>/buscar-autos` já aceita `tribunal_conector=projudi`) — 153 testes passando (152 + 1
+novo), zero regressão. Do lado do agente (fora do alcance do pytest, que só cobre o servidor), rodei
+um script de verificação isolado mockando o `Client` do zeep (não dá pra instalar zeep de verdade
+neste ambiente sandbox nem bater num tribunal de verdade): confirmei que (1) sem zeep instalado os
+dois conectores reclamam da dependência com mensagem legível; (2) com um cliente SOAP falso, o
+Projudi busca autos, extrai histórico e monta o PDF exatamente como o PJe já fazia; (3) Projudi sem
+`url_wsdl` configurada levanta erro claro (não tenta adivinhar); (4) PJe com tribunal vazio agora
+levanta erro claro em vez de montar `pje..jus.br` (o bug corrigido); (5) PJe com tribunal preenchido
+continua montando a URL do jeito que já fazia antes (sem regressão).
+
+**Próximo passo se quiser continuar com e-SAJ ou e-Proc:** mesmo caminho — dá pra reaproveitar boa
+parte de `mni_soap.py` se esses sistemas também implementarem o protocolo MNI nacional (não
+confirmado ainda por nenhuma fonte primária que consultei; precisaria pesquisar antes de assumir).
 
 ## -58. Download do instalador do Agente Local funcionando com o repositório PRIVADO no GitHub
 

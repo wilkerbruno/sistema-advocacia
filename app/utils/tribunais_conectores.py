@@ -19,23 +19,23 @@ explícito do cliente: "preciso que o agente busque processos de vários
 tribunais, pois os advogados trabalham com diferentes tribunais") —
 adicionar um tribunal novo é: implementar um conector novo em
 agente_local_jc/conectores/ + acrescentar uma linha no dicionário
-abaixo + no conjunto CONECTORES_IMPLEMENTADOS. Por enquanto só
-"pje_mni" tem conector implementado, e mesmo esse é um PILOTO ainda não
-testado contra nenhum tribunal real (ver agente_local_jc/README.md) —
+abaixo + no conjunto CONECTORES_IMPLEMENTADOS. Por enquanto "pje_mni" e
+"projudi" têm conector implementado, e os dois são PILOTOS ainda não
+testados contra nenhum tribunal real (ver agente_local_jc/README.md) —
 os demais aparecem na lista só para deixar visível, desde já, que a
 tela e o modelo de dados não são amarrados a um tribunal só.
 """
 
 TRIBUNAIS_CONECTORES = {
     "pje_mni": "PJe — via MNI/SOAP (piloto, requer certificado A1 e ainda não foi testado contra um tribunal real)",
+    "projudi": "Projudi — via MNI/SOAP (piloto, requer certificado A1 e URL do WSDL do tribunal; ainda não foi testado contra um tribunal real)",
     # Fast-follow — ainda sem conector implementado, listado só para deixar
     # claro que o desenho é multi-tribunal desde o início:
     "esaj_sp": "e-SAJ (TJSP e outros tribunais estaduais) — conector ainda não implementado",
     "eproc": "e-Proc (usado por vários TRFs, TJs e TRTs) — conector ainda não implementado",
-    "projudi": "Projudi — conector ainda não implementado",
 }
 
-CONECTORES_IMPLEMENTADOS = {"pje_mni"}
+CONECTORES_IMPLEMENTADOS = {"pje_mni", "projudi"}
 
 
 def opcoes_para_formulario():

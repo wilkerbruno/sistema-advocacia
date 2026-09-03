@@ -53,6 +53,14 @@ PJE_SENHA_CONSULTANTE = os.environ.get("PJE_SENHA_CONSULTANTE", "")
 # de conectores/pje_mni.py).
 PJE_URL_WSDL = os.environ.get("PJE_URL_WSDL", "")
 
+# Configuração do tribunal para o conector "projudi" (piloto — ver
+# conectores/projudi.py). Diferente do PJe, não existe padrão de URL
+# conhecido entre tribunais que usam Projudi — PROJUDI_URL_WSDL é
+# OBRIGATÓRIA (obtenha com a área técnica/DTI do tribunal).
+PROJUDI_ID_CONSULTANTE = os.environ.get("PROJUDI_ID_CONSULTANTE", "")
+PROJUDI_SENHA_CONSULTANTE = os.environ.get("PROJUDI_SENHA_CONSULTANTE", "")
+PROJUDI_URL_WSDL = os.environ.get("PROJUDI_URL_WSDL", "")
+
 CONFIG_CONECTORES = {
     "pje_mni": {
         "tribunal": PJE_TRIBUNAL,
@@ -60,6 +68,11 @@ CONFIG_CONECTORES = {
         "id_consultante": PJE_ID_CONSULTANTE,
         "senha_consultante": PJE_SENHA_CONSULTANTE,
         "url_wsdl": PJE_URL_WSDL or None,
+    },
+    "projudi": {
+        "id_consultante": PROJUDI_ID_CONSULTANTE,
+        "senha_consultante": PROJUDI_SENHA_CONSULTANTE,
+        "url_wsdl": PROJUDI_URL_WSDL or None,
     },
 }
 

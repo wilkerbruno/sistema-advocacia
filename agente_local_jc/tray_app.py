@@ -83,6 +83,11 @@ def _config_conectores(dados):
             "senha_consultante": dados.get("pje_senha_consultante", ""),
             "url_wsdl": dados.get("pje_url_wsdl") or None,
         },
+        "projudi": {
+            "id_consultante": dados.get("projudi_id_consultante", ""),
+            "senha_consultante": dados.get("projudi_senha_consultante", ""),
+            "url_wsdl": dados.get("projudi_url_wsdl") or None,
+        },
     }
 
 

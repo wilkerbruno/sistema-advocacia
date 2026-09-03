@@ -57,8 +57,8 @@ def abrir_wizard_configuracao(dados_iniciais=None):
     ttk.Checkbutton(quadro, text="Iniciar automaticamente com o Windows",
                     variable=iniciar_var).grid(column=0, row=4, columnspan=2, sticky="w", pady=(10, 0))
 
-    # ---------------- Seção avançada (certificado + tribunal-piloto) ----------------
-    quadro_avancado = ttk.LabelFrame(quadro, text="Avançado — certificado e tribunal (piloto)", padding=10)
+    # ---------------- Seção avançada (certificado + tribunais-piloto) ----------------
+    quadro_avancado = ttk.LabelFrame(quadro, text="Avançado — certificado e tribunais (piloto)", padding=10)
 
     def _linha_avancada(rotulo, chave, linha, senha=False):
         ttk.Label(quadro_avancado, text=rotulo).grid(column=0, row=linha, sticky="w", pady=2)
@@ -84,11 +84,20 @@ def abrir_wizard_configuracao(dados_iniciais=None):
     ttk.Button(linha_cert, text="Procurar...", command=_escolher_arquivo).pack(side="left", padx=(4, 0))
 
     _linha_avancada("Senha do certificado", "certificado_pfx_senha", 1, senha=True)
-    _linha_avancada("Tribunal PJe (ex: trt2, tjrj)", "pje_tribunal", 2)
-    _linha_avancada("Instância (ex: 1g, 2g)", "pje_instancia", 3)
-    _linha_avancada("ID consultante (se exigido)", "pje_id_consultante", 4)
-    _linha_avancada("Senha consultante", "pje_senha_consultante", 5, senha=True)
-    _linha_avancada("URL do WSDL (confirme antes de usar)", "pje_url_wsdl", 6)
+
+    ttk.Label(quadro_avancado, text="PJe", font=("Segoe UI", 9, "bold")).grid(
+        column=0, row=2, columnspan=2, sticky="w", pady=(8, 2))
+    _linha_avancada("Tribunal PJe (ex: trt2, tjrj)", "pje_tribunal", 3)
+    _linha_avancada("Instância (ex: 1g, 2g)", "pje_instancia", 4)
+    _linha_avancada("ID consultante (se exigido)", "pje_id_consultante", 5)
+    _linha_avancada("Senha consultante", "pje_senha_consultante", 6, senha=True)
+    _linha_avancada("URL do WSDL (confirme antes de usar)", "pje_url_wsdl", 7)
+
+    ttk.Label(quadro_avancado, text="Projudi", font=("Segoe UI", 9, "bold")).grid(
+        column=0, row=8, columnspan=2, sticky="w", pady=(8, 2))
+    _linha_avancada("ID consultante", "projudi_id_consultante", 9)
+    _linha_avancada("Senha consultante", "projudi_senha_consultante", 10, senha=True)
+    _linha_avancada("URL do WSDL (obrigatório — obtenha com o tribunal)", "projudi_url_wsdl", 11)
 
     avancado_aberto = tk.BooleanVar(value=False)
 

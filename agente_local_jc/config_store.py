@@ -50,6 +50,9 @@ CAMPOS_PADRAO = {
     "pje_id_consultante": "",
     "pje_senha_consultante": "",
     "pje_url_wsdl": "",
+    "projudi_id_consultante": "",
+    "projudi_senha_consultante": "",
+    "projudi_url_wsdl": "",
     "iniciar_com_windows": True,
 }
 

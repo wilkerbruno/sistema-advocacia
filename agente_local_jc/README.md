@@ -11,10 +11,11 @@ de volta.
 
 ## ⚠️ Status: piloto, não testado contra tribunal real
 
-Só o conector do PJe (via protocolo MNI/SOAP) está implementado, e ele
-foi escrito a partir de documentação técnica pública (CNJ, STF, TJRJ) —
-**nenhuma chamada real foi feita contra nenhum tribunal**. Antes de usar
-isto com um processo de verdade:
+Os conectores do PJe e do Projudi (os dois via protocolo MNI/SOAP,
+mesma lógica compartilhada — ver `conectores/mni_soap.py`) estão
+implementados, e foram escritos a partir de documentação técnica
+pública (CNJ, STF, TJRJ) — **nenhuma chamada real foi feita contra
+nenhum tribunal**. Antes de usar isto com um processo de verdade:
 
 1. Consiga uma credencial/certificado de **teste** junto ao tribunal que
    você vai usar primeiro (comece por só um — ver seção "Por que
@@ -47,10 +48,16 @@ diferentes. A arquitetura foi pensada para isso desde o início:
   (`registro_conectores.py`) — cada conector novo é um arquivo novo em
   `conectores/`, implementando a interface `ConectorTribunalLocal`
   (`conector_base.py`).
-- Hoje só `pje_mni` existe de verdade. `esaj_sp`, `eproc` e `projudi`
-  já aparecem como opção no menu do JusControl (desabilitados, "ainda
-  não implementado") só para deixar visível que o desenho não é
-  amarrado a um tribunal só.
+- Hoje `pje_mni` e `projudi` existem de verdade (os dois pilotos, ainda
+  não testados contra tribunal real — ver seção acima). PJe e Projudi
+  usam o mesmo protocolo nacional MNI por baixo, então compartilham a
+  lógica de consulta em `conectores/mni_soap.py` — cada um só monta a
+  URL do próprio WSDL de um jeito diferente (o PJe tenta adivinhar a
+  partir de tribunal+instância; o Projudi exige a URL informada
+  manualmente, porque não há um padrão de domínio conhecido entre os
+  tribunais que usam Projudi). `esaj_sp` e `eproc` ainda aparecem como
+  opção no menu do JusControl (desabilitados, "ainda não implementado")
+  só para deixar visível que o desenho não é amarrado a um tribunal só.
 
 ## Para o advogado: instalar pelo instalador (jeito normal de usar)
 
@@ -72,10 +79,14 @@ dados do certificado/tribunal quando o piloto de um tribunal estiver
 pronto pra uso real), **Verificar agora** (não espera o próximo ciclo),
 **Ver log** e **Sair**.
 
-Certificado digital (A1) e os dados do tribunal-piloto (PJe) ficam numa
-seção "Avançado" da mesma janela de configuração, recolhida por padrão —
-a maioria dos advogados só precisa colar o token no primeiro passo; o
-certificado só é necessário quando for buscar autos de verdade.
+Certificado digital (A1) e os dados dos tribunais-piloto (PJe e
+Projudi, cada um em sua própria sub-seção) ficam numa seção "Avançado"
+da mesma janela de configuração, recolhida por padrão — a maioria dos
+advogados só precisa colar o token no primeiro passo; o certificado e
+os dados do tribunal só são necessários quando for buscar autos de
+verdade. Para o Projudi, a URL do WSDL não tem um padrão adivinhável
+(diferente do PJe) — precisa ser obtida direto com o tribunal antes de
+preencher.
 
 ## Para quem administra o JusControl: publicar uma versão nova do instalador
 
@@ -131,7 +142,8 @@ cp .env.exemplo .env
 
 Edite o `.env` recém-criado (mesmos campos da janela de configuração do
 instalador — `JUSCONTROL_URL`, `JUSCONTROL_AGENTE_TOKEN`, e os campos
-de certificado/tribunal se for testar o conector de verdade) e rode:
+de certificado/tribunal — `PJE_*` e `PROJUDI_*` — se for testar algum
+conector de verdade) e rode:
 
 ```
 python main.py
@@ -170,7 +182,9 @@ python tray_app.py
 - `config_gui.py` — janela de configuração (tkinter), usada pelo `tray_app.py`.
 - `certificado.py` — abre o `.pfx`/`.p12` em memória.
 - `conector_base.py` — interface que todo conector de tribunal implementa.
+- `conectores/mni_soap.py` — lógica compartilhada do protocolo MNI/SOAP (usada por PJe e Projudi).
 - `conectores/pje_mni.py` — conector do PJe via MNI/SOAP (piloto).
+- `conectores/projudi.py` — conector do Projudi via MNI/SOAP (piloto).
 - `registro_conectores.py` — escolhe o conector certo pelo slug do pedido.
 - `cliente_api.py` — fala com `/api/agente-local/*` no JusControl (classe `ClienteJusControl`).
 - `motor.py` — lógica compartilhada de "buscar tarefa pendente → processar → enviar resultado", usada tanto por `main.py` quanto por `tray_app.py`.

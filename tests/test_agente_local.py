@@ -175,6 +175,25 @@ def test_solicitar_e_cancelar_busca_autos(client, login, post_csrf, cenario):
     assert pedido.status == "cancelada"
 
 
+def test_solicitar_busca_autos_com_projudi(client, login, post_csrf, cenario):
+    """Projudi (PENDENCIAS.md, seção -59) — mesmo caminho do pje_mni,
+    confirma que o conector novo já é aceito pela rota."""
+    from app.models import Usuario
+    usuario = db.session.get(Usuario, cenario["adv_id"])
+    AgenteLocalPareado.emitir_para(usuario, "Notebook")
+    db.session.commit()
+
+    login("advagente@teste.com")
+    r = post_csrf(f"/processos/{cenario['processo_id']}/buscar-autos",
+                   data={"tribunal_conector": "projudi"},
+                   get_url=f"/processos/{cenario['processo_id']}")
+    assert r.status_code == 200
+
+    pedido = SolicitacaoBuscaAutos.query.filter_by(processo_id=cenario["processo_id"]).first()
+    assert pedido is not None
+    assert pedido.tribunal_conector == "projudi"
+
+
 def test_solicitar_busca_com_conector_nao_implementado_eh_rejeitada(client, login, post_csrf, cenario):
     from app.models import Usuario
     usuario = db.session.get(Usuario, cenario["adv_id"])
