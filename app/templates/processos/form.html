@@ -3,21 +3,103 @@
 {% block eyebrow %}Acervo{% endblock %}
 {% block cabecalho %}{{ "Editar processo" if processo else "Novo processo" }}{% endblock %}
 
+{# ------------------------------------------------------------------
+   Campo "travado" (macro): usado nos campos que a busca por CNJ pode
+   preencher sozinha (ver PENDENCIAS.md, seção -55). Sempre é um <input>/
+   <textarea> de verdade (nunca um <span> à parte) — assim o valor
+   continua sendo enviado no POST normalmente, esteja travado ou não; só
+   o CSS/JS muda a aparência. Quando a busca preenche um campo VAZIO, o
+   JS marca `readonly` + a classe "travado" (vira texto simples) e mostra
+   o lápis ao lado; clicar no lápis destrava (volta a ser input normal) —
+   ver #novo-processo-resto script abaixo. Em "Editar processo" o mesmo
+   macro é reusado (mesmo comportamento se o usuário limpar um campo e
+   buscar de novo), mas como os campos já chegam preenchidos do banco,
+   nada fica travado sozinho ao carregar a tela — só uma busca nova é que
+   pode travar algo.
+------------------------------------------------------------------ #}
+{% macro campo(label, name, col='col-md-3', tipo='text', obrigatorio=False, valor='', ajuda=None, lockable=False, campo_id=None) %}
+{% set cid = campo_id or name %}
+<div class="{{ col }}">
+  <label class="form-label">{{ label }}{{ " *" if obrigatorio }}</label>
+  <div class="{{ 'campo-lockable-wrap' if lockable else '' }}">
+    {% if tipo == 'textarea' %}
+    <textarea name="{{ name }}" id="{{ cid }}" class="form-control" {% if obrigatorio %}required{% endif %}>{{ valor or '' }}</textarea>
+    {% else %}
+    <input type="{{ tipo }}" name="{{ name }}" id="{{ cid }}" class="form-control"
+           {% if tipo == 'number' %}step="0.01"{% endif %}
+           {% if obrigatorio %}required{% endif %}
+           value="{{ valor or '' }}">
+    {% endif %}
+    {% if lockable %}
+    <button type="button" class="btn-lapis" data-alvo="{{ cid }}" title="Corrigir este valor preenchido automaticamente" tabindex="-1">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.8.8.8-2.8 8.5-8.5z"/></svg>
+    </button>
+    {% endif %}
+  </div>
+  {% if ajuda %}<div class="small text-muted-doc mt-1">{{ ajuda }}</div>{% endif %}
+</div>
+{% endmacro %}
+
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 900px;">
   <form method="post">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+    {% if not processo %}
+    {# ------------------ Passo 1: só isto aparece no início ------------------ #}
+    <div id="novo-processo-passo1" class="row g-3 mb-2">
+      <div class="col-md-6">
+        <label class="form-label">Nº do processo (CNJ)</label>
+        <div class="d-flex gap-2">
+          <input type="text" name="numero_processo" id="numero_processo" class="form-control"
+                 placeholder="0000000-00.0000.0.00.0000">
+          <button type="button" id="btn-buscar-cnj" class="btn btn-brass d-flex align-items-center gap-1" style="white-space:nowrap;">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7" cy="7" r="5"/><line x1="11" y1="11" x2="15" y2="15"/></svg>
+            Buscar
+          </button>
+        </div>
+        <div class="small text-muted-doc mt-1">
+          Digite o número e clique em <strong>Buscar</strong> (ou aperte Enter) — o sistema
+          consulta o DataJud (base pública do CNJ) e já preenche os campos abaixo com o que
+          encontrar; o que não for encontrado fica em branco para você preencher.
+        </div>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tribunal (DataJud)</label>
+        <select name="tribunal_datajud_hint" id="tribunal_datajud_hint" class="form-select">
+          <option value="">— (não sei / é da Justiça do Trabalho)</option>
+          {% for slug, rotulo in tribunais_datajud %}
+          <option value="{{ slug }}">{{ rotulo }}</option>
+          {% endfor %}
+        </select>
+        <div class="small text-muted-doc mt-1">
+          Opcional — escolher aqui deixa a busca mais rápida. Deixando em branco, o sistema
+          tenta descobrir sozinho (é automático mesmo, sem escolher nada, só para a Justiça do Trabalho).
+        </div>
+      </div>
+      <div class="col-12">
+        <div id="cnj-preview-status" class="small mt-1"></div>
+        <button type="button" id="btn-preencher-manual" class="btn btn-outline-doc btn-sm mt-2">
+          Não tenho o número agora / prosseguir sem buscar
+        </button>
+      </div>
+    </div>
+    <div id="novo-processo-resto" style="display:none;">
+    {% endif %}
+
     <div class="row g-3">
+      {% if processo %}
       <div class="col-md-4">
         <label class="form-label">Nº do processo (CNJ)</label>
         <input type="text" name="numero_processo" id="numero_processo" class="form-control"
-               placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo if processo else '' }}">
+               placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo or '' }}">
         <div class="small text-muted-doc mt-1">
           Digite o número e aperte <strong>Enter</strong> pra já buscar e preencher os
           campos abaixo com os dados do DataJud (base pública do CNJ), antes de salvar.
         </div>
         <div id="cnj-preview-status" class="small mt-1"></div>
       </div>
+      {% endif %}
       <div class="col-md-3">
         <label class="form-label">Nº de controle interno</label>
         <input type="text" name="numero_interno" class="form-control" value="{{ processo.numero_interno if processo else '' }}">
@@ -42,39 +124,35 @@
         </select>
       </div>
       {% endif %}
-      <div class="col-md-4">
-        <label class="form-label">Área do direito *</label>
-        <input type="text" name="area_direito" id="area_direito" class="form-control" required placeholder="Cível, Trabalhista, Tributário..." value="{{ processo.area_direito if processo else '' }}">
-      </div>
-      <div class="col-md-4">
-        <label class="form-label">Tipo de ação</label>
-        <input type="text" name="tipo_acao" id="tipo_acao" class="form-control" value="{{ processo.tipo_acao if processo else '' }}">
-      </div>
+
+      {{ campo("Área do direito", "area_direito", col="col-md-4", obrigatorio=True, valor=processo.area_direito if processo else '', lockable=True) }}
+      {{ campo("Tipo de ação", "tipo_acao", col="col-md-4", valor=processo.tipo_acao if processo else '', lockable=True) }}
 
       <div class="col-md-3">
         <label class="form-label">Fase</label>
         <input type="text" name="fase" class="form-control" placeholder="Conhecimento, Execução..." value="{{ processo.fase if processo else '' }}">
         <div class="small text-muted-doc mt-1">O DataJud não informa a fase — preencha à mão.</div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Instância</label>
-        <input type="text" name="instancia" id="instancia" class="form-control" value="{{ processo.instancia if processo else '' }}">
-      </div>
+      {{ campo("Instância", "instancia", col="col-md-3", valor=processo.instancia if processo else '', lockable=True) }}
       <div class="col-md-3">
         <label class="form-label">Comarca</label>
-        <input type="text" name="comarca" id="comarca" class="form-control" value="{{ processo.comarca if processo else '' }}">
+        <div class="campo-lockable-wrap">
+          <input type="text" name="comarca" id="comarca" class="form-control" value="{{ processo.comarca if processo else '' }}">
+          <button type="button" class="btn-lapis" data-alvo="comarca" title="Corrigir este valor preenchido automaticamente" tabindex="-1">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11.5 2.5l2 2L5 13l-2.8.8.8-2.8 8.5-8.5z"/></svg>
+          </button>
+        </div>
         <div id="comarca-aviso" class="small text-muted-doc mt-1"></div>
       </div>
-      <div class="col-md-3">
-        <label class="form-label">Vara / Tribunal</label>
-        <input type="text" name="vara" id="vara" class="form-control" value="{{ processo.vara if processo else '' }}">
-      </div>
+      {{ campo("Vara / Tribunal", "vara", col="col-md-3", valor=processo.vara if processo else '', lockable=True) }}
+
+      {% if processo %}
       <div class="col-md-3">
         <label class="form-label">Tribunal (DataJud)</label>
         <select name="tribunal_datajud" id="tribunal_datajud" class="form-select">
           <option value="">— (opcional)</option>
           {% for slug, rotulo in tribunais_datajud %}
-          <option value="{{ slug }}" {{ "selected" if processo and processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
+          <option value="{{ slug }}" {{ "selected" if processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
           {% endfor %}
         </select>
         <div class="small text-muted-doc mt-1">
@@ -83,6 +161,10 @@
           Justiça do Trabalho). Escolher aqui deixa a busca mais rápida.
         </div>
       </div>
+      {% else %}
+      {# reflete a escolha/descoberta do Passo 1 no valor de verdade enviado no POST #}
+      <input type="hidden" name="tribunal_datajud" id="tribunal_datajud">
+      {% endif %}
 
       <div class="col-md-3">
         <label class="form-label">Polo do cliente</label>
@@ -103,15 +185,9 @@
         <div class="small text-muted-doc mt-1">O DataJud também não expõe isso (mesma restrição de LGPD) — preencha à mão.</div>
       </div>
 
-      <div class="col-md-3">
-        <label class="form-label">Valor da causa (R$)</label>
-        <input type="number" step="0.01" name="valor_causa" id="valor_causa" class="form-control" value="{{ processo.valor_causa if processo else '' }}">
-        <div class="small text-muted-doc mt-1">Nem todo tribunal/processo tem esse dado no DataJud — vem em branco com frequência, sem ser erro.</div>
-      </div>
-      <div class="col-md-3">
-        <label class="form-label">Data de distribuição</label>
-        <input type="date" name="data_distribuicao" id="data_distribuicao" class="form-control" value="{{ processo.data_distribuicao if processo else '' }}">
-      </div>
+      {{ campo("Valor da causa (R$)", "valor_causa", col="col-md-3", tipo="number", valor=processo.valor_causa if processo else '', lockable=True, ajuda="Nem todo tribunal/processo tem esse dado no DataJud — vem em branco com frequência, sem ser erro.") }}
+      {{ campo("Data de distribuição", "data_distribuicao", col="col-md-3", tipo="date", valor=processo.data_distribuicao if processo else '', lockable=True) }}
+
       <div class="col-md-3">
         <label class="form-label">Responsável</label>
         <select name="responsavel_id" class="form-select">
@@ -132,15 +208,7 @@
       </div>
       {% endif %}
 
-      <div class="col-12">
-        <label class="form-label">Descrição / objeto</label>
-        <textarea name="descricao" id="descricao" class="form-control">{{ processo.descricao if processo else '' }}</textarea>
-        <div class="small text-muted-doc mt-1">
-          Se a busca automática (Enter no CNJ acima) achar algo que não tem campo
-          próprio — mais de um assunto, se é eletrônico/físico, sinal de sigilo — cai
-          aqui sozinho, só quando este campo ainda estiver vazio.
-        </div>
-      </div>
+      {{ campo("Descrição / objeto", "descricao", col="col-12", tipo="textarea", valor=processo.descricao if processo else '', lockable=True, ajuda="Se a busca automática do CNJ achar algo que não tem campo próprio — mais de um assunto, se é eletrônico/físico, sinal de sigilo — cai aqui sozinho, só quando este campo ainda estiver vazio.") }}
 
       <div class="col-12">
         <div class="form-check">
@@ -235,29 +303,40 @@
       <button type="submit" class="btn btn-brass">Salvar processo</button>
       <a href="{{ url_for('processos.listar') }}" class="btn btn-outline-doc">Cancelar</a>
     </div>
+
+    {% if not processo %}
+    </div> {# fecha #novo-processo-resto #}
+    {% endif %}
   </form>
 </div>
 {% endblock %}
 
 {% block scripts_extra %}
 <script>
-// Digitar o CNJ e apertar Enter já busca no DataJud e preenche os campos
-// vazios abaixo (área do direito, tipo de ação, vara/tribunal, instância,
-// comarca, valor da causa, data de distribuição, tribunal DataJud) — mesma
-// pré-visualização usada em "Cadastrar por CNJ"
-// (governanca.consultar_cnj_preview, só lê, nunca grava nada). O
-// cadastro/edição em si (POST deste formulário) tenta a captura de novo e
-// persiste de fato (ver app/routes/processos.py —
-// _tentar_captura_automatica_no_cadastro) — esta busca aqui é só pra dar
-// feedback imediato e evitar digitar tudo à mão antes de salvar.
+// Busca do DataJud a partir do número CNJ — usada tanto em "Novo processo"
+// (onde também controla o Passo 1 -> Passo 2, ver #novo-processo-passo1/
+// #novo-processo-resto) quanto em "Editar processo" (onde só preenche
+// campos vazios, sem esconder nada, exatamente como antes). Só LÊ dados
+// (GET /governanca/processos/consultar-cnj) — nunca grava nada; o
+// cadastro/edição em si só acontece no POST normal deste formulário
+// (que tenta a mesma busca de novo e persiste de fato — ver
+// app/routes/processos.py, _tentar_captura_automatica_no_cadastro).
 //
-// O que o DataJud NÃO tem, então nunca preenche sozinho: Fase (não é um
-// campo da resposta), Parte contrária/Advogado da parte contrária (a API
-// pública não expõe nome de partes — dado protegido por LGPD), Responsável
-// e Cliente (são do seu escritório, nenhuma fonte externa saberia).
+// O que o DataJud NÃO tem, então nunca preenche/trava sozinho: Nº de
+// controle interno, Cliente, Unidade, Fase, Polo do cliente, Parte
+// contrária/Advogado da parte contrária (LGPD), Responsável — todos
+// esses continuam sempre como campo comum, editável desde o início.
 (function () {
   const campoNumero = document.getElementById("numero_processo");
-  const campoTribunal = document.getElementById("tribunal_datajud");
+  if (!campoNumero) return;
+
+  const modoNovo = !!document.getElementById("novo-processo-resto");
+  // Em "Novo processo" o hint de tribunal do Passo 1 tem um id próprio
+  // (tribunal_datajud_hint) pra não colidir com o <input type=hidden>
+  // tribunal_datajud (esse sim é o que vai no POST); em "Editar processo"
+  // o <select> já tem id="tribunal_datajud" direto (era assim antes).
+  const campoTribunalHint = document.getElementById("tribunal_datajud_hint") || document.getElementById("tribunal_datajud");
+  const campoTribunalPost = document.getElementById("tribunal_datajud");
   const campoArea = document.getElementById("area_direito");
   const campoTipoAcao = document.getElementById("tipo_acao");
   const campoVara = document.getElementById("vara");
@@ -269,37 +348,60 @@
   const campoDescricao = document.getElementById("descricao");
   const campoSegredo = document.getElementById("segredo");
   const status = document.getElementById("cnj-preview-status");
-  if (!campoNumero || !status) return;
+
+  // ---- trava/destrava (lápis) ----
+  function travarComoAutomatico(campo) {
+    if (!campo) return;
+    campo.readOnly = true;
+    campo.classList.add("travado");
+    const wrap = campo.closest(".campo-lockable-wrap");
+    if (wrap) wrap.classList.add("tem-valor-travado");
+  }
+  document.querySelectorAll(".btn-lapis").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      const alvo = document.getElementById(btn.dataset.alvo);
+      if (!alvo) return;
+      alvo.readOnly = false;
+      alvo.classList.remove("travado");
+      alvo.focus();
+      alvo.select();
+      btn.remove();
+    });
+  });
 
   function preencherSeVazio(campo, valor) {
-    if (campo && valor && !campo.value) campo.value = valor;
+    if (campo && valor && !campo.value) {
+      campo.value = valor;
+      travarComoAutomatico(campo);
+    }
   }
 
   async function buscarEPreencher() {
     const numero = campoNumero.value.trim();
     if (!numero) return;
-
-    status.innerHTML = `<span class="text-muted-doc">Consultando DataJud...</span>`;
+    if (status) status.innerHTML = `<span class="text-muted-doc">Consultando DataJud...</span>`;
 
     const params = new URLSearchParams({ numero_cnj: numero });
-    if (campoTribunal.value) params.set("tribunal_datajud", campoTribunal.value);
+    if (campoTribunalHint && campoTribunalHint.value) params.set("tribunal_datajud", campoTribunalHint.value);
 
     try {
       const resp = await fetch(`{{ url_for('governanca.consultar_cnj_preview') }}?${params}`);
       const dados = await resp.json();
 
       if (!dados.valido) {
-        status.innerHTML = `<span class="text-danger">Número CNJ inválido: ${dados.motivo}</span>`;
+        if (status) status.innerHTML = `<span class="text-danger">Número CNJ inválido: ${dados.motivo}</span>`;
+        if (modoNovo) revelarResto();
         return;
       }
       if (!dados.encontrado) {
-        status.innerHTML = `<span class="text-warning">Não foi possível buscar automaticamente agora: ${dados.motivo}</span>` +
-          ` Os campos podem ser preenchidos à mão — ao salvar, o sistema tenta a busca de novo.`;
+        if (status) status.innerHTML = `<span class="text-warning">Não foi possível buscar automaticamente agora: ${dados.motivo}</span>` +
+          ` Os campos abaixo podem ser preenchidos à mão — ao salvar, o sistema tenta a busca de novo.`;
+        if (modoNovo) revelarResto();
         return;
       }
 
-      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud (${dados.tribunal_slug.toUpperCase()}) — ` +
-        `${dados.qtd_movimentacoes} movimentação(ões). Campos em branco preenchidos abaixo; confira antes de salvar.</span>` +
+      if (status) status.innerHTML = `<span class="text-success">Processo encontrado no DataJud (${(dados.tribunal_slug || "").toUpperCase()}) — ` +
+        `${dados.qtd_movimentacoes} movimentação(ões). Campos preenchidos automaticamente aparecem como texto, com um lápis ao lado para corrigir.</span>` +
         (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
 
       preencherSeVazio(campoArea, dados.assunto || dados.classe);
@@ -312,25 +414,33 @@
       preencherSeVazio(campoData, dados.data_ajuizamento_iso);
       preencherSeVazio(campoDescricao, dados.descricao_sugerida);
 
-      // Se o tribunal foi identificado (automático ou por tentativa), reflete
-      // no <select> quando o usuário não tinha escolhido nada ainda.
-      if (dados.tribunal_slug && !campoTribunal.value) {
-        for (const opt of campoTribunal.options) {
-          if (opt.value === dados.tribunal_slug) { campoTribunal.value = dados.tribunal_slug; break; }
-        }
+      // Reflete o tribunal identificado/escolhido no campo que de fato vai
+      // no POST (select em "Editar", hidden em "Novo").
+      if (dados.tribunal_slug && campoTribunalPost && !campoTribunalPost.value) {
+        campoTribunalPost.value = dados.tribunal_slug;
       }
 
-      // O DataJud sinalizou algum nível de sigilo: só MARCA a caixa (nunca
-      // desmarca uma que o usuário já mudou), com um aviso visível — a
-      // decisão final continua sendo sua, dá pra desmarcar antes de salvar.
       if (dados.sigilo_sugerido && campoSegredo && !campoSegredo.checked) {
         campoSegredo.checked = true;
-        status.innerHTML += `<br><span class="text-warning">O DataJud sinaliza sigilo neste processo — marquei "Segredo de justiça" automaticamente; desmarque se não for o caso.</span>`;
+        if (status) status.innerHTML += `<br><span class="text-warning">O DataJud sinaliza sigilo neste processo — marquei "Segredo de justiça" automaticamente; desmarque se não for o caso.</span>`;
       }
+
+      if (modoNovo) revelarResto();
     } catch (e) {
-      status.innerHTML = `<span class="text-danger">Erro ao consultar o DataJud agora. Tente de novo em alguns instantes.</span>`;
+      if (status) status.innerHTML = `<span class="text-danger">Erro ao consultar o DataJud agora. Tente de novo em alguns instantes.</span>`;
+      if (modoNovo) revelarResto();
     }
   }
+
+  // ---- Passo 1 -> Passo 2 (só existe em "Novo processo") ----
+  function revelarResto() {
+    const resto = document.getElementById("novo-processo-resto");
+    if (resto) resto.style.display = "";
+  }
+  const btnBuscar = document.getElementById("btn-buscar-cnj");
+  if (btnBuscar) btnBuscar.addEventListener("click", buscarEPreencher);
+  const btnManual = document.getElementById("btn-preencher-manual");
+  if (btnManual) btnManual.addEventListener("click", revelarResto);
 
   campoNumero.addEventListener("keydown", function (ev) {
     if (ev.key === "Enter") {

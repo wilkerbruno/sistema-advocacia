@@ -1,5 +1,67 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -55. Tela "Novo processo": busca por CNJ primeiro, resto do formulário só aparece depois
+
+**Pedido:** na tela de novo processo, mostrar a princípio só o campo "Nº do processo (CNJ)" e um
+botão de lupa para buscar; depois da busca, mostrar como texto simples (não editável) o que foi
+encontrado automaticamente e como campo normal o que não foi encontrado, e cada campo preenchido
+automaticamente ganhar um ícone de lápis para o usuário poder clicar e transformá-lo de volta em
+campo editável, corrigindo o que o DataJud trouxer errado.
+
+**O que já existia:** a tela "Novo processo" (`app/routes/processos.py::novo()`, template
+`app/templates/processos/form.html`) já mostrava TODOS os campos de uma vez, com uma busca no
+DataJud disparada ao apertar Enter no número CNJ que preenchia os campos vazios — mas sem nenhuma
+distinção visual entre "isso veio da busca automática" e "isso eu digitei", e sem esconder nada
+antes de buscar. O endpoint de busca em si (`governanca.consultar_cnj_preview`, só leitura, nunca
+grava nada) já existia e já era reaproveitado tanto por essa tela quanto pela tela separada
+"Cadastrar por CNJ" — não precisou de nenhuma rota nova.
+
+**O que mudou:**
+- **`app/templates/processos/form.html`** — reescrito. Em modo CRIAÇÃO (sem `processo` ainda), a
+  tela agora nasce só com "Nº do processo (CNJ)", o seletor opcional de tribunal (acelera a busca)
+  e o botão **Buscar** (lupa) — todo o resto do formulário fica dentro de
+  `#novo-processo-resto`, com `display:none`, e só aparece quando: (a) a busca roda (achando o
+  processo ou não — nunca trava o usuário esperando por um resultado que não vem), ou (b) o
+  usuário clica em "Não tenho o número agora / prosseguir sem buscar" (processo sem CNJ ainda
+  distribuído continua um caso válido — `numero_processo` sempre foi opcional no modelo). Em modo
+  EDIÇÃO o comportamento continua idêntico a antes — todos os campos aparecem de cara, sem esse
+  fluxo em 2 passos — a mudança foi só para o cadastro novo, como pedido.
+  - Todo campo que a busca do DataJud pode preencher (Área do direito, Tipo de ação, Instância,
+    Comarca, Vara/Tribunal, Valor da causa, Data de distribuição, Descrição) virou um "campo
+    travável": continua sendo um `<input>`/`<textarea>` de verdade (o valor é enviado no formulário
+    normalmente, travado ou não), mas quando a busca preenche um campo que estava vazio, o
+    JavaScript marca `readonly` nele, aplica um estilo de texto simples (sem borda, fundo neutro) e
+    mostra um ícone de lápis ao lado. Clicar no lápis destrava o campo (volta a ser um input normal,
+    já com foco e o texto selecionado pra já poder corrigir) e o lápis desaparece.
+  - Campo que o DataJud nunca preenche (Nº de controle interno, Cliente, Unidade, Fase, Polo do
+    cliente, Parte contrária, Advogado da parte contrária, Responsável) continua sendo um campo
+    comum, editável desde o início, sem lápis nenhum do lado — exatamente o "aparecer como input o
+    que não tiver sido preenchido" pedido.
+- **`app/static/css/estilo.css`** — classes novas `.campo-lockable-wrap`, `.travado` e `.btn-lapis`
+  (visual do campo travado e do lápis — some/aparece conforme a classe `.tem-valor-travado` no
+  wrapper, controlada pelo JS acima).
+- **`tests/test_form_novo_processo.py`** (novo) — confirma que a tela de criação nasce só com o
+  Passo 1 (o resto escondido por `display:none`), que a tela de edição continua mostrando tudo
+  de cara (comportamento antigo intacto), e que o cadastro manual (sem buscar nada) continua
+  criando o processo normalmente — prova de que a reforma foi só de apresentação, não mudou nada
+  na rota nem no modelo.
+
+**Testado:** os 3 testes novos acima, mais uma verificação end-to-end num navegador de verdade
+(Playwright/Chromium, não só a suíte pytest — pytest não executa o JavaScript da página) com um
+conector DataJud falso (sem depender de credencial real): logou, digitou um CNJ, clicou em
+"Buscar", e confirmou visualmente que (1) o resto do formulário estava escondido antes e visível
+depois da busca; (2) "Comarca" (que o fake devolveu) virou texto travado com o lápis visível; (3)
+"Fase" (que o DataJud nunca preenche) continuou um input normal, sem lápis; (4) clicar no lápis da
+Comarca devolveu um input editável de verdade, já pronto pra receber a correção. Rodei a suíte
+inteira depois — **124 testes passando** (121 já existentes + 3 novos), nenhuma regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — **nenhuma além do `git push` de sempre.** Esta
+entrega mexe só em template HTML, CSS e um arquivo de teste — nenhuma coluna nova, nenhuma tabela
+nova, nenhum `.cron` novo. Não precisa rodar `sincronizar_schema.py` nem rebuild especial.
+
+**Arquivos alterados:** `app/templates/processos/form.html`, `app/static/css/estilo.css`,
+`tests/test_form_novo_processo.py` (novo).
+
 ## -54. 🔴 CORREÇÃO DE SEGURANÇA CRÍTICA: prazos/audiências/movimentações/tarefas/compromissos de uma empresa apareciam para admin de OUTRA empresa
 
 **Reportado por você:** "prazos em atenção e prazos perdidos aparecem para empresas diferentes das
