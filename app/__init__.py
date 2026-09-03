@@ -91,6 +91,8 @@ def create_app(config_class=Config):
     from app.routes.timesheet import timesheet_bp
     from app.routes.agente_ia import agente_ia_bp
     from app.routes.integracoes import integracoes_bp
+    from app.routes.agente_local import agente_local_bp
+    from app.routes.agente_local_api import agente_local_api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -108,6 +110,8 @@ def create_app(config_class=Config):
     app.register_blueprint(timesheet_bp, url_prefix="/timesheet")
     app.register_blueprint(agente_ia_bp, url_prefix="/agente-ia")
     app.register_blueprint(integracoes_bp)
+    app.register_blueprint(agente_local_bp)
+    app.register_blueprint(agente_local_api_bp, url_prefix="/api/agente-local")
 
     # A API de integração (/api/v1/*) é autenticada por token Bearer, não
     # por cookie de sessão — CSRF protege contra um navegador enviar um
@@ -116,6 +120,10 @@ def create_app(config_class=Config):
     # segurança: mesmo se um POST for adicionado aqui no futuro, não faz
     # sentido exigir token CSRF de quem já está autenticado por token.
     csrf.exempt(api_integracao_bp)
+    # Mesmo raciocínio para a API do Agente Local (/api/agente-local/*):
+    # autenticada por Bearer token (AgenteLocalPareado), sem cookie de
+    # sessão envolvido.
+    csrf.exempt(agente_local_api_bp)
 
     # ---------------------- Bloqueio por licença vencida ----------------------
     # Admin desenvolvedor e a empresa dona da plataforma nunca são bloqueados.

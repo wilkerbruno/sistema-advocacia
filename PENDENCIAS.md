@@ -1,5 +1,114 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -56. Agente Local: busca de autos completos (PDF + histórico integral) com o certificado do próprio advogado, multi-tribunal
+
+**Pedido (resumo da conversa completa):** o DataJud só traz metadados públicos, nunca o PDF do
+processo. Você perguntou se dava pra buscar o PDF completo; expliquei que só autenticando no
+sistema do tribunal com o certificado/token do próprio advogado (A1/A3), e que um certificado A3
+nunca pode ser exportado pra um servidor. Você perguntou se dava pra fazer isso como uma extensão
+rodando na máquina do usuário, sem guardar credencial nenhuma no servidor, de forma gratuita —
+confirmei que sim, essa é a arquitetura mais segura. Você confirmou que entendeu que isso é
+diferente do agente local desta própria conversa (que roda no SEU computador, fora do JusControl) —
+esse seria um agente local rodando na máquina de CADA ADVOGADO cliente do JusControl, nunca na VPS.
+Por fim: **"ok, pode dar início ao processo... preciso que o agente busque processos de vários
+tribunais, pois os advogados trabalham com diferentes tribunais"** — pedido explícito de
+arquitetura multi-tribunal desde o início, mesmo que só um tribunal seja implementado de verdade
+agora.
+
+**Desenho da solução:** dois lados, propositalmente bem separados.
+
+1. **Lado servidor** (dentro do JusControl, neste repositório) — só um "correio": guarda o
+   pareamento (token pessoal do agente de cada advogado) e a fila de pedidos de busca, e recebe o
+   PDF já pronto no final. **Nunca fala com nenhum tribunal.**
+2. **Lado agente local** (pasta nova `agente_local_jc/` na raiz do repositório, um programa Python
+   separado — NÃO faz parte do Flask app, não sobe pra VPS) — instalado por cada advogado no
+   PRÓPRIO computador. É quem autentica de verdade no tribunal com o certificado do advogado
+   (nunca sai da máquina dele), busca o PDF e o histórico, e manda só o resultado de volta.
+
+**O que foi criado (lado servidor):**
+- **`app/models/agente_local.py`** (novo) — dois modelos:
+  - `AgenteLocalPareado`: token de acesso pessoal (hash SHA-256, nunca o valor puro — mesmo padrão
+    de `TokenIntegracao`), mas por **usuário**, não por empresa: o certificado é do advogado, não
+    do escritório inteiro. `emitir_para`/`validar`/`revogar`, igual ao token de integração.
+  - `SolicitacaoBuscaAutos`: a fila — processo, conector de tribunal escolhido (slug), status
+    (pendente → em_andamento → concluída/erro/cancelada), quem pediu, qual agente atendeu, e o
+    `Documento` resultante.
+- **`app/utils/tribunais_conectores.py`** (novo) — registro dos slugs de tribunal que a tela
+  oferece (`pje_mni` implementado; `esaj_sp`, `eproc`, `projudi` listados como roadmap, desabilitados
+  no formulário) — arquitetura multi-tribunal desde já, como pedido, mesmo com só 1 implementado.
+- **`app/routes/agente_local.py`** (novo) — tela **"Meu agente local"** (menu lateral, item "AL"),
+  disponível para qualquer usuário logado (não só admin — pareamento é pessoal): gerar/revogar o
+  próprio token de pareamento.
+- **`app/routes/agente_local_api.py`** (novo) — API que o agente local (na máquina do advogado)
+  usa: `GET /api/agente-local/ping` (confirma token), `GET /api/agente-local/tarefas` (só as
+  pendentes do PRÓPRIO usuário dono do agente — nunca de outro advogado, mesmo da mesma empresa),
+  `POST .../iniciar`, `POST .../resultado` (recebe o PDF, cria um `Documento` normal do processo,
+  categoria `autos_completo_agente_local` — mesma tabela/pasta de upload manual), `POST .../erro`.
+  Autenticada por `Authorization: Bearer <token>`, isenta de CSRF (mesmo raciocínio de
+  `api_integracao.py`: autenticação por token, não por cookie de sessão).
+- **`app/routes/processos.py`** — duas rotas novas: `POST /processos/<id>/buscar-autos` (cria a
+  solicitação, exige um agente local pareado e ativo) e
+  `POST /processos/solicitacoes-busca-autos/<id>/cancelar`. Tela de detalhe do processo ganhou uma
+  seção nova na aba "Documentos": escolher o conector, pedir a busca, acompanhar o status, baixar
+  o PDF quando pronto.
+- **`app/templates/agente_local/meu_agente.html`** (novo), **`app/templates/processos/detalhe.html`**
+  e **`app/templates/base.html`** — telas/nav acima.
+- **`app/models/__init__.py`**, **`app/__init__.py`** — registro dos 2 modelos novos e dos 2
+  blueprints novos (`agente_local_bp`, isento de bloqueio por módulo por não estar no catálogo —
+  mesmo padrão de "Integrações"; `agente_local_api_bp`, isento de CSRF).
+
+**O que foi criado (lado agente local, pasta `agente_local_jc/`, fora do Flask app):**
+- `conector_base.py` — interface `ConectorTribunalLocal` (mesmo espírito de `ConectorCaptura` do
+  projeto principal), pra cada tribunal novo virar só mais um arquivo em `conectores/`.
+- `conectores/pje_mni.py` — conector do PJe via protocolo **MNI** (SOAP), usando `zeep` com WSDL
+  carregado dinamicamente (nunca um schema fixo hardcoded) e autenticação mTLS com o certificado do
+  advogado. Implementa o padrão de 2 chamadas confirmado pela documentação técnica do CNJ/STF/TJRJ:
+  1ª chamada traz metadados + lista de IDs de documento; 2ª chamada, passando esses IDs, traz o
+  conteúdo binário (base64) de cada um — consolidados num único PDF (via `pypdf`, se instalado).
+- `certificado.py` — abre um certificado **A1** (`.pfx`/`.p12`) em memória (biblioteca
+  `cryptography`), nunca grava a senha, usa arquivo temporário com permissão restrita só pelo
+  tempo da chamada ao tribunal, sempre apagado depois — testei isso de verdade aqui (gerar um
+  certificado de teste, carregar, confirmar que o arquivo temporário some depois do `with`, e que
+  senha errada é rejeitada com mensagem clara).
+- `registro_conectores.py`, `cliente_api.py` (fala com `/api/agente-local/*`), `main.py` (laço de
+  polling), `config.py` + `.env.exemplo`, `requirements.txt`, `README.md`.
+
+**⚠️⚠️⚠️ O que NÃO foi testado — leia antes de usar com processo real:** o conector `pje_mni` foi
+escrito só a partir de documentação pública (CNJ, STF, TJRJ) — **nenhuma chamada real foi feita
+contra nenhum tribunal**, porque não há aqui nenhuma credencial de teste nem certificado real pra
+testar com. Os nomes de campo usados (`idConsultante`, `numeroProcesso`, `idDocumento`, `conteudo`
+etc.) são os únicos confirmados por fonte primária — mas cada um dos ~90 tribunais roda a própria
+instância do PJe, com variações possíveis. **Antes de usar isso com um processo de verdade**, é
+preciso: (1) conseguir credencial/certificado de teste com UM tribunal específico; (2) confirmar a
+URL real do WSDL dele; (3) rodar o agente contra esse ambiente e conferir se a resposta bate com o
+que o código espera, ajustando `conectores/pje_mni.py` se precisar. Isso está documentado bem
+grande no topo do próprio arquivo e no `README.md` da pasta — ninguém vai achar isso "parece
+funcionar" sem querer.
+
+O que FOI testado de verdade (13 testes novos, `tests/test_agente_local.py`): emissão/validação/
+revogação de token de pareamento; a tela "Meu agente local" (parear, revogar, e que um usuário não
+consegue revogar pareamento de outro); pedir e cancelar uma busca pela tela do processo, inclusive
+a validação de conector ainda-não-implementado sendo recusada; e a API completa do agente
+(autenticação por Bearer, isolamento — um agente só vê/atende tarefa do PRÓPRIO usuário dono dele,
+nunca de outro advogado —, o fluxo iniciar → enviar resultado → `Documento` criado, e reportar
+erro). **137 testes passando no total** (124 já existentes + 13 novos), nenhuma regressão.
+
+⚠️ **Ação sua necessária depois do deploy:** (1) `git push` de sempre; (2) rode
+`python sincronizar_schema.py` no Terminal do EasyPanel depois do deploy — duas tabelas novas
+(`agentes_locais_pareados`, `solicitacoes_busca_autos`), sem nenhuma coluna NOT NULL sem default,
+então o script resolve sozinho; (3) a pasta `agente_local_jc/` não entra no Dockerfile nem precisa
+de rebuild — ela NUNCA roda no servidor, é só um programa que cada advogado baixa e roda no próprio
+computador (avise a equipe que isso ainda é um piloto, não distribua pra cliente final ainda).
+
+**Arquivos novos:** `app/models/agente_local.py`, `app/utils/tribunais_conectores.py`,
+`app/routes/agente_local.py`, `app/routes/agente_local_api.py`,
+`app/templates/agente_local/meu_agente.html`, `tests/test_agente_local.py`, e toda a pasta
+`agente_local_jc/` (`config.py`, `.env.exemplo`, `certificado.py`, `conector_base.py`,
+`conectores/pje_mni.py`, `conectores/__init__.py`, `registro_conectores.py`, `cliente_api.py`,
+`main.py`, `requirements.txt`, `README.md`).
+**Arquivos alterados:** `app/models/__init__.py`, `app/__init__.py`, `app/routes/processos.py`,
+`app/templates/processos/detalhe.html`, `app/templates/base.html`.
+
 ## -55. Tela "Novo processo": busca por CNJ primeiro, resto do formulário só aparece depois
 
 **Pedido:** na tela de novo processo, mostrar a princípio só o campo "Nº do processo (CNJ)" e um

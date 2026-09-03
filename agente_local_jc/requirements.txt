@@ -1,0 +1,5 @@
+# Agente Local do JusControl — dependências.
+requests>=2.31
+zeep>=4.2          # cliente SOAP para o MNI do PJe (conectores/pje_mni.py)
+cryptography>=42.0 # abrir certificado A1 (.pfx/.p12) — ver certificado.py
+pypdf>=4.0         # consolidar múltiplos documentos num PDF único (opcional, ver conectores/pje_mni.py)

@@ -11,13 +11,14 @@ from sqlalchemy import func
 from app.models import (
     Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
     Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito, LogAtividade,
+    SolicitacaoBuscaAutos,
 )
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
     unidades_do_escopo, usuarios_do_escopo, checar_acesso_processo_ou_403, filtrar_processos_visiveis,
 )
 from app.utils.notificacoes import registrar_log, notificar
-from app.utils import tribunais_datajud, agente_ia_router
+from app.utils import tribunais_datajud, agente_ia_router, tribunais_conectores
 from app.utils.analise_processo_ia import gerar_analise
 from app.utils.fila import enfileirar
 from app.utils.cnj import validar_numero_cnj
@@ -293,6 +294,18 @@ def detalhe(processo_id):
         .all()
     ) if processo.documentos else {}
 
+    # Agente Local (PENDENCIAS.md, seção -56) — solicitações de busca de
+    # autos completos já feitas para este processo (mais recente primeiro),
+    # e as opções de conector de tribunal pro formulário de novo pedido.
+    solicitacoes_busca_autos = (
+        SolicitacaoBuscaAutos.query.filter_by(processo_id=processo.id)
+        .order_by(SolicitacaoBuscaAutos.criado_em.desc()).all()
+    )
+    from app.models import AgenteLocalPareado
+    tem_agente_local_pareado = (
+        AgenteLocalPareado.query.filter_by(usuario_id=current_user.id, ativo=True).first() is not None
+    )
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
@@ -300,7 +313,10 @@ def detalhe(processo_id):
                             prazos_historico=prazos_historico,
                             sugestoes_evidencia=sugestoes_evidencia,
                             conflitos_interesse=conflitos_interesse,
-                            contagem_downloads_documentos=contagem_downloads_documentos)
+                            contagem_downloads_documentos=contagem_downloads_documentos,
+                            solicitacoes_busca_autos=solicitacoes_busca_autos,
+                            opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
+                            tem_agente_local_pareado=tem_agente_local_pareado)
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])
@@ -820,6 +836,66 @@ def excluir_documento(documento_id):
     db.session.commit()
     flash("Documento removido.", "info")
     return redirect(url_for("processos.detalhe", processo_id=processo_id))
+
+
+# ---------- Agente Local: busca de autos completos (PENDENCIAS.md, seção -56) ----------
+# O servidor só guarda o PEDIDO — quem fala de verdade com o tribunal é o
+# agente local instalado na máquina do próprio advogado (ver
+# app/models/agente_local.py, app/routes/agente_local_api.py e
+# agente_local_jc/ na raiz do repositório). Isso é diferente da captura
+# automática via DataJud (que já roda no servidor, só traz metadados
+# públicos) — aqui é sob demanda, exige o agente pareado e o certificado
+# do próprio advogado, e pode trazer o PDF completo mesmo de processo
+# sigiloso, desde que o advogado seja mesmo procurador daquele processo
+# (o tribunal garante isso, não o JusControl).
+
+@processos_bp.route("/<int:processo_id>/buscar-autos", methods=["POST"])
+@login_required
+def solicitar_busca_autos(processo_id):
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    conector = request.form.get("tribunal_conector", "")
+    if conector not in tribunais_conectores.CONECTORES_IMPLEMENTADOS:
+        flash("Escolha um conector de tribunal disponível — os demais ainda estão no roadmap.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    from app.models import AgenteLocalPareado
+    if AgenteLocalPareado.query.filter_by(usuario_id=current_user.id, ativo=True).first() is None:
+        flash("Você ainda não tem um Agente Local pareado — configure em "
+              "\"Meu agente local\" antes de pedir uma busca.", "warning")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    pedido = SolicitacaoBuscaAutos(
+        processo_id=processo.id,
+        tribunal_conector=conector,
+        numero_processo_solicitado=processo.numero_processo,
+        solicitado_por_id=current_user.id,
+    )
+    db.session.add(pedido)
+    registrar_log(current_user, "solicitou_busca_autos_agente_local", "Processo", processo.id, conector)
+    db.session.commit()
+    flash("Busca solicitada — assim que o agente local do seu computador estiver aberto e "
+          "conectado, ele pega esse pedido automaticamente.", "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@processos_bp.route("/solicitacoes-busca-autos/<int:solicitacao_id>/cancelar", methods=["POST"])
+@login_required
+def cancelar_busca_autos(solicitacao_id):
+    pedido = db.get_or_404(SolicitacaoBuscaAutos, solicitacao_id)
+    checar_acesso_processo_ou_403(pedido.processo)
+    if pedido.solicitado_por_id != current_user.id and not current_user.is_admin:
+        abort(403)
+    if pedido.status not in SolicitacaoBuscaAutos.STATUS_ABERTOS:
+        flash("Essa solicitação já não está mais aberta.", "warning")
+        return redirect(url_for("processos.detalhe", processo_id=pedido.processo_id))
+
+    pedido.cancelar()
+    registrar_log(current_user, "cancelou_busca_autos_agente_local", "Processo", pedido.processo_id, pedido.tribunal_conector)
+    db.session.commit()
+    flash("Solicitação cancelada.", "info")
+    return redirect(url_for("processos.detalhe", processo_id=pedido.processo_id))
 
 
 # ---------- Análise com Agente de IA (resumo dos autos / rascunho de petição) ----------

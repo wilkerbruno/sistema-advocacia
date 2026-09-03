@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block titulo %}Meu agente local — JusControl{% endblock %}
+{% block eyebrow %}Minha conta{% endblock %}
+{% block cabecalho %}Meu agente local{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-4" style="max-width: 720px;">
+  O <strong>Agente Local</strong> é um programa pequeno que você instala no SEU computador para buscar
+  os autos completos (PDF) e o histórico integral de um processo — inclusive processos sigilosos, desde
+  que você seja mesmo advogado(a) daquele processo — usando o SEU certificado digital ou token. O
+  certificado/token nunca sai da sua máquina e nunca é enviado para o servidor da JusControl: o agente
+  local faz o login no tribunal por conta própria, baixa o resultado, e manda só o PDF pronto para cá.
+</p>
+
+<div class="alert alert-warning small" style="max-width: 720px;">
+  <strong>Ainda em piloto:</strong> por enquanto só o conector do PJe (via MNI) está implementado, e ele
+  ainda não foi testado contra nenhum tribunal real — só contra um simulador. Antes de usar isso com um
+  processo de verdade, confirme com quem administra o sistema que já houve um teste-piloto bem-sucedido
+  com um certificado de teste. Veja o arquivo <code>agente_local_jc/README.md</code> (na raiz do
+  repositório) para instalar e configurar o agente na sua máquina.
+</div>
+
+<div class="card-doc tab p-0 mt-3" style="max-width: 720px;">
+  <div class="p-3 pb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+    <div>
+      <strong>Pareamentos</strong>
+      <div class="small text-muted-doc">
+        Cada pareamento é um token de acesso pessoal para UMA instalação do agente local (ex: o seu
+        notebook do escritório). Dá para ter mais de um — um por computador que você usa.
+      </div>
+    </div>
+    <form method="post" action="{{ url_for('agente_local.parear') }}" class="d-flex gap-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="apelido" class="form-control form-control-sm" placeholder="Apelido (ex: Notebook do escritório)" style="width: 260px;">
+      <button type="submit" class="btn btn-brass btn-sm">Parear novo agente</button>
+    </form>
+  </div>
+
+  {% if token_novo %}
+  <div class="p-3">
+    <div class="alert alert-warning py-2 px-3 small">
+      <strong>Copie agora — este valor não vai ser mostrado de novo:</strong>
+      <div class="mt-2" style="word-break: break-all; font-family: monospace; user-select: all;">{{ token_novo }}</div>
+      <div class="mt-2">
+        Cole esse valor no arquivo de configuração do agente local, na sua máquina (ver
+        <code>agente_local_jc/README.md</code>).
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <table class="table-doc mb-0">
+    <thead><tr><th>Apelido</th><th>Token</th><th>Criado em</th><th>Visto por último</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+      {% for p in pareamentos %}
+      <tr>
+        <td>{{ p.apelido }}</td>
+        <td><code>{{ p.prefixo }}…</code></td>
+        <td>{{ p.criado_em|data_hora_br if p.criado_em else "—" }}</td>
+        <td>{{ p.ultimo_contato_em|data_hora_br if p.ultimo_contato_em else "nunca conectou" }}</td>
+        <td>
+          {% if p.ativo %}
+            <span class="badge-status badge-cumprido">ativo</span>
+          {% else %}
+            <span class="badge-status badge-cancelada">revogado</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if p.ativo %}
+          <form method="post" action="{{ url_for('agente_local.revogar', pareamento_id=p.id) }}"
+                onsubmit="return confirm('Revogar este pareamento? O agente instalado com esse token para de funcionar imediatamente.');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Revogar</button>
+          </form>
+          {% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="6" class="text-muted-doc small">Nenhum agente pareado ainda.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

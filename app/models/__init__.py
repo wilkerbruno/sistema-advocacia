@@ -18,6 +18,7 @@ from .compromisso import Compromisso
 from .modulo import Modulo, EmpresaModulo
 from .configuracao import ConfiguracaoPlataforma
 from .token_integracao import TokenIntegracao
+from .agente_local import AgenteLocalPareado, SolicitacaoBuscaAutos
 
 __all__ = [
     "Empresa",
@@ -55,4 +56,6 @@ __all__ = [
     "EmpresaModulo",
     "ConfiguracaoPlataforma",
     "TokenIntegracao",
+    "AgenteLocalPareado",
+    "SolicitacaoBuscaAutos",
 ]

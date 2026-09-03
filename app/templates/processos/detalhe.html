@@ -374,6 +374,72 @@
         {% else %}
         <p class="text-muted-doc small">Nenhum documento anexado.</p>
         {% endif %}
+
+        <!-- AGENTE LOCAL: busca de autos completos (PENDENCIAS.md, seção -56) -->
+        <div class="card-doc tab p-3 mt-4">
+          <strong>Buscar autos completos com o Agente Local</strong>
+          <p class="small text-muted-doc mb-3">
+            Busca o PDF completo dos autos e o histórico integral direto no tribunal, usando o SEU
+            certificado digital — funciona até para processo sigiloso, se você for procurador dele.
+            Roda no seu computador (agente local), o certificado nunca chega no servidor da JusControl.
+            <a href="{{ url_for('agente_local.meu_agente') }}">Configurar meu agente local »</a>
+          </p>
+
+          {% if not tem_agente_local_pareado %}
+          <div class="alert alert-warning small mb-3">
+            Você ainda não tem um agente local pareado —
+            <a href="{{ url_for('agente_local.meu_agente') }}">configure em "Meu agente local"</a>
+            antes de pedir uma busca.
+          </div>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('processos.solicitar_busca_autos', processo_id=processo.id) }}" class="row g-2 mb-3">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-8">
+              <select name="tribunal_conector" class="form-select form-select-sm" required>
+                <option value="">Selecione o conector do tribunal...</option>
+                {% for slug, rotulo, implementado in opcoes_conectores_tribunal %}
+                <option value="{{ slug }}" {{ "disabled" if not implementado }}>{{ rotulo }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-4">
+              <button type="submit" class="btn btn-brass btn-sm w-100" {{ "disabled" if not tem_agente_local_pareado }}>
+                Solicitar busca
+              </button>
+            </div>
+          </form>
+
+          {% if solicitacoes_busca_autos %}
+          <table class="table-doc mb-0">
+            <thead><tr><th>Conector</th><th>Status</th><th>Solicitado em</th><th>Solicitado por</th><th></th></tr></thead>
+            <tbody>
+              {% for s in solicitacoes_busca_autos %}
+              <tr>
+                <td>{{ s.tribunal_conector }}</td>
+                <td>
+                  <span class="badge-status badge-{{ 'cancelada' if s.status == 'erro' else s.status }}">
+                    {{ s.status }}{% if s.status == 'erro' and s.mensagem_erro %} — {{ s.mensagem_erro }}{% endif %}
+                  </span>
+                </td>
+                <td>{{ s.criado_em|data_hora_br if s.criado_em else "—" }}</td>
+                <td>{{ s.solicitado_por.nome if s.solicitado_por else "—" }}</td>
+                <td>
+                  {% if s.status == 'concluida' and s.documento %}
+                  <a href="{{ url_for('processos.baixar_documento', documento_id=s.documento_id) }}" class="btn btn-outline-doc btn-sm">Baixar PDF</a>
+                  {% elif s.status in ('pendente', 'em_andamento') and (s.solicitado_por_id == current_user.id or current_user.is_admin) %}
+                  <form method="post" action="{{ url_for('processos.cancelar_busca_autos', solicitacao_id=s.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-outline-doc btn-sm">Cancelar</button>
+                  </form>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% endif %}
+        </div>
       </div>
 
       <!-- GOVERNANÇA: movimentações capturadas/registradas -->

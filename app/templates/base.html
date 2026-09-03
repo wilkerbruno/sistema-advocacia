@@ -48,6 +48,9 @@
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_ia.') }}" href="{{ url_for('agente_ia.index') }}">
         <span class="tab-index">IA</span> Agente de IA
       </a>
+      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_local.') }}" href="{{ url_for('agente_local.meu_agente') }}">
+        <span class="tab-index">AL</span> Meu agente local
+      </a>
       {% if current_user.pode_ver_financeiro %}
       <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('financeiro.') }}" href="{{ url_for('financeiro.listar') }}">
         <span class="tab-index">05</span> Financeiro
