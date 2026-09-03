@@ -1,5 +1,101 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -57. Instalador do Agente Local (ícone na bandeja, início automático com o Windows, download pela própria tela)
+
+**Pedido:** "ok, como eu instalo a ia local no computador do adivogado? teria como eu instalar isso
+automaticamente ou criar um instalador e o adivogado instalar através do site?" Expliquei que
+nenhum site instala programa sozinho na máquina de alguém sem um clique (isso vale pra qualquer
+site, é o motivo de vírus não conseguir se instalar sozinho) — o mínimo possível é baixar +
+clique duplo + colar o token uma vez. Combinamos (via pergunta de esclarecimento): repositório é
+GitHub, instalador "completo" (ícone na bandeja + inicia com o Windows, não só uma janela que
+precisa ficar aberta), e o link de download fica direto na tela "Meu agente local".
+
+**O que mudou — o programa (`agente_local_jc/`) ganhou um segundo modo de rodar**, além do modo
+terminal que já existia:
+- **`config_store.py`** (novo) — onde a configuração fica salva quando o agente é INSTALADO (não
+  rodado do código-fonte): `%APPDATA%\JusControlAgente\config.json` no Windows, só nesta máquina,
+  nunca sincronizado com nada. Diferente do `config.py` original (que lê `.env`/variável de
+  ambiente — continua existindo, é o "modo desenvolvedor" pra quem for mexer no código).
+- **`config_gui.py`** (novo) — janela de configuração (tkinter, já vem com o Python do Windows,
+  sem dependência extra): pede endereço do JusControl + token de pareamento, tem um botão "Testar
+  conexão" antes de salvar, e uma seção "Avançado" recolhida com os campos de certificado A1 e do
+  tribunal-piloto (PJe) — a maioria dos advogados só precisa colar o token.
+- **`autostart_windows.py`** (novo) — liga/desliga o início automático com o Windows (Registro em
+  `HKEY_CURRENT_USER`, sem precisar de administrador, só afeta o usuário atual).
+- **`tray_app.py`** (novo) — o programa com ícone na bandeja: verde = conectado, vermelho = com
+  problema; menu com "Configurar...", "Verificar agora", "Ver log", "Sair". É este arquivo que
+  vira o `.exe` do instalador.
+- **`cliente_api.py`** (reescrito) — virou uma classe (`ClienteJusControl(url, token)`) em vez de
+  funções soltas lendo `config.py` direto — necessário porque agora existem DUAS fontes de
+  configuração (`.env` pro modo terminal, `config_store.json` pro modo instalado) que precisam do
+  mesmo cliente HTTP.
+- **`motor.py`** (novo) — a lógica de "pegar tarefa pendente → buscar autos → mandar resultado ou
+  erro" foi extraída de dentro do `main.py` pra cá, pra garantir que o modo terminal e o modo
+  instalado se comportem EXATAMENTE igual (só muda de onde cada um lê configuração e como cada um
+  mostra o andamento) — testei essa peça de verdade: subi o servidor Flask real numa porta local,
+  parei um conector fake (sem depender de zeep/tribunal real, mesma técnica já usada nos testes do
+  DataJud), e confirmei o ciclo completo `ClienteJusControl` → `motor.verificar_uma_vez` → API →
+  `Documento` criado no processo, status "concluída".
+- **`main.py`** (reescrito) — agora só orquestra `config.py` + `ClienteJusControl` + `motor.py`,
+  bem mais curto que antes.
+
+**Como o instalador de verdade é gerado (sem precisar de um Windows à mão):**
+- **`build/gerar_icone.py`** (novo) — desenha o ícone do programa (não depende de nenhum arquivo
+  de imagem versionado no repositório) — testei que gera um `.ico` válido.
+- **`build/agente_local.spec`** (novo) — spec do PyInstaller: empacota `tray_app.py` num único
+  `.exe`, sem janela de terminal.
+- **`build/instalador.iss`** (novo) — script do Inno Setup: embrulha esse `.exe` num instalador de
+  verdade (assistente Avançar/Avançar/Concluir, atalho no Menu Iniciar, aparece em "Adicionar ou
+  remover programas"), sem pedir permissão de administrador.
+- **`.github/workflows/build-agente-local.yml`** (novo) — toda vez que uma tag `agente-vX.Y.Z` é
+  publicada no GitHub (`git tag agente-v0.1.0 && git push origin agente-v0.1.0`), uma máquina
+  Windows temporária e gratuita do GitHub Actions compila tudo sozinha e publica o
+  `JusControlAgente-Setup.exe` nas "Releases" do repositório — sem precisar de nenhum Windows seu.
+
+**Lado servidor (JusControl):**
+- **`config.py`** — nova variável `AGENTE_LOCAL_INSTALADOR_URL` (aponta pro link do instalador nas
+  Releases do GitHub). Sem ela definida, o botão de download simplesmente não aparece — nunca
+  aponta pra um link quebrado.
+- **`app/routes/agente_local.py`** — rota nova `GET /agente-local/baixar`, que redireciona pro
+  instalador (registra no log quem baixou — ajuda a perceber se um advogado começou a instalar mas
+  não chegou a colar o token) e as views existentes passam essa URL pro template.
+- **`app/templates/agente_local/meu_agente.html`** — cartão novo "Instalar na minha máquina" com o
+  botão "Baixar agente local (Windows)" (só aparece quando `AGENTE_LOCAL_INSTALADOR_URL` está
+  configurada).
+
+**⚠️ O que NÃO foi testado de verdade** (limite físico deste ambiente, não do código): a janela
+`config_gui.py` (tkinter) e o ícone da bandeja `tray_app.py` (pystray) só puderam ser conferidos
+por leitura/sintaxe aqui — este ambiente não tem Windows nem tela gráfica pra rodar de fato uma
+janela ou um ícone de bandeja. O que FOI testado de verdade: o motor completo (`motor.py` +
+`cliente_api.py`) contra o servidor Flask real, de ponta a ponta; a rota de download (3 testes
+novos, `tests/test_agente_local.py` — botão aparece/some conforme a configuração, redireciona pro
+link certo, avisa quando não configurado); e o build do ícone (`gerar_icone.py`, gera um `.ico`
+válido de verdade). Antes de distribuir o instalador pra advogados de verdade, gere uma versão
+(`git tag agente-v0.1.0`) e teste você mesmo num Windows: instalar, colar um token de teste, ver o
+ícone mudar de cor, clicar em "Verificar agora".
+
+**140 testes passando no total** (137 já existentes + 3 novos desta entrega), nenhuma regressão.
+
+⚠️ **Ação sua necessária depois do deploy:** (1) `git push` de sempre — inclui a pasta
+`.github/workflows/`, que só o GitHub usa (não afeta o container do JusControl em nada); (2) não
+precisa de `sincronizar_schema.py` (nenhuma tabela/coluna nova nesta entrega); (3) pra o botão de
+download aparecer: publique uma tag (`git tag agente-v0.1.0 && git push origin agente-v0.1.0`),
+espere o GitHub Actions terminar (aba "Actions" do repositório), confirme que apareceu em
+"Releases", e defina `AGENTE_LOCAL_INSTALADOR_URL` nas variáveis de ambiente do serviço no
+EasyPanel apontando pra
+`https://github.com/<seu-usuario>/<seu-repositorio>/releases/latest/download/JusControlAgente-Setup.exe`
+— sem precisar de rebuild do container, só a variável de ambiente.
+
+**Arquivos novos:** `agente_local_jc/config_store.py`, `agente_local_jc/config_gui.py`,
+`agente_local_jc/autostart_windows.py`, `agente_local_jc/tray_app.py`, `agente_local_jc/motor.py`,
+`agente_local_jc/requirements-build.txt`, `agente_local_jc/build/gerar_icone.py`,
+`agente_local_jc/build/agente_local.spec`, `agente_local_jc/build/instalador.iss`,
+`.github/workflows/build-agente-local.yml`.
+**Arquivos alterados:** `agente_local_jc/cliente_api.py` (reescrito, virou classe),
+`agente_local_jc/main.py` (reescrito, usa `motor.py`), `agente_local_jc/requirements.txt`,
+`agente_local_jc/README.md`, `config.py`, `.gitignore`, `app/routes/agente_local.py`,
+`app/templates/agente_local/meu_agente.html`, `tests/test_agente_local.py`.
+
 ## -56. Agente Local: busca de autos completos (PDF + histórico integral) com o certificado do próprio advogado, multi-tribunal
 
 **Pedido (resumo da conversa completa):** o DataJud só traz metadados públicos, nunca o PDF do

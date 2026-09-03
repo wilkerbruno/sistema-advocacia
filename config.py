@@ -155,6 +155,17 @@ class Config:
     WHATSAPP_BRIDGE_URL = os.environ.get("WHATSAPP_BRIDGE_URL", "")
     WHATSAPP_BRIDGE_TOKEN = os.environ.get("WHATSAPP_BRIDGE_TOKEN", "")
 
+    # Instalador do Agente Local (PENDENCIAS.md, seção -56/-57) — o botão
+    # "Baixar agente local" da tela /agente-local aponta pra cá. O build
+    # de verdade (.exe do Windows) roda sozinho no GitHub Actions sempre
+    # que uma tag "agente-vX.Y.Z" é publicada (ver
+    # .github/workflows/build-agente-local.yml) e fica disponível em
+    # ".../releases/latest/download/JusControlAgente-Setup.exe" — troque
+    # <owner>/<repo> abaixo pelo seu repositório real assim que souber.
+    # Sem essa variável definida, o botão de download some da tela (nunca
+    # aponta pra um link quebrado por padrão).
+    AGENTE_LOCAL_INSTALADOR_URL = os.environ.get("AGENTE_LOCAL_INSTALADOR_URL", "")
+
     # Legado: chave da Anthropic (Claude), não é mais usada pelo Agente de IA
     # desde que ele passou a rodar no modelo local acima. Mantida só para
     # facilitar reverter, se um dia quiser voltar a usar uma API de ponta em

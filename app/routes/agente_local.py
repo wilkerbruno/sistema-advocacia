@@ -11,7 +11,7 @@ gestor) pode gerenciar o(s) próprio(s) pareamento(s) — o certificado
 digital é do advogado, não do escritório, então só ele decide instalar
 o agente e em qual máquina.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
 from flask_login import login_required, current_user
 
 from app.extensions import db
@@ -21,14 +21,41 @@ from app.utils.notificacoes import registrar_log
 agente_local_bp = Blueprint("agente_local", __name__)
 
 
-@agente_local_bp.route("/agente-local")
-@login_required
-def meu_agente():
-    pareamentos = (
+def _pareamentos_do_usuario():
+    return (
         AgenteLocalPareado.query.filter_by(usuario_id=current_user.id)
         .order_by(AgenteLocalPareado.criado_em.desc()).all()
     )
-    return render_template("agente_local/meu_agente.html", pareamentos=pareamentos, token_novo=None)
+
+
+@agente_local_bp.route("/agente-local")
+@login_required
+def meu_agente():
+    return render_template(
+        "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=None,
+        url_instalador=current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL") or None,
+    )
+
+
+@agente_local_bp.route("/agente-local/baixar")
+@login_required
+def baixar_instalador():
+    """
+    Redireciona pro instalador real (build automático no GitHub Actions —
+    ver .github/workflows/build-agente-local.yml e AGENTE_LOCAL_INSTALADOR_URL
+    em config.py). Fica numa rota própria, em vez de um link direto no
+    template, só pra poder trocar o destino sem precisar reeditar HTML —
+    e pra logar quem baixou, útil pra saber se um advogado começou a
+    instalar mas não chegou a parear (ver PENDENCIAS.md seção -57).
+    """
+    url = current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL")
+    if not url:
+        flash("O instalador ainda não está publicado — veja agente_local_jc/README.md "
+              "para rodar manualmente enquanto isso.", "warning")
+        return redirect(url_for("agente_local.meu_agente"))
+    registrar_log(current_user, "baixou_instalador_agente_local", "AgenteLocalPareado", None, url)
+    db.session.commit()
+    return redirect(url)
 
 
 @agente_local_bp.route("/agente-local/parear", methods=["POST"])
@@ -39,13 +66,12 @@ def parear():
     registrar_log(current_user, "pareou_agente_local", "AgenteLocalPareado", None, apelido)
     db.session.commit()
 
-    pareamentos = (
-        AgenteLocalPareado.query.filter_by(usuario_id=current_user.id)
-        .order_by(AgenteLocalPareado.criado_em.desc()).all()
-    )
     flash("Agente pareado — copie o token abaixo agora, ele não vai aparecer de novo.", "success")
-    return render_template("agente_local/meu_agente.html", pareamentos=pareamentos, token_novo=valor_puro,
-                            registro_novo_id=registro.id)
+    return render_template(
+        "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=valor_puro,
+        url_instalador=current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL") or None,
+        registro_novo_id=registro.id,
+    )
 
 
 @agente_local_bp.route("/agente-local/<int:pareamento_id>/revogar", methods=["POST"])

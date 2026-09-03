@@ -1,5 +1,8 @@
-# Agente Local do JusControl — dependências.
+# Agente Local do JusControl — dependências de execução (main.py E tray_app.py).
+# Pra só COMPILAR o instalador (.exe), ver requirements-build.txt também.
 requests>=2.31
 zeep>=4.2          # cliente SOAP para o MNI do PJe (conectores/pje_mni.py)
 cryptography>=42.0 # abrir certificado A1 (.pfx/.p12) — ver certificado.py
 pypdf>=4.0         # consolidar múltiplos documentos num PDF único (opcional, ver conectores/pje_mni.py)
+pystray>=0.19      # ícone na bandeja do Windows (tray_app.py)
+Pillow>=10.0       # desenha o ícone da bandeja (tray_app.py)

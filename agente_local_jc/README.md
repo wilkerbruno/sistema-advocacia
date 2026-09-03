@@ -52,7 +52,57 @@ diferentes. A arquitetura foi pensada para isso desde o início:
   não implementado") só para deixar visível que o desenho não é
   amarrado a um tribunal só.
 
-## Instalação
+## Para o advogado: instalar pelo instalador (jeito normal de usar)
+
+1. Dentro do JusControl, abra **Meu agente local** (menu lateral, item
+   "AL") e clique em **Baixar agente local (Windows)**.
+2. Rode o `JusControlAgente-Setup.exe` baixado — é um instalador comum
+   (Avançar / Avançar / Concluir), não pede permissão de administrador.
+3. Na primeira abertura, uma janela pede o **endereço do JusControl** e
+   o **token de pareamento** — gere o token na mesma tela "Meu agente
+   local" (aparece uma única vez, copie assim que gerar) e cole os dois
+   campos. Clique em "Testar conexão" pra confirmar antes de salvar.
+4. Pronto — o agente fica com um ícone perto do relógio do Windows
+   (verde = conectado, vermelho = com problema) e liga sozinho toda vez
+   que o Windows liga. Não precisa deixar nenhum terminal aberto.
+
+O ícone tem um menu (clique com o botão direito): **Configurar...**
+(reabre a janela do passo 3 — útil pra trocar o token, ou preencher os
+dados do certificado/tribunal quando o piloto de um tribunal estiver
+pronto pra uso real), **Verificar agora** (não espera o próximo ciclo),
+**Ver log** e **Sair**.
+
+Certificado digital (A1) e os dados do tribunal-piloto (PJe) ficam numa
+seção "Avançado" da mesma janela de configuração, recolhida por padrão —
+a maioria dos advogados só precisa colar o token no primeiro passo; o
+certificado só é necessário quando for buscar autos de verdade.
+
+## Para quem administra o JusControl: publicar uma versão nova do instalador
+
+O `.exe` é compilado sozinho pelo GitHub Actions (não precisa de um
+Windows à mão) — ver `.github/workflows/build-agente-local.yml`. Pra
+publicar:
+
+```
+git tag agente-v0.1.0
+git push origin agente-v0.1.0
+```
+
+Em alguns minutos o instalador aparece nas "Releases" do repositório
+como `JusControlAgente-Setup.exe`. Depois, defina a variável de
+ambiente `AGENTE_LOCAL_INSTALADOR_URL` (no EasyPanel, nas variáveis do
+serviço do JusControl) apontando para:
+
+```
+https://github.com/<seu-usuario>/<seu-repositorio>/releases/latest/download/JusControlAgente-Setup.exe
+```
+
+Isso faz o botão "Baixar agente local" aparecer na tela `/agente-local`
+(sem essa variável definida, o botão fica escondido — nunca aponta pra
+um link quebrado). Sem precisar de rebuild do container do JusControl
+pra isso, é só a variável de ambiente mesmo.
+
+## Para desenvolver/testar o próprio código do agente (sem instalar nada)
 
 ```
 cd agente_local_jc
@@ -66,39 +116,22 @@ pip install -r requirements.txt
 cp .env.exemplo .env
 ```
 
-Edite o `.env` recém-criado:
-
-- `JUSCONTROL_URL`: endereço do seu JusControl.
-- `JUSCONTROL_AGENTE_TOKEN`: gerado na tela **Meu agente local**, dentro
-  do JusControl (menu lateral, item "AL"). Esse token só aparece uma
-  vez, na hora de gerar — copie assim que gerar.
-- `CERTIFICADO_PFX_CAMINHO` / `CERTIFICADO_PFX_SENHA`: seu certificado
-  A1 (arquivo `.pfx`/`.p12`) e a senha dele. **Certificado A3 (token
-  físico) ainda não é suportado** — a chave de um A3 não pode ser
-  exportada por desenho do próprio hardware; suportar A3 exigiria um
-  driver PKCS#11 específico do fabricante do token, deixado como
-  próximo passo.
-- `PJE_TRIBUNAL` / `PJE_INSTANCIA` / `PJE_ID_CONSULTANTE` /
-  `PJE_SENHA_CONSULTANTE` / `PJE_URL_WSDL`: dados do tribunal-piloto que
-  você vai testar primeiro (ver seção acima).
-
-## Rodando
+Edite o `.env` recém-criado (mesmos campos da janela de configuração do
+instalador — `JUSCONTROL_URL`, `JUSCONTROL_AGENTE_TOKEN`, e os campos
+de certificado/tribunal se for testar o conector de verdade) e rode:
 
 ```
 python main.py
 ```
 
-O agente conecta no JusControl, confirma o token (`/api/agente-local/ping`),
-e a partir daí fica checando a cada `INTERVALO_POLLING_SEGUNDOS` (padrão
-60s) se há alguma busca pendente para o seu usuário. Quando alguém pede
-"Buscar autos completos" num processo (na tela do processo, dentro do
-JusControl), o agente pega esse pedido no próximo ciclo, faz a busca, e
-envia o PDF de volta — sem precisar de nenhuma ação manual além de
-deixar o `python main.py` aberto.
+Esse é o modo "terminal" (`main.py`) — mostra tudo em texto, sem ícone
+de bandeja, pensado pra depurar um conector novo rapidamente. O modo com
+ícone/instalador (`tray_app.py`) é o que vira o `.exe` — pra testar ELE
+localmente sem compilar (ainda no Windows, já que usa recursos só dele):
 
-Para rodar em segundo plano continuamente (produção), configure isto
-como um serviço do Windows (ex: com NSSM) ou uma tarefa agendada que
-reinicia se cair — isso ainda não está automatizado neste piloto.
+```
+python tray_app.py
+```
 
 ## Segurança — o que este programa NUNCA faz
 
@@ -113,13 +146,22 @@ reinicia se cair — isso ainda não está automatizado neste piloto.
   permissão restrita ao seu usuário e apagado logo em seguida.
 - O único dado que sai desta máquina em direção ao JusControl é o
   RESULTADO já pronto (PDF) — nunca a credencial usada para consegui-lo.
+- A configuração salva pelo instalador (token, certificado etc.) fica só
+  em `%APPDATA%\JusControlAgente\config.json`, nesta máquina — nunca é
+  sincronizada com nada.
 
 ## Estrutura dos arquivos
 
-- `config.py` — lê `.env`.
+- `config.py` — modo desenvolvedor: lê `.env`/variáveis de ambiente (usado por `main.py`).
+- `config_store.py` — modo instalado: lê/grava `%APPDATA%\JusControlAgente\config.json` (usado por `tray_app.py`).
+- `config_gui.py` — janela de configuração (tkinter), usada pelo `tray_app.py`.
 - `certificado.py` — abre o `.pfx`/`.p12` em memória.
 - `conector_base.py` — interface que todo conector de tribunal implementa.
 - `conectores/pje_mni.py` — conector do PJe via MNI/SOAP (piloto).
 - `registro_conectores.py` — escolhe o conector certo pelo slug do pedido.
-- `cliente_api.py` — fala com `/api/agente-local/*` no JusControl.
-- `main.py` — laço principal (polling).
+- `cliente_api.py` — fala com `/api/agente-local/*` no JusControl (classe `ClienteJusControl`).
+- `motor.py` — lógica compartilhada de "buscar tarefa pendente → processar → enviar resultado", usada tanto por `main.py` quanto por `tray_app.py`.
+- `main.py` — modo terminal (desenvolvedor).
+- `tray_app.py` — modo ícone na bandeja (é isto que vira o `.exe` instalado).
+- `autostart_windows.py` — liga/desliga o início automático com o Windows.
+- `build/` — spec do PyInstaller, script do Inno Setup, e o gerador do ícone — ver `.github/workflows/build-agente-local.yml` para como tudo isso se encaixa no build automático.

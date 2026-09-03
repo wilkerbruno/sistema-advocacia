@@ -93,6 +93,38 @@ def test_tela_meu_agente_parear_e_revogar(client, login, post_csrf, cenario):
     assert registro.ativo is False
 
 
+def test_botao_download_some_sem_url_configurada_e_aparece_com_ela(client, login, cenario, app):
+    login("advagente@teste.com")
+    r = client.get("/agente-local")
+    assert r.status_code == 200
+    assert "Baixar agente local" not in r.data.decode("utf-8")  # sem AGENTE_LOCAL_INSTALADOR_URL, sem botão
+
+    app.config["AGENTE_LOCAL_INSTALADOR_URL"] = "https://github.com/exemplo/repo/releases/latest/download/JusControlAgente-Setup.exe"
+    try:
+        r2 = client.get("/agente-local")
+        assert "Baixar agente local" in r2.data.decode("utf-8")
+    finally:
+        app.config["AGENTE_LOCAL_INSTALADOR_URL"] = ""
+
+
+def test_baixar_instalador_redireciona_quando_configurado(client, login, cenario, app):
+    login("advagente@teste.com")
+    app.config["AGENTE_LOCAL_INSTALADOR_URL"] = "https://github.com/exemplo/repo/releases/latest/download/JusControlAgente-Setup.exe"
+    try:
+        r = client.get("/agente-local/baixar", follow_redirects=False)
+        assert r.status_code == 302
+        assert r.headers["Location"] == "https://github.com/exemplo/repo/releases/latest/download/JusControlAgente-Setup.exe"
+    finally:
+        app.config["AGENTE_LOCAL_INSTALADOR_URL"] = ""
+
+
+def test_baixar_instalador_avisa_quando_nao_configurado(client, login, cenario, app):
+    login("advagente@teste.com")
+    r = client.get("/agente-local/baixar", follow_redirects=True)
+    assert r.status_code == 200
+    assert "ainda não está publicado" in r.data.decode("utf-8")
+
+
 def test_nao_consegue_revogar_pareamento_de_outro_usuario(client, login, post_csrf, cenario):
     from app.models import Usuario
     outro = db.session.get(Usuario, cenario["outro_adv_id"])

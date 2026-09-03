@@ -1,0 +1,88 @@
+# Compila o instalador Windows do Agente Local (agente_local_jc/) e
+# publica como Release no GitHub — é isso que faz o link "Baixar agente
+# local" da tela /agente-local (dentro do JusControl) funcionar sem
+# você precisar ter um Windows pra compilar manualmente.
+#
+# Como publicar uma versão nova:
+#   1. Faça o commit normal das mudanças em agente_local_jc/.
+#   2. Crie e envie uma tag no formato "agente-vX.Y.Z", por exemplo:
+#        git tag agente-v0.1.0
+#        git push origin agente-v0.1.0
+#   3. Espere terminar (alguns minutos) — o instalador aparece em
+#      "Releases" do repositório, como
+#      JusControlAgente-Setup.exe, e o link
+#      ".../releases/latest/download/JusControlAgente-Setup.exe"
+#      (o que AGENTE_LOCAL_INSTALADOR_URL deve apontar, ver config.py)
+#      passa a funcionar sozinho.
+#
+# ⚠️ Isso compila o PROGRAMA — não testa se ele fala corretamente com
+# nenhum tribunal de verdade (ver o aviso grande em
+# agente_local_jc/conectores/pje_mni.py e no README.md da pasta).
+
+name: Build do instalador do Agente Local (Windows)
+
+on:
+  push:
+    tags:
+      - "agente-v*"
+  workflow_dispatch:  # também dá pra rodar manualmente pela aba "Actions" do GitHub, sem precisar de tag
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: agente_local_jc
+
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Gerar o ícone do programa
+        run: python build/gerar_icone.py
+
+      - name: Compilar o .exe (PyInstaller)
+        run: pyinstaller build/agente_local.spec --distpath build/dist --workpath build/work --noconfirm
+
+      - name: Descobrir a versão (a partir da tag do Git, se houver)
+        id: versao
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/agente-v* ]]; then
+            echo "versao=${GITHUB_REF#refs/tags/agente-v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "versao=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Compilar o instalador (Inno Setup)
+        working-directory: agente_local_jc/build
+        run: iscc "/DAppVersion=${{ steps.versao.outputs.versao }}" instalador.iss
+
+      - name: Publicar como artefato do workflow (toda execução, inclusive sem tag)
+        uses: actions/upload-artifact@v4
+        with:
+          name: JusControlAgente-Setup
+          path: agente_local_jc/build/dist_instalador/JusControlAgente-Setup.exe
+          retention-days: 30
+
+      - name: Publicar como Release do GitHub (só quando veio de uma tag)
+        if: startsWith(github.ref, 'refs/tags/agente-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: agente_local_jc/build/dist_instalador/JusControlAgente-Setup.exe
+          name: "Agente Local ${{ steps.versao.outputs.versao }}"
+          body: |
+            Instalador do Agente Local do JusControl — veja
+            `agente_local_jc/README.md` para instruções, e o aviso sobre
+            o conector do PJe ainda não ter sido testado contra um
+            tribunal real antes de usar em produção.

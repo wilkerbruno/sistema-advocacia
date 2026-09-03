@@ -1,0 +1,6 @@
+# Dependências extras só pra COMPILAR o instalador (.exe) — não são
+# necessárias pra rodar o agente a partir do código-fonte (main.py ou
+# tray_app.py), só pro GitHub Actions gerar o executável (ver
+# .github/workflows/build-agente-local.yml e build/agente_local.spec).
+-r requirements.txt
+pyinstaller>=6.0

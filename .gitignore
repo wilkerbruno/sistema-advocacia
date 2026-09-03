@@ -3,6 +3,14 @@ __pycache__/
 .env
 uploads/
 
+# Saída de build do Agente Local (gerada pelo GitHub Actions, ou por
+# quem compilar manualmente — ver agente_local_jc/README.md) — nunca
+# deve ir pro repositório, só as "Releases" do GitHub.
+agente_local_jc/build/dist/
+agente_local_jc/build/work/
+agente_local_jc/build/dist_instalador/
+agente_local_jc/build/icone.ico
+
 # Pesos do modelo de IA local (~1,1 GB; ~2,5 GB se o modelo maior opcional
 # for ativado — ver PENDENCIAS.md, seção -6) — baixados pelo script
 # baixar_modelo_ia_local.py (roda sozinho durante o build da imagem Docker),

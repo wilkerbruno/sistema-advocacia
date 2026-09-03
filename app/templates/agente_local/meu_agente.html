@@ -16,8 +16,26 @@
   <strong>Ainda em piloto:</strong> por enquanto só o conector do PJe (via MNI) está implementado, e ele
   ainda não foi testado contra nenhum tribunal real — só contra um simulador. Antes de usar isso com um
   processo de verdade, confirme com quem administra o sistema que já houve um teste-piloto bem-sucedido
-  com um certificado de teste. Veja o arquivo <code>agente_local_jc/README.md</code> (na raiz do
-  repositório) para instalar e configurar o agente na sua máquina.
+  com um certificado de teste.
+</div>
+
+<div class="card-doc tab p-3 mt-3 d-flex justify-content-between align-items-center flex-wrap gap-3" style="max-width: 720px;">
+  <div>
+    <strong>Instalar na minha máquina</strong>
+    <div class="small text-muted-doc">
+      {% if url_instalador %}
+      Baixe e rode o instalador — ele pede o token de pareamento (gere um abaixo primeiro) e fica
+      rodando sozinho, com um ícone perto do relógio do Windows, iniciando junto com o computador.
+      {% else %}
+      O instalador com ícone/inicialização automática ainda não foi publicado neste servidor. Enquanto
+      isso, dá pra rodar manualmente — veja <code>agente_local_jc/README.md</code> (na raiz do
+      repositório) para o passo a passo.
+      {% endif %}
+    </div>
+  </div>
+  {% if url_instalador %}
+  <a href="{{ url_for('agente_local.baixar_instalador') }}" class="btn btn-brass btn-sm">Baixar agente local (Windows)</a>
+  {% endif %}
 </div>
 
 <div class="card-doc tab p-0 mt-3" style="max-width: 720px;">
