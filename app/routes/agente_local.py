@@ -11,12 +11,13 @@ gestor) pode gerenciar o(s) próprio(s) pareamento(s) — o certificado
 digital é do advogado, não do escritório, então só ele decide instalar
 o agente e em qual máquina.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, Response
 from flask_login import login_required, current_user
 
 from app.extensions import db
 from app.models import AgenteLocalPareado
 from app.utils.notificacoes import registrar_log
+from app.utils import instalador_agente_local
 
 agente_local_bp = Blueprint("agente_local", __name__)
 
@@ -28,12 +29,26 @@ def _pareamentos_do_usuario():
     )
 
 
+def _instalador_disponivel():
+    """
+    True se existe ALGUMA forma configurada de servir o instalador — via
+    repositório privado (proxy autenticado, ver
+    instalador_agente_local.py) ou via link direto (repositório
+    público). O template só precisa saber "mostrar o botão ou não";
+    quem decide COMO baixar é a rota `baixar_instalador` abaixo.
+    """
+    cfg = current_app.config
+    repo_privado = bool(cfg.get("AGENTE_LOCAL_GITHUB_REPO") and cfg.get("AGENTE_LOCAL_GITHUB_TOKEN"))
+    link_publico = bool(cfg.get("AGENTE_LOCAL_INSTALADOR_URL"))
+    return repo_privado or link_publico
+
+
 @agente_local_bp.route("/agente-local")
 @login_required
 def meu_agente():
     return render_template(
         "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=None,
-        url_instalador=current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL") or None,
+        instalador_disponivel=_instalador_disponivel(),
     )
 
 
@@ -41,21 +56,48 @@ def meu_agente():
 @login_required
 def baixar_instalador():
     """
-    Redireciona pro instalador real (build automático no GitHub Actions —
-    ver .github/workflows/build-agente-local.yml e AGENTE_LOCAL_INSTALADOR_URL
-    em config.py). Fica numa rota própria, em vez de um link direto no
-    template, só pra poder trocar o destino sem precisar reeditar HTML —
-    e pra logar quem baixou, útil pra saber se um advogado começou a
-    instalar mas não chegou a parear (ver PENDENCIAS.md seção -57).
+    Entrega o instalador de duas formas possíveis (ver config.py):
+
+    1) Repositório PRIVADO (AGENTE_LOCAL_GITHUB_REPO + _TOKEN definidos):
+       busca o instalador na API do GitHub usando o token (só o servidor
+       vê esse token — nunca o navegador do advogado) e entrega os bytes
+       direto por aqui, sem o advogado nunca acessar o GitHub.
+    2) Repositório PÚBLICO (só AGENTE_LOCAL_INSTALADOR_URL definida):
+       redireciona pro link direto nas Releases do GitHub.
+
+    Fica numa rota própria (em vez de um link direto no template) pra
+    poder trocar a forma de entrega sem reeditar HTML, e pra logar quem
+    baixou — útil pra saber se um advogado começou a instalar mas não
+    chegou a parear (ver PENDENCIAS.md seções -57/-58).
     """
-    url = current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL")
-    if not url:
-        flash("O instalador ainda não está publicado — veja agente_local_jc/README.md "
-              "para rodar manualmente enquanto isso.", "warning")
-        return redirect(url_for("agente_local.meu_agente"))
-    registrar_log(current_user, "baixou_instalador_agente_local", "AgenteLocalPareado", None, url)
-    db.session.commit()
-    return redirect(url)
+    repo = current_app.config.get("AGENTE_LOCAL_GITHUB_REPO")
+    token = current_app.config.get("AGENTE_LOCAL_GITHUB_TOKEN")
+
+    if repo and token:
+        try:
+            asset_id, nome_arquivo = instalador_agente_local.localizar_asset_da_ultima_release(repo, token)
+            conteudo, content_type = instalador_agente_local.baixar_bytes_do_asset(repo, token, asset_id)
+        except instalador_agente_local.InstaladorIndisponivelError as e:
+            flash(str(e), "danger")
+            return redirect(url_for("agente_local.meu_agente"))
+
+        registrar_log(current_user, "baixou_instalador_agente_local", "AgenteLocalPareado", None,
+                       f"{repo} (proxy privado)")
+        db.session.commit()
+        return Response(
+            conteudo, mimetype=content_type or "application/octet-stream",
+            headers={"Content-Disposition": f'attachment; filename="{nome_arquivo}"'},
+        )
+
+    url_direta = current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL")
+    if url_direta:
+        registrar_log(current_user, "baixou_instalador_agente_local", "AgenteLocalPareado", None, url_direta)
+        db.session.commit()
+        return redirect(url_direta)
+
+    flash("O instalador ainda não está publicado — veja agente_local_jc/README.md "
+          "para rodar manualmente enquanto isso.", "warning")
+    return redirect(url_for("agente_local.meu_agente"))
 
 
 @agente_local_bp.route("/agente-local/parear", methods=["POST"])
@@ -69,8 +111,7 @@ def parear():
     flash("Agente pareado — copie o token abaixo agora, ele não vai aparecer de novo.", "success")
     return render_template(
         "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=valor_puro,
-        url_instalador=current_app.config.get("AGENTE_LOCAL_INSTALADOR_URL") or None,
-        registro_novo_id=registro.id,
+        instalador_disponivel=_instalador_disponivel(), registro_novo_id=registro.id,
     )
 
 

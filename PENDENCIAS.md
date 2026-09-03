@@ -1,5 +1,65 @@
 # Status das pendências do briefing (atualizado em 21/08/2026)
 
+## -58. Download do instalador do Agente Local funcionando com o repositório PRIVADO no GitHub
+
+**Pedido:** "posso deixar meu repositorio do github privado e as pessoas continuam conseguindo
+baixar o instalador, ou so funciona se tiver publico?" Expliquei que, do jeito que a seção -57
+tinha ficado (link direto pras Releases do GitHub), só funcionava com o repositório público — num
+privado, quem não fosse colaborador levava erro ao clicar. Ofereci duas opções (repositório
+continuar público, ou ficar privado com um proxy no próprio servidor) — você escolheu manter
+privado.
+
+**O que mudou:** a rota `/agente-local/baixar` (`app/routes/agente_local.py`) agora sabe entregar o
+instalador de duas formas, na seguinte ordem de prioridade:
+
+1. **Repositório privado** (`AGENTE_LOCAL_GITHUB_REPO` + `AGENTE_LOCAL_GITHUB_TOKEN` configurados,
+   ver `config.py`): o servidor busca a Release mais recente e o arquivo `JusControlAgente-Setup.exe`
+   pela API do GitHub, usando um token seu (Personal Access Token "fine-grained", só leitura,
+   escopado a um repositório só — nunca dá acesso a mais nada da sua conta), e entrega os bytes
+   direto pra quem clicar — o advogado nunca precisa acessar o GitHub nem ter conta lá, e o token
+   nunca é exposto ao navegador dele. Lógica nova em **`app/utils/instalador_agente_local.py`**:
+   busca a Release (`GET /repos/{repo}/releases/latest`), acha o asset pelo nome, baixa o conteúdo
+   (`GET /repos/{repo}/releases/assets/{id}`) seguindo o redirecionamento que o GitHub faz pro
+   armazenamento real dos arquivos — de propósito, a segunda chamada (a que baixa o arquivo de
+   verdade) NUNCA leva o cabeçalho `Authorization` do GitHub junto, pra nunca correr o risco de
+   vazar o token pra um servidor de terceiro.
+2. **Repositório público** (só `AGENTE_LOCAL_INSTALADOR_URL` configurada, comportamento da seção
+   -57): continua funcionando do jeito que já estava, sem mudança — usado como alternativa mais
+   simples pra quem não se importa com o código ficar visível.
+
+Sem nenhuma das duas configuradas, o botão continua escondido (nunca aponta pra link quebrado).
+Quando as duas estão configuradas ao mesmo tempo, o modo privado tem prioridade (testei isso
+explicitamente — ver abaixo).
+
+**Testado:** 12 testes novos (`tests/test_instalador_agente_local.py`) — a busca da Release e o
+download do asset com `requests.get` trocado por um fake (nunca bate na internet de verdade),
+cobrindo: encontra o asset certo pelo nome; erro quando não há Release publicada (404); token
+rejeitado (401); token sem permissão (403); Release sem o arquivo esperado; segue o
+redirecionamento do GitHub SEM levar o `Authorization` na segunda chamada (o ponto mais sensível
+de segurança desta entrega — confirmado por asserção direta nos headers de cada chamada
+capturada); erro no download final. E, na rota de verdade: entrega os bytes certos com o
+`Content-Disposition` certo quando o modo privado está configurado; o modo privado tem prioridade
+sobre o público quando os dois estão configurados; erro do GitHub vira um flash legível (não um
+erro 500 cru); o botão aparece na tela quando só o modo privado está configurado (antes só
+testava com o modo público). **152 testes passando no total** (140 já existentes + 12 novos),
+nenhuma regressão.
+
+⚠️ **Ação sua necessária depois do deploy** — só se você quiser usar o modo repositório privado
+(o modo público da seção -57 continua igual, sem ação nova): (1) `git push` de sempre; (2) sem
+`sincronizar_schema.py` (nenhuma tabela/coluna nova); (3) gere um Personal Access Token
+"fine-grained" no GitHub (github.com/settings/personal-access-tokens → Generate new token →
+escolha só o repositório do JusControl → em "Repository permissions", defina "Contents" como
+"Read-only", deixe todo o resto sem acesso) e defina `AGENTE_LOCAL_GITHUB_REPO` (formato
+`usuario/repositorio`) e `AGENTE_LOCAL_GITHUB_TOKEN` nas variáveis de ambiente do serviço no
+EasyPanel — sem precisar de rebuild, só reiniciar o serviço. Se `AGENTE_LOCAL_INSTALADOR_URL`
+ainda estiver configurada de uma tentativa anterior, pode deixar ou remover — o modo privado tem
+prioridade de qualquer jeito.
+
+**Arquivos novos:** `app/utils/instalador_agente_local.py`, `tests/test_instalador_agente_local.py`.
+**Arquivos alterados:** `config.py` (novas variáveis `AGENTE_LOCAL_GITHUB_REPO`/
+`AGENTE_LOCAL_GITHUB_TOKEN`), `app/routes/agente_local.py`,
+`app/templates/agente_local/meu_agente.html`, `agente_local_jc/README.md`.
+
 ## -57. Instalador do Agente Local (ícone na bandeja, início automático com o Windows, download pela própria tela)
 
 **Pedido:** "ok, como eu instalo a ia local no computador do adivogado? teria como eu instalar isso

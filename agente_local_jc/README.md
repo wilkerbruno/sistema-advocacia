@@ -89,18 +89,31 @@ git push origin agente-v0.1.0
 ```
 
 Em alguns minutos o instalador aparece nas "Releases" do repositório
-como `JusControlAgente-Setup.exe`. Depois, defina a variável de
-ambiente `AGENTE_LOCAL_INSTALADOR_URL` (no EasyPanel, nas variáveis do
-serviço do JusControl) apontando para:
+como `JusControlAgente-Setup.exe`. Depois, configure o botão "Baixar
+agente local" da tela `/agente-local` — tem duas formas, dependendo se
+o repositório é público ou privado (ver `config.py` no repositório
+principal para os detalhes completos):
 
+**Repositório privado (recomendado — protege o código-fonte):**
+defina, nas variáveis de ambiente do serviço no EasyPanel:
+- `AGENTE_LOCAL_GITHUB_REPO` = `<seu-usuario>/<seu-repositorio>`
+- `AGENTE_LOCAL_GITHUB_TOKEN` = um Personal Access Token "fine-grained"
+  do GitHub (github.com/settings/personal-access-tokens → Generate new
+  token → escolha SÓ este repositório → em "Permissions", "Contents" =
+  "Read-only", todas as outras permissões deixe sem acesso), gerado
+  numa conta com acesso ao repositório. O servidor usa esse token pra
+  buscar o instalador pela API do GitHub e entregar os bytes direto —
+  o advogado nunca acessa o GitHub, e o token nunca é exposto a ele.
+
+**Repositório público (mais simples, mas expõe o código-fonte):**
+defina só `AGENTE_LOCAL_INSTALADOR_URL` apontando para:
 ```
 https://github.com/<seu-usuario>/<seu-repositorio>/releases/latest/download/JusControlAgente-Setup.exe
 ```
 
-Isso faz o botão "Baixar agente local" aparecer na tela `/agente-local`
-(sem essa variável definida, o botão fica escondido — nunca aponta pra
-um link quebrado). Sem precisar de rebuild do container do JusControl
-pra isso, é só a variável de ambiente mesmo.
+Sem NENHUMA dessas variáveis definidas, o botão fica escondido (nunca
+aponta pra um link quebrado). Sem precisar de rebuild do container do
+JusControl pra nenhuma das duas opções, é só variável de ambiente.
 
 ## Para desenvolver/testar o próprio código do agente (sem instalar nada)
 

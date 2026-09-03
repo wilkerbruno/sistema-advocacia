@@ -155,15 +155,34 @@ class Config:
     WHATSAPP_BRIDGE_URL = os.environ.get("WHATSAPP_BRIDGE_URL", "")
     WHATSAPP_BRIDGE_TOKEN = os.environ.get("WHATSAPP_BRIDGE_TOKEN", "")
 
-    # Instalador do Agente Local (PENDENCIAS.md, seção -56/-57) — o botão
-    # "Baixar agente local" da tela /agente-local aponta pra cá. O build
-    # de verdade (.exe do Windows) roda sozinho no GitHub Actions sempre
-    # que uma tag "agente-vX.Y.Z" é publicada (ver
-    # .github/workflows/build-agente-local.yml) e fica disponível em
-    # ".../releases/latest/download/JusControlAgente-Setup.exe" — troque
-    # <owner>/<repo> abaixo pelo seu repositório real assim que souber.
-    # Sem essa variável definida, o botão de download some da tela (nunca
-    # aponta pra um link quebrado por padrão).
+    # Instalador do Agente Local (PENDENCIAS.md, seção -56/-57/-58) — o
+    # botão "Baixar agente local" da tela /agente-local usa uma destas
+    # DUAS formas de achar o instalador (nessa ordem de prioridade):
+    #
+    # 1) Repositório PRIVADO no GitHub (recomendado — o código-fonte do
+    #    JusControl fica protegido): defina AGENTE_LOCAL_GITHUB_REPO
+    #    ("dono/repositorio") e AGENTE_LOCAL_GITHUB_TOKEN (um Personal
+    #    Access Token do GitHub, "fine-grained", com permissão só de
+    #    LEITURA em "Contents", escopado só a este repositório — gere em
+    #    github.com/settings/personal-access-tokens). O servidor busca o
+    #    instalador na API do GitHub usando esse token e entrega os bytes
+    #    direto pra quem clicar — o advogado nunca acessa o GitHub, e o
+    #    token nunca é exposto ao navegador (ver
+    #    app/routes/agente_local.py::baixar_instalador).
+    #
+    # 2) Repositório PÚBLICO no GitHub (mais simples, mas expõe o
+    #    código-fonte pra qualquer um): defina só AGENTE_LOCAL_INSTALADOR_URL
+    #    com o link direto — ex:
+    #    "https://github.com/<owner>/<repo>/releases/latest/download/JusControlAgente-Setup.exe".
+    #    Usado só se a opção 1 (repo privado) não estiver configurada.
+    #
+    # O build de verdade (.exe do Windows) roda sozinho no GitHub Actions
+    # sempre que uma tag "agente-vX.Y.Z" é publicada (ver
+    # .github/workflows/build-agente-local.yml). Sem NENHuma dessas
+    # variáveis definidas, o botão de download some da tela (nunca aponta
+    # pra um link quebrado por padrão).
+    AGENTE_LOCAL_GITHUB_REPO = os.environ.get("AGENTE_LOCAL_GITHUB_REPO", "")
+    AGENTE_LOCAL_GITHUB_TOKEN = os.environ.get("AGENTE_LOCAL_GITHUB_TOKEN", "")
     AGENTE_LOCAL_INSTALADOR_URL = os.environ.get("AGENTE_LOCAL_INSTALADOR_URL", "")
 
     # Legado: chave da Anthropic (Claude), não é mais usada pelo Agente de IA

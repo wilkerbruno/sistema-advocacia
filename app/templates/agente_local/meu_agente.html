@@ -23,7 +23,7 @@
   <div>
     <strong>Instalar na minha máquina</strong>
     <div class="small text-muted-doc">
-      {% if url_instalador %}
+      {% if instalador_disponivel %}
       Baixe e rode o instalador — ele pede o token de pareamento (gere um abaixo primeiro) e fica
       rodando sozinho, com um ícone perto do relógio do Windows, iniciando junto com o computador.
       {% else %}
@@ -33,7 +33,7 @@
       {% endif %}
     </div>
   </div>
-  {% if url_instalador %}
+  {% if instalador_disponivel %}
   <a href="{{ url_for('agente_local.baixar_instalador') }}" class="btn btn-brass btn-sm">Baixar agente local (Windows)</a>
   {% endif %}
 </div>
