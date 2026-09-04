@@ -12,7 +12,11 @@ import traceback
 
 from conector_base import ErroConectorTribunal
 import registro_conectores
-import certificado
+# `certificado` importa a lib `cryptography` (pesada) — importado só na
+# hora de usar (dentro de processar_uma_tarefa), não aqui no topo, pra
+# não deixar a abertura do agente lenta por causa de um import que só é
+# necessário quando uma busca de autos com certificado é processada de
+# verdade (ver mesmo raciocínio em conectores/mni_soap.py).
 
 
 def processar_uma_tarefa(cliente, tarefa, cert_caminho, cert_senha, config_conectores, log):
@@ -34,6 +38,7 @@ def processar_uma_tarefa(cliente, tarefa, cert_caminho, cert_senha, config_conec
 
         cert_carregado = None
         if cert_caminho:
+            import certificado
             cert_carregado = certificado.carregar_pfx(cert_caminho, cert_senha)
 
         if cert_carregado is not None:

@@ -14,6 +14,7 @@ Fluxo:
      tarefas pendentes a cada N segundos (mesmo motor.py usado por
      main.py) — o ícone muda de cor conforme o status.
 """
+import ctypes
 import os
 import sys
 import threading
@@ -30,9 +31,47 @@ import autostart_windows
 from cliente_api import ClienteJusControl, ErroApiJusControl
 
 NOME_APP = "Agente Local — JusControl"
+_NOME_MUTEX_INSTANCIA_UNICA = "Global\\JusControlAgenteLocal_InstanciaUnica"
+_ERROR_ALREADY_EXISTS = 183
 
 _estado = {"status": "iniciando", "ultima_mensagem": "", "parar": False}
 _lock = threading.Lock()
+_mutex_instancia = None  # precisa ficar vivo até o processo terminar — ver _garantir_instancia_unica
+
+
+def _garantir_instancia_unica():
+    """
+    Impede abrir o agente duas vezes ao mesmo tempo — cada instância nova
+    duplicaria o ícone na bandeja e a janela de configuração (foi
+    exatamente o que aconteceu rodando `python tray_app.py` mais de uma
+    vez enquanto a primeira ainda estava subindo — ver PENDENCIAS.md).
+    Usa um mutex nomeado do próprio Windows (`ctypes`, sem dependência
+    nova) — só funciona no Windows, mas o agente só roda como app de
+    verdade lá mesmo (o `.exe` distribuído é só pra Windows).
+    """
+    global _mutex_instancia
+    if sys.platform != "win32":
+        return True
+
+    _mutex_instancia = ctypes.windll.kernel32.CreateMutexW(None, False, _NOME_MUTEX_INSTANCIA_UNICA)
+    ja_tem_outra_instancia = ctypes.windll.kernel32.GetLastError() == _ERROR_ALREADY_EXISTS
+    if not ja_tem_outra_instancia:
+        return True
+
+    try:
+        import tkinter
+        from tkinter import messagebox
+        raiz = tkinter.Tk()
+        raiz.withdraw()
+        messagebox.showwarning(
+            NOME_APP,
+            "O Agente Local já está rodando — veja o ícone perto do relógio do Windows "
+            "(pode estar escondido nos ícones ocultos, a setinha \"^\"). Não precisa abrir de novo.",
+        )
+        raiz.destroy()
+    except Exception:
+        pass
+    return False
 
 
 def _log(mensagem):
@@ -162,6 +201,9 @@ def _aplicar_autostart(dados):
 
 
 def main():
+    if not _garantir_instancia_unica():
+        return
+
     dados = config_store.carregar()
     if not config_store.configuracao_minima_completa(dados):
         dados = config_gui.abrir_wizard_configuracao(dados)

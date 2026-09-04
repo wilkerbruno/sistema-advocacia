@@ -1,5 +1,42 @@
 # Status das pendências do briefing (atualizado em 04/09/2026)
 
+## -62. Agente Local abrindo devagar e mais de uma instância ao mesmo tempo
+
+**Pedido:** rodando `python tray_app.py` direto da fonte (contornando o bloqueio da seção -61), você
+reportou que a abertura estava "bem lenta" e que abriam DUAS janelas de configuração ao mesmo tempo
+(print mostrando duas janelas "Configurar Agente Local" sobrepostas, e mais de um ícone verde na
+bandeja).
+
+**Causa da lentidão:** `tray_app.py` importa `motor.py`, que importa `registro_conectores.py`, que
+importa os DOIS conectores de tribunal — e cada um deles importava `zeep` (que carrega `lxml` e
+outras libs pesadas) e `certificado.py` importava `cryptography` — tudo isso **no topo do arquivo**,
+ou seja, essa importação pesada rodava toda vez que o agente abria, mesmo que você não fosse buscar
+autos de nenhum tribunal naquele momento — só de abrir o ícone da bandeja. Numa venv nova (como a que
+você acabou de criar), sem essas libs ainda "aquecidas" em cache (e possivelmente com antivírus
+escaneando cada arquivo novo lido), isso é visível como alguns segundos de janela em branco, sem
+resposta.
+
+**Causa das instâncias duplicadas:** o agente não tinha nenhuma trava contra abrir duas vezes ao mesmo
+tempo — rodar `python tray_app.py` de novo enquanto a primeira instância ainda estava subindo (lenta,
+pelo motivo acima) abre uma segunda instância inteira, com o próprio ícone e a própria janela.
+
+**Correção:**
+1. **Import pesado adiado** (`conectores/mni_soap.py`, `motor.py`) — `zeep` e `cryptography` agora só
+   são importados na primeira vez que uma busca de autos é REALMENTE processada (dentro de
+   `processar_uma_tarefa`), não mais na abertura do agente. Confirmei que `import motor` sozinho não
+   carrega mais nenhuma das duas (`'zeep' in sys.modules` e `'cryptography' in sys.modules` ficam
+   `False` até o primeiro uso de verdade).
+2. **Trava de instância única** (`tray_app.py`) — usa um mutex nomeado do próprio Windows (via
+   `ctypes`, sem dependência nova) pra impedir uma segunda instância de abrir enquanto a primeira
+   ainda está rodando; se você tentar abrir de novo, aparece um aviso ("O Agente Local já está
+   rodando — veja o ícone perto do relógio do Windows") em vez de duplicar tudo.
+
+**Testado:** `import motor` isolado, medindo tempo e checando `sys.modules` (confirma que `zeep` e
+`cryptography` não carregam mais no import) — e o script de verificação da seção -59/-60 (mockando o
+Client do zeep) rodado de novo, confirmando que o comportamento dos conectores não mudou com o import
+adiado. A trava de instância única é Windows-only (usa `ctypes.windll`) — não dá pra testar de
+verdade neste sandbox Linux; só o `py_compile` foi verificado aqui.
+
 ## -61. ⚠️ PENDÊNCIA IMPORTANTE, NÃO RESOLVIDA: instalador do Agente Local bloqueado pelo Smart App Control do Windows
 
 **O que aconteceu:** ao rodar o instalador atualizado (`JusControlAgente-Setup.exe`), o Windows

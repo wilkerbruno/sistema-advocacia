@@ -28,12 +28,35 @@ import tempfile
 
 from conector_base import ConectorTribunalLocal, ResultadoBuscaAutos, ErroConectorTribunal
 
-try:
-    from zeep import Client
-    from zeep.transports import Transport
-    import requests
-except ImportError:  # zeep/requests só são exigidos por quem for rodar um conector MNI de verdade
-    Client = None
+# Import pesado (zeep -> lxml, requests) ADIADO de propósito (ver
+# PENDENCIAS.md, seção sobre lentidão na abertura do agente): importar
+# zeep no topo do arquivo — mesmo dentro de um try/except — faz a
+# importação de verdade rodar toda vez que QUALQUER módulo importa este
+# arquivo, inclusive só de abrir o ícone da bandeja (que passa por
+# `motor.py` -> `registro_conectores.py` -> aqui, mesmo sem nenhuma busca
+# de autos em andamento). Isso deixava a abertura do agente visivelmente
+# lenta (janela em branco por vários segundos). Agora só importa de
+# verdade na primeira vez que um conector MNI é realmente construído
+# (ou seja, quando uma tarefa de busca de autos é processada).
+Client = None
+Transport = None
+requests = None
+_dependencias_carregadas = False
+
+
+def _carregar_dependencias():
+    global Client, Transport, requests, _dependencias_carregadas
+    if _dependencias_carregadas:
+        return
+    try:
+        from zeep import Client as _Client
+        from zeep.transports import Transport as _Transport
+        import requests as _requests
+    except ImportError:
+        _dependencias_carregadas = True  # não tenta de novo a cada chamada — resultado não muda
+        return
+    Client, Transport, requests = _Client, _Transport, _requests
+    _dependencias_carregadas = True
 
 
 class ConectorMniBase(ConectorTribunalLocal):
@@ -47,6 +70,7 @@ class ConectorMniBase(ConectorTribunalLocal):
     nome_exibicao = "tribunal"  # subclasses sobrescrevem (ex: "PJe", "Projudi") — usado só nas mensagens de erro
 
     def __init__(self, url_wsdl, id_consultante=None, senha_consultante=None):
+        _carregar_dependencias()
         if Client is None:
             raise ErroConectorTribunal(
                 "Dependência 'zeep' (ou 'requests') não instalada — rode "
