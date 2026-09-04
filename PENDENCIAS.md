@@ -1,4 +1,43 @@
-# Status das pendências do briefing (atualizado em 03/09/2026)
+# Status das pendências do briefing (atualizado em 04/09/2026)
+
+## -61. ⚠️ PENDÊNCIA IMPORTANTE, NÃO RESOLVIDA: instalador do Agente Local bloqueado pelo Smart App Control do Windows
+
+**O que aconteceu:** ao rodar o instalador atualizado (`JusControlAgente-Setup.exe`), o Windows
+bloqueou a execução do `.exe` recém-instalado com "Uma política de Controle de Aplicativo bloqueou
+este arquivo" (Windows Security: "Parte deste aplicativo foi bloqueado... não é possível confirmar
+quem publicou JusControlAgente.exe").
+
+**Causa raiz:** o `.exe` que o PyInstaller/Inno Setup geram NÃO é assinado digitalmente (não temos
+certificado de assinatura de código) — o **Smart App Control** do Windows 11 (diferente do
+SmartScreen clássico, que pelo menos oferece um botão "Executar assim mesmo") bloqueia binários não
+assinados/sem reputação de forma definitiva, sem opção de liberar arquivo por arquivo. **Isso não é
+um bug do código do agente — é uma barreira de distribuição que provavelmente vai afetar QUALQUER
+advogado que for instalar, não só esta máquina.**
+
+**Decisão tomada por enquanto:** perguntei como prosseguir; você escolheu **rodar direto da fonte
+(`python tray_app.py`) por agora**, pra não travar o teste do conector Projudi/PJe — resolver a
+assinatura digital do instalador fica como pendência separada, pra decidir com calma (tem custo de
+certificado + configuração; ver opções abaixo). Rodar `tray_app.py` direto do Python não esbarra
+nesse bloqueio (o `python.exe` já é um binário assinado/confiável) e usa o MESMO arquivo de
+configuração (`%APPDATA%\JusControlAgente\config.json`) que o instalador já grava — ou seja, não
+precisa reconfigurar nada, o token/URL já salvos continuam valendo.
+
+**Opções reais para resolver de vez (nenhuma aplicada ainda — decidir com calma, é decisão de
+custo/prioridade, não técnica):**
+1. **Certificado de assinatura de código EV** (Extended Validation, com token de hardware) — o único
+   que dá reputação IMEDIATA no SmartScreen/Smart App Control, sem período de "aquecimento". Custo
+   típico: ~US$300–600/ano (DigiCert, SSL.com, Sectigo, entre outros), mais burocracia de validação
+   de identidade jurídica da empresa.
+2. **Certificado de assinatura "padrão" (OV)** — mais barato (~US$100–300/ano), mas o Windows só
+   passa a confiar depois de um período de reputação acumulada (milhares de downloads/execuções) —
+   ou seja, mesmo assinado, pode continuar sendo bloqueado pelo Smart App Control por um tempo.
+3. **Desativar o Smart App Control** em cada máquina que for instalar — não é uma solução de
+   distribuição (cada advogado teria que fazer isso na própria máquina) e, uma vez desligado, só
+   volta a ligar com reinstalação limpa do Windows — não recomendo pedir isso pra outros advogados.
+
+**Próximo passo, quando você quiser retomar isso:** decidir se vale investir num certificado EV antes
+de distribuir o instalador pra outros advogados do escritório (rodar da fonte é aceitável só pra uso
+seu, técnico, de teste).
 
 ## -60. Aba do processo voltando pra "Andamentos" depois de qualquer ação + aviso importante sobre o instalador do Agente Local
 
