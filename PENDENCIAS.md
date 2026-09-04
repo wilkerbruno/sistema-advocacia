@@ -1,5 +1,38 @@
 # Status das pendências do briefing (atualizado em 04/09/2026)
 
+## -65. Janela "Avançado" virou botões separados (Certificado, PJe, Projudi, e-SAJ) em vez de uma lista comprida
+
+**Pedido:** depois de ver a seção "Avançado" com PJe, Projudi e e-SAJ todos empilhados numa lista só
+(print anexado), você pediu pra cada um virar uma janela separada, aberta por um botão — pra não ficar
+uma tela gigante de rolar.
+
+**O que mudou em `config_gui.py`:** a seção "Avançado" (ainda recolhida por padrão, continua atrás do
+mesmo botão "▸ Mostrar configurações avançadas") agora mostra só 4 botões — **Certificado digital...**,
+**PJe...**, **Projudi...** e **e-SAJ...** — cada um com um texto ao lado ("configurado" / "não
+configurado") indicando se aquele tribunal já tem algo preenchido. Clicar em qualquer um abre uma
+janela pequena só com os campos daquele assunto, com os próprios botões "OK" (aplica o que foi digitado
+naquela janela) e "Cancelar" (fecha sem aplicar). Os valores só são gravados em disco de verdade quando
+você clica em "Salvar" na janela principal — igual sempre foi, isso não mudou.
+
+**Bug real encontrado e corrigido ANTES de te mandar isto:** a primeira versão que escrevi usava
+`sub.eval("tk::PlaceWindow . center")` pra centralizar cada janelinha nova — só que esse método
+(`.eval`) só existe na janela raiz (`Tk`), não nas janelas secundárias (`Toplevel`) que uso aqui; isso
+ia travar o programa com um erro (`AttributeError`) assim que você clicasse em qualquer um dos 4
+botões. Consegui reproduzir isso de verdade neste ambiente (instalei o `tkinter` com suporte a tela
+virtual, coisa que não tinha antes) e só entreguei depois de corrigir e confirmar que voltou a
+funcionar.
+
+**Testado:** desta vez de um jeito bem mais completo que o normal, porque consegui rodar o `tkinter`
+DE VERDADE aqui (com uma tela virtual, `Xvfb`) em vez de só simular com dublês como nos ajustes
+anteriores do agente — um script abre a janela principal de verdade, clica em "Mostrar configurações
+avançadas", confirma que os 4 botões existem (e que a lista antiga de campos soltos sumiu), abre a
+janela do e-SAJ, confirma que ela já vem com o valor previamente preenchido, fecha com "OK", e depois
+clica em "Salvar" e confere que tudo foi gravado certo no arquivo de configuração — inclusive esse
+mesmo bug do `.eval()` foi pego por este teste, não por inspeção manual do código. `py_compile` e a
+suíte inteira (`pytest -q`, 154 passando) também conferidos, sem regressão.
+
+**Arquivo tocado:** `agente_local_jc/config_gui.py` (só este).
+
 ## -64. Conector do e-SAJ (TJMS, TJSP e outros) — para testar com um processo real do TJMS
 
 **Pedido:** depois de confirmar que o Agente Local ficou mais rápido, você pediu pra habilitar um
