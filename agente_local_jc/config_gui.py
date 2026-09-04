@@ -99,6 +99,12 @@ def abrir_wizard_configuracao(dados_iniciais=None):
     _linha_avancada("Senha consultante", "projudi_senha_consultante", 10, senha=True)
     _linha_avancada("URL do WSDL (obrigatório — obtenha com o tribunal)", "projudi_url_wsdl", 11)
 
+    ttk.Label(quadro_avancado, text="e-SAJ (mais incerto — pode não existir nesse tribunal)",
+              font=("Segoe UI", 9, "bold")).grid(column=0, row=12, columnspan=2, sticky="w", pady=(8, 2))
+    _linha_avancada("ID consultante", "esaj_id_consultante", 13)
+    _linha_avancada("Senha consultante", "esaj_senha_consultante", 14, senha=True)
+    _linha_avancada("URL do WSDL (obrigatório — obtenha com o tribunal)", "esaj_url_wsdl", 15)
+
     avancado_aberto = tk.BooleanVar(value=False)
 
     def _alternar_avancado():

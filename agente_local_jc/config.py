@@ -61,6 +61,14 @@ PROJUDI_ID_CONSULTANTE = os.environ.get("PROJUDI_ID_CONSULTANTE", "")
 PROJUDI_SENHA_CONSULTANTE = os.environ.get("PROJUDI_SENHA_CONSULTANTE", "")
 PROJUDI_URL_WSDL = os.environ.get("PROJUDI_URL_WSDL", "")
 
+# Configuração do tribunal para o conector "esaj_sp" (piloto — ver
+# conectores/esaj.py). O MAIS INCERTO dos três: não há confirmação de
+# que o e-SAJ (TJMS, TJSP e outros) exponha esse tipo de webservice —
+# ESAJ_URL_WSDL é OBRIGATÓRIA, sem tentativa de adivinhação.
+ESAJ_ID_CONSULTANTE = os.environ.get("ESAJ_ID_CONSULTANTE", "")
+ESAJ_SENHA_CONSULTANTE = os.environ.get("ESAJ_SENHA_CONSULTANTE", "")
+ESAJ_URL_WSDL = os.environ.get("ESAJ_URL_WSDL", "")
+
 CONFIG_CONECTORES = {
     "pje_mni": {
         "tribunal": PJE_TRIBUNAL,
@@ -73,6 +81,11 @@ CONFIG_CONECTORES = {
         "id_consultante": PROJUDI_ID_CONSULTANTE,
         "senha_consultante": PROJUDI_SENHA_CONSULTANTE,
         "url_wsdl": PROJUDI_URL_WSDL or None,
+    },
+    "esaj_sp": {
+        "id_consultante": ESAJ_ID_CONSULTANTE,
+        "senha_consultante": ESAJ_SENHA_CONSULTANTE,
+        "url_wsdl": ESAJ_URL_WSDL or None,
     },
 }
 

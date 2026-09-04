@@ -53,6 +53,9 @@ CAMPOS_PADRAO = {
     "projudi_id_consultante": "",
     "projudi_senha_consultante": "",
     "projudi_url_wsdl": "",
+    "esaj_id_consultante": "",
+    "esaj_senha_consultante": "",
+    "esaj_url_wsdl": "",
     "iniciar_com_windows": True,
 }
 

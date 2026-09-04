@@ -7,12 +7,15 @@ conectores/ (implementando ConectorTribunalLocal, ver conector_base.py)
 e registrar aqui uma função que sabe construí-lo a partir da
 configuração local.
 
-Hoje "pje_mni" e "projudi" estão implementados, os dois como piloto — ver
-o aviso em conectores/pje_mni.py e conectores/projudi.py (a lógica de
-consulta MNI que os dois compartilham mora em conectores/mni_soap.py).
+Hoje "pje_mni", "projudi" e "esaj_sp" estão implementados, os três como
+piloto — ver o aviso em conectores/pje_mni.py, conectores/projudi.py e
+conectores/esaj.py (a lógica de consulta MNI que os três compartilham
+mora em conectores/mni_soap.py). O "esaj_sp" é o mais incerto dos três —
+ver aviso específico no topo de conectores/esaj.py.
 """
 from conectores.pje_mni import ConectorPjeMni
 from conectores.projudi import ConectorProjudi
+from conectores.esaj import ConectorEsaj
 
 
 def construir_conector(slug, config_tribunal):
@@ -32,6 +35,12 @@ def construir_conector(slug, config_tribunal):
         )
     if slug == "projudi":
         return ConectorProjudi(
+            id_consultante=config_tribunal.get("id_consultante"),
+            senha_consultante=config_tribunal.get("senha_consultante"),
+            url_wsdl=config_tribunal.get("url_wsdl"),
+        )
+    if slug == "esaj_sp":
+        return ConectorEsaj(
             id_consultante=config_tribunal.get("id_consultante"),
             senha_consultante=config_tribunal.get("senha_consultante"),
             url_wsdl=config_tribunal.get("url_wsdl"),

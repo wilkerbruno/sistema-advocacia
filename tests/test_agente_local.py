@@ -194,6 +194,25 @@ def test_solicitar_busca_autos_com_projudi(client, login, post_csrf, cenario):
     assert pedido.tribunal_conector == "projudi"
 
 
+def test_solicitar_busca_autos_com_esaj(client, login, post_csrf, cenario):
+    """e-SAJ (PENDENCIAS.md, seção -64) — mesmo caminho, confirma que o
+    conector novo já é aceito pela rota."""
+    from app.models import Usuario
+    usuario = db.session.get(Usuario, cenario["adv_id"])
+    AgenteLocalPareado.emitir_para(usuario, "Notebook")
+    db.session.commit()
+
+    login("advagente@teste.com")
+    r = post_csrf(f"/processos/{cenario['processo_id']}/buscar-autos",
+                   data={"tribunal_conector": "esaj_sp"},
+                   get_url=f"/processos/{cenario['processo_id']}")
+    assert r.status_code == 200
+
+    pedido = SolicitacaoBuscaAutos.query.filter_by(processo_id=cenario["processo_id"]).first()
+    assert pedido is not None
+    assert pedido.tribunal_conector == "esaj_sp"
+
+
 def test_solicitar_busca_com_conector_nao_implementado_eh_rejeitada(client, login, post_csrf, cenario):
     from app.models import Usuario
     usuario = db.session.get(Usuario, cenario["adv_id"])
@@ -202,7 +221,7 @@ def test_solicitar_busca_com_conector_nao_implementado_eh_rejeitada(client, logi
 
     login("advagente@teste.com")
     r = post_csrf(f"/processos/{cenario['processo_id']}/buscar-autos",
-                   data={"tribunal_conector": "esaj_sp"},  # listado, mas ainda não implementado
+                   data={"tribunal_conector": "eproc"},  # listado, mas ainda não implementado
                    get_url=f"/processos/{cenario['processo_id']}")
     assert r.status_code == 200
     assert SolicitacaoBuscaAutos.query.count() == 0

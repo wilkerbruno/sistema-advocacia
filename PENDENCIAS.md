@@ -1,5 +1,79 @@
 # Status das pendências do briefing (atualizado em 04/09/2026)
 
+## -64. Conector do e-SAJ (TJMS, TJSP e outros) — para testar com um processo real do TJMS
+
+**Pedido:** depois de confirmar que o Agente Local ficou mais rápido, você pediu pra habilitar um
+teste com um processo real do TJMS, com um advogado colega testando.
+
+**Pesquisa feita antes de construir:** o TJMS não usa PJe nem Projudi — usa **e-SAJ** (sistema da
+Softplan, o mesmo usado pelo TJSP), confirmado pelo domínio `esaj.tjms.jus.br` que hospeda a consulta
+processual pública do tribunal. Isso é diferente do PJe (protocolo MNI documentado nacionalmente pelo
+CNJ) e do Projudi (mesma obrigação legal de expor o MNI): **não encontrei nenhuma documentação
+pública confirmando que o e-SAJ expõe um webservice MNI/SOAP** para consulta externa — a arquitetura
+visível do e-SAJ (plugin de navegador "Web Signer" para login com certificado no portal, sistema
+próprio de notificação chamado "Sistema Push") sugere um desenho baseado em portal web, bem diferente
+da API SOAP limpa do PJe. Perguntei como prosseguir e você escolheu **"Tentar via MNI mesmo assim
+(rápido e barato)"** — ciente de que pode não funcionar.
+
+**O que foi construído:** um terceiro conector, `conectores/esaj.py` (slug `esaj_sp`), seguindo
+exatamente o mesmo padrão do Projudi — reaproveita a lógica compartilhada de `conectores/mni_soap.py`,
+exige a URL do WSDL configurada manualmente (sem tentar adivinhar, como o Projudi), e tem um aviso bem
+grande no próprio arquivo deixando claro que este é o piloto MAIS incerto dos três. Também dá pra
+configurar pela mesma janela "Configurar..." → "Avançado" (ID consultante, senha, URL do WSDL), igual
+aos outros dois tribunais.
+
+**Se o teste com o processo do TJMS der "Não foi possível carregar o WSDL" (ou erro de conexão
+parecido):** isso confirma que o e-SAJ realmente não expõe esse serviço — não é bug do agente. Nesse
+caso o caminho certo passa a ser automação de navegador (abrir o portal do e-SAJ de verdade, logar com
+o certificado, baixar o PDF pela tela mesmo) — que é bem mais trabalhoso que MNI/SOAP e ainda não foi
+construído; me avise se o teste falhar dessa forma que eu já preparo essa alternativa.
+
+**Testado:** `py_compile` em todos os arquivos tocados; suíte inteira de testes (`pytest -q`) — 154
+passando, incluindo um teste novo (`test_solicitar_busca_autos_com_esaj`); script de verificação
+isolado (mockando o cliente SOAP, já que este sandbox não tem `zeep`/Windows) cobrindo: conector
+`esaj_sp` monta certo, busca completa (histórico + PDF consolidado) funciona com uma resposta SOAP
+simulada, e erro claro quando falta a URL do WSDL. **Nenhuma chamada real foi feita contra o TJMS** —
+só o teste do advogado colega, com um processo de verdade, vai confirmar se o e-SAJ aceita isso.
+
+**Arquivos tocados:** `conectores/esaj.py` (novo), `registro_conectores.py`, `config.py`,
+`config_store.py`, `config_gui.py`, `tray_app.py`, `app/utils/tribunais_conectores.py`,
+`tests/test_agente_local.py`, `README.md`.
+
+## -63. Janela "Configurar Agente Local" travando de vez (não fecha no OK nem no X)
+
+**Pedido:** depois de clicar em "Testar conexão" (que confirmou "Conectado como WILKER BRUNO..."),
+a janela de configuração travou de vez — nem "OK" na caixa de confirmação, nem o X da janela,
+respondiam mais.
+
+**Causa raiz — bug real, não confusão do usuário:** `tray_app.py` tinha uma suposição errada,
+inclusive documentada no próprio comentário do código antigo ("funciona porque cada chamada cria e
+destrói o próprio Tk() isoladamente"). No Windows, o `pystray` despacha cada clique no menu do ícone
+(inclusive "Configurar...") numa THREAD PRÓPRIA dele, diferente da thread principal do programa. O
+`tkinter` (biblioteca da janela de configuração) não é seguro fora da thread onde seu loop principal
+já está rodando — abrir uma janela dele numa thread diferente trava de forma silenciosa no Windows
+(sem erro nenhum, sem fechar em nada) exatamente como você viu. Isso não apareceu antes porque a
+PRIMEIRA vez que a janela abre (quando não há configuração salva ainda) acontece direto na thread
+principal, antes do ícone da bandeja existir — só quebra ao reabrir pelo menu "Configurar..." DEPOIS
+que o ícone já está rodando, que foi exatamente o que você fez.
+
+**Correção:** reestruturei `tray_app.py` pra ter uma única thread dona de qualquer janela do tkinter
+(a THREAD PRINCIPAL, do início ao fim do programa) — cliques no menu do ícone (que rodam numa thread
+diferente) agora só colocam um pedido numa fila (`_fila_gui`); quem de fato abre a janela é sempre a
+thread principal, processando essa fila (`_bombear_fila_gui`). O ícone da bandeja em si passou a
+rodar na própria thread dele. Resultado prático: nenhuma mudança visível pra você — só que agora
+"Configurar..." reabre a janela sem travar, não importa quantas vezes.
+
+**Testado:** não dá pra testar pystray/tkinter de verdade neste sandbox (nenhum dos dois existe
+aqui) — simulei a lógica da fila com os dois módulos substituídos por dublês (`unittest.mock`),
+confirmando que (1) o clique no menu só enfileira o pedido, nunca chama a janela direto; e (2) a
+thread principal processa o pedido enfileirado e para corretamente quando "Sair" é sinalizado (sem
+travar esperando pra sempre). `py_compile` também conferido.
+
+**⚠️ Se a janela travada ainda estiver aberta na sua tela agora:** feche o processo Python travado
+pelo Gerenciador de Tarefas (Ctrl+Shift+Esc → aba "Detalhes" ou "Processos" → procure "python.exe" ou
+"pythonw.exe" → Finalizar tarefa) — clicar em OK/X não vai funcionar nele, é o processo antigo, sem
+esta correção. Depois de aplicar o arquivo novo, rode `tray_app.py` de novo.
+
 ## -62. Agente Local abrindo devagar e mais de uma instância ao mesmo tempo
 
 **Pedido:** rodando `python tray_app.py` direto da fonte (contornando o bloqueio da seção -61), você

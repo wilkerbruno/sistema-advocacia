@@ -11,11 +11,16 @@ de volta.
 
 ## ⚠️ Status: piloto, não testado contra tribunal real
 
-Os conectores do PJe e do Projudi (os dois via protocolo MNI/SOAP,
-mesma lógica compartilhada — ver `conectores/mni_soap.py`) estão
-implementados, e foram escritos a partir de documentação técnica
+Os conectores do PJe, do Projudi e do e-SAJ (os três via protocolo
+MNI/SOAP, mesma lógica compartilhada — ver `conectores/mni_soap.py`)
+estão implementados, e foram escritos a partir de documentação técnica
 pública (CNJ, STF, TJRJ) — **nenhuma chamada real foi feita contra
-nenhum tribunal**. Antes de usar isto com um processo de verdade:
+nenhum tribunal**. O e-SAJ é o MAIS incerto dos três: diferente do PJe
+(protocolo nacional documentado pelo CNJ) e do Projudi (mesma
+obrigação legal), **não há confirmação de que o e-SAJ (TJMS, TJSP e
+outros) realmente exponha esse tipo de webservice** — ver aviso
+específico em `conectores/esaj.py`. Antes de usar isto com um processo
+de verdade:
 
 1. Consiga uma credencial/certificado de **teste** junto ao tribunal que
    você vai usar primeiro (comece por só um — ver seção "Por que
@@ -48,15 +53,16 @@ diferentes. A arquitetura foi pensada para isso desde o início:
   (`registro_conectores.py`) — cada conector novo é um arquivo novo em
   `conectores/`, implementando a interface `ConectorTribunalLocal`
   (`conector_base.py`).
-- Hoje `pje_mni` e `projudi` existem de verdade (os dois pilotos, ainda
-  não testados contra tribunal real — ver seção acima). PJe e Projudi
-  usam o mesmo protocolo nacional MNI por baixo, então compartilham a
+- Hoje `pje_mni`, `projudi` e `esaj_sp` existem de verdade (os três
+  pilotos, ainda não testados contra tribunal real — ver seção acima).
+  Os três usam o mesmo protocolo MNI por baixo, então compartilham a
   lógica de consulta em `conectores/mni_soap.py` — cada um só monta a
-  URL do próprio WSDL de um jeito diferente (o PJe tenta adivinhar a
-  partir de tribunal+instância; o Projudi exige a URL informada
+  URL do próprio WSDL de um jeito diferente: o PJe tenta adivinhar a
+  partir de tribunal+instância; Projudi e e-SAJ exigem a URL informada
   manualmente, porque não há um padrão de domínio conhecido entre os
-  tribunais que usam Projudi). `esaj_sp` e `eproc` ainda aparecem como
-  opção no menu do JusControl (desabilitados, "ainda não implementado")
+  tribunais que usam esses sistemas (e, no caso do e-SAJ, nem
+  confirmação de que o serviço exista). `eproc` ainda aparece como
+  opção no menu do JusControl (desabilitado, "ainda não implementado")
   só para deixar visível que o desenho não é amarrado a um tribunal só.
 
 ## Para o advogado: instalar pelo instalador (jeito normal de usar)
@@ -79,14 +85,15 @@ dados do certificado/tribunal quando o piloto de um tribunal estiver
 pronto pra uso real), **Verificar agora** (não espera o próximo ciclo),
 **Ver log** e **Sair**.
 
-Certificado digital (A1) e os dados dos tribunais-piloto (PJe e
-Projudi, cada um em sua própria sub-seção) ficam numa seção "Avançado"
+Certificado digital (A1) e os dados dos tribunais-piloto (PJe, Projudi
+e e-SAJ, cada um em sua própria sub-seção) ficam numa seção "Avançado"
 da mesma janela de configuração, recolhida por padrão — a maioria dos
 advogados só precisa colar o token no primeiro passo; o certificado e
 os dados do tribunal só são necessários quando for buscar autos de
-verdade. Para o Projudi, a URL do WSDL não tem um padrão adivinhável
-(diferente do PJe) — precisa ser obtida direto com o tribunal antes de
-preencher.
+verdade. Para Projudi e e-SAJ, a URL do WSDL não tem um padrão
+adivinhável (diferente do PJe) — precisa ser obtida direto com o
+tribunal antes de preencher; no caso do e-SAJ, pode ser que o tribunal
+simplesmente não tenha esse serviço pra oferecer (ver aviso acima).
 
 ## Para quem administra o JusControl: publicar uma versão nova do instalador
 
@@ -142,8 +149,8 @@ cp .env.exemplo .env
 
 Edite o `.env` recém-criado (mesmos campos da janela de configuração do
 instalador — `JUSCONTROL_URL`, `JUSCONTROL_AGENTE_TOKEN`, e os campos
-de certificado/tribunal — `PJE_*` e `PROJUDI_*` — se for testar algum
-conector de verdade) e rode:
+de certificado/tribunal — `PJE_*`, `PROJUDI_*` e `ESAJ_*` — se for
+testar algum conector de verdade) e rode:
 
 ```
 python main.py
@@ -182,9 +189,10 @@ python tray_app.py
 - `config_gui.py` — janela de configuração (tkinter), usada pelo `tray_app.py`.
 - `certificado.py` — abre o `.pfx`/`.p12` em memória.
 - `conector_base.py` — interface que todo conector de tribunal implementa.
-- `conectores/mni_soap.py` — lógica compartilhada do protocolo MNI/SOAP (usada por PJe e Projudi).
+- `conectores/mni_soap.py` — lógica compartilhada do protocolo MNI/SOAP (usada por PJe, Projudi e e-SAJ).
 - `conectores/pje_mni.py` — conector do PJe via MNI/SOAP (piloto).
 - `conectores/projudi.py` — conector do Projudi via MNI/SOAP (piloto).
+- `conectores/esaj.py` — conector do e-SAJ via MNI/SOAP (piloto, o mais incerto dos três — ver aviso no próprio arquivo).
 - `registro_conectores.py` — escolhe o conector certo pelo slug do pedido.
 - `cliente_api.py` — fala com `/api/agente-local/*` no JusControl (classe `ClienteJusControl`).
 - `motor.py` — lógica compartilhada de "buscar tarefa pendente → processar → enviar resultado", usada tanto por `main.py` quanto por `tray_app.py`.

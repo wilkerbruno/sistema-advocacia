@@ -10,12 +10,18 @@ Fluxo:
      de configuração (config_gui.py) pedindo o endereço do JusControl e
      o token de pareamento.
   2. Registra o início automático com o Windows, se marcado.
-  3. Sobe o ícone na bandeja e, numa thread à parte, fica checando
-     tarefas pendentes a cada N segundos (mesmo motor.py usado por
-     main.py) — o ícone muda de cor conforme o status.
+  3. Sobe o ícone na bandeja (numa thread própria) e, em outra thread à
+     parte, fica checando tarefas pendentes a cada N segundos (mesmo
+     motor.py usado por main.py) — o ícone muda de cor conforme o
+     status. A THREAD PRINCIPAL fica livre pra ser a única a criar/usar
+     janelas do tkinter (ver _bombear_fila_gui) — no Windows, tkinter
+     trava sem erro nenhum se usado fora da thread que já está com um
+     mainloop dele rodando, e o pystray despacha cada clique de menu
+     numa thread própria dele, diferente da principal.
 """
 import ctypes
 import os
+import queue
 import sys
 import threading
 import time
@@ -37,6 +43,7 @@ _ERROR_ALREADY_EXISTS = 183
 _estado = {"status": "iniciando", "ultima_mensagem": "", "parar": False}
 _lock = threading.Lock()
 _mutex_instancia = None  # precisa ficar vivo até o processo terminar — ver _garantir_instancia_unica
+_fila_gui = queue.Queue()  # ver _abrir_configuracao/_bombear_fila_gui — por quê isto existe
 
 
 def _garantir_instancia_unica():
@@ -127,6 +134,11 @@ def _config_conectores(dados):
             "senha_consultante": dados.get("projudi_senha_consultante", ""),
             "url_wsdl": dados.get("projudi_url_wsdl") or None,
         },
+        "esaj_sp": {
+            "id_consultante": dados.get("esaj_id_consultante", ""),
+            "senha_consultante": dados.get("esaj_senha_consultante", ""),
+            "url_wsdl": dados.get("esaj_url_wsdl") or None,
+        },
     }
 
 
@@ -157,14 +169,16 @@ def _laco_verificacao(icone):
 
 
 def _abrir_configuracao(icone, item=None):
-    # tkinter precisa rodar na thread principal — como o pystray já está
-    # rodando o loop dele lá, abrir a janela aqui (chamada a partir do
-    # menu, que o pystray despacha numa thread própria) funciona porque
-    # cada chamada cria e destrói o próprio Tk() isoladamente.
-    resultado = config_gui.abrir_wizard_configuracao()
-    if resultado:
-        _aplicar_autostart(resultado)
-        _log("Configuração atualizada pelo usuário.")
+    # NÃO abre a janela aqui: no Windows, o pystray despacha cada clique
+    # de menu numa thread própria (dele), e o tkinter trava — sem erro
+    # nenhum, sem fechar nem no "OK" nem no X — se uma janela dele é
+    # criada/usada fora da thread que está rodando o mainloop principal
+    # (era a suposição do comentário antigo deste método, que se provou
+    # errada na prática — ver PENDENCIAS.md). Por isso só enfileira o
+    # pedido aqui; quem de fato abre a janela é sempre a THREAD PRINCIPAL,
+    # em _bombear_fila_gui — a única que pode tocar em tkinter neste
+    # programa.
+    _fila_gui.put("configurar")
 
 
 def _abrir_log(icone, item=None):
@@ -188,6 +202,30 @@ def _sair(icone, item=None):
     with _lock:
         _estado["parar"] = True
     icone.stop()
+
+
+def _bombear_fila_gui():
+    """
+    Roda na THREAD PRINCIPAL do processo, do início ao fim — é aqui, e só
+    aqui, que este programa cria/usa qualquer janela do tkinter (ver
+    aviso em _abrir_configuracao). Fica esperando pedidos que chegam pela
+    fila (colocados a partir do menu do ícone, numa thread diferente) e
+    processa um de cada vez; sai quando "Sair" é clicado no menu.
+    """
+    while True:
+        with _lock:
+            if _estado["parar"]:
+                return
+        try:
+            pedido = _fila_gui.get(timeout=0.5)
+        except queue.Empty:
+            continue
+
+        if pedido == "configurar":
+            resultado = config_gui.abrir_wizard_configuracao()
+            if resultado:
+                _aplicar_autostart(resultado)
+                _log("Configuração atualizada pelo usuário.")
 
 
 def _aplicar_autostart(dados):
@@ -222,10 +260,16 @@ def main():
         ),
     )
 
-    thread = threading.Thread(target=_laco_verificacao, args=(icone,), daemon=True)
-    thread.start()
+    thread_verificacao = threading.Thread(target=_laco_verificacao, args=(icone,), daemon=True)
+    thread_verificacao.start()
 
-    icone.run()
+    # O ícone/menu do pystray roda na PRÓPRIA thread dele a partir daqui —
+    # a thread principal fica livre pra ser a única a usar tkinter (ver
+    # _bombear_fila_gui e o aviso em _abrir_configuracao).
+    thread_icone = threading.Thread(target=icone.run, daemon=True)
+    thread_icone.start()
+
+    _bombear_fila_gui()
 
 
 if __name__ == "__main__":
