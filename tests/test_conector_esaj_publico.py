@@ -250,6 +250,43 @@ def test_mensagem_de_erro_nomeia_tribunais_indisponiveis():
     assert "TJAC" not in mensagem.split("não responderam a tempo")[0].split("(")[-1]
 
 
+def test_indisponibilidade_registra_motivo_tecnico_no_log(app, caplog):
+    """Seção -74 — relato real de produção: TJCE e TJMS voltaram a aparecer
+    como "não responderam a tempo" mesmo depois da seção -73 (e já tinham
+    aparecido antes dela também, com timeout maior) — sinal de que pode não
+    ser só "faltou tempo". A mensagem pro usuário continua simples, mas o
+    motivo técnico de cada falha (aqui, o texto da própria exceção de rede)
+    agora vai pro log do servidor, pra dar pra diferenciar timeout de
+    recusa de conexão/TLS/DNS da próxima vez que isso acontecer."""
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    respostas = {
+        "esaj.tjac.jus.br": HTML_NAO_ENCONTRADO,
+        "www2.tjal.jus.br": HTML_NAO_ENCONTRADO,
+        "consultasaj.tjam.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjce.jus.br": requests.ConnectionError("Connection refused"),
+        "esaj.tjms.jus.br": requests.RequestException("timeout"),
+    }
+    with caplog.at_level("WARNING"):
+        with patch.object(requests.Session, "get", side_effect=_get_por_dominio(respostas)):
+            with pytest.raises(mod.ErroEsajPublico):
+                conector.consultar_processo(numero)
+    textos = " | ".join(r.message for r in caplog.records)
+    assert "TJCE" in textos and "Connection refused" in textos
+    assert "TJMS" in textos and "timeout" in textos
+
+
+def test_indisponibilidade_sem_contexto_flask_nao_quebra_a_consulta():
+    """A mesma situação acima, mas chamada FORA de uma request Flask (sem
+    app_context) — todo outro teste deste arquivo faz isso. A tentativa de
+    log não pode derrubar a consulta só porque não há app Flask ativo."""
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    with patch.object(requests.Session, "get", side_effect=requests.RequestException("timeout")):
+        with pytest.raises(mod.EsajIndisponivelError):
+            conector.consultar_processo(numero)
+
+
 def test_timeout_dos_candidatos_e_menor_que_o_do_tjsp():
     """Seção -73: o timeout por tribunal na busca em paralelo caiu pra
     10s (o do TJSP, que é 1 requisição só, continua 20s) — evita que um

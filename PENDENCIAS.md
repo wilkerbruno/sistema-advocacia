@@ -1,5 +1,54 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -74. e-SAJ público: motivo técnico de cada tribunal indisponível agora vai pro log do servidor
+
+**Relato:** logo depois de a versão da seção -73 subir, você mandou a mensagem de erro nova (já
+nomeando os tribunais) que apareceu num teste real: "Processo não encontrado em nenhum dos tribunais
+e-SAJ testados (TJAC, TJAL, TJAM, TJCE, TJMS) (**TJCE, TJMS** não responderam a tempo...)".
+
+**O que isso me mostrou, e por que não bastava só aumentar o timeout de novo:** reparei que TJCE e TJMS
+já tinham aparecido como os "tribunais que não responderam" **antes** da seção -73 também — só que
+naquela versão cada tribunal tinha 20s pra responder (sequencial), e mesmo assim esses dois falharam. Ou
+seja, o mesmo par de tribunais falhou tanto com 20s quanto com 10s (paralelo). Isso é um indício de que
+pode NÃO ser só "faltou tempo" (o que aumentar o timeout resolveria) — pode ser que esses dois tribunais
+específicos estejam bloqueando ou de fato fora do ar a partir do seu servidor (o mesmo risco de bloqueio
+de IP por datacenter já avisado desde a seção -71). Só que a mensagem que existia até agora não permitia
+distinguir as duas situações: tanto um timeout de verdade quanto uma recusa de conexão, falha de TLS ou
+falha de DNS geravam exatamente a mesma frase genérica "não respondeu a tempo".
+
+**Tentei confirmar eu mesmo primeiro, mas não deu:** tentei testar a conectividade com os domínios do
+TJCE e do TJMS diretamente daqui, mas o ambiente onde eu trabalho bloqueia esses dois domínios
+especificamente por política de rede própria dele (não tem nada a ver com o seu servidor) — não consegui
+usar isso pra tirar a dúvida.
+
+**O que corrigi:** o motivo técnico REAL de cada tribunal que falhar (timeout puro, conexão recusada,
+falha de handshake TLS, falha de DNS — hoje tudo isso cai na mesma exceção de rede e virava a mesma
+frase genérica) agora é gravado no log do servidor (mesmo mecanismo já usado em `app/utils/email.py` e
+`app/utils/whatsapp.py` pra esse tipo de falha esperada/degradação) toda vez que um tribunal fica
+indisponível. A mensagem que aparece pra você na tela continua simples, sem termo técnico — só o log do
+servidor (o mesmo tipo de log que você já colou aqui outras vezes) passa a trazer o detalhe.
+
+**Próximo passo, preciso da sua ajuda:** da próxima vez que isso acontecer, me manda o log do servidor de
+perto do horário do erro (mesmo formato que você já colou antes) — com essa mudança, ele vai trazer uma
+linha tipo "e-SAJ público: TJCE não respondeu à consulta do processo ... — motivo técnico: ...", e aí
+dá pra saber se é: (a) `Read timed out` de verdade (só lentidão — aí sim vale aumentar o timeout), ou
+(b) `Connection refused`/erro de TLS/falha de DNS (bloqueio real — timeout maior não resolveria, precisaria
+de outra abordagem, tipo verificar se o IP do seu servidor está bloqueado por esses dois tribunais
+específicos). Também ajudaria eu saber se foi o MESMO número de processo das duas vezes (a de antes da
+seção -73 e essa) — se sim, é ainda mais forte a hipótese de bloqueio permanente desses dois tribunais
+específicos.
+
+**Testado:** suíte inteira passando — 180 testes (178 de antes + 2 novos: o log realmente grava o motivo
+técnico de cada tribunal separadamente — inclusive testando que "Connection refused" e "timeout" não se
+confundem —, e a tentativa de log nunca quebra a consulta quando chamada fora de uma request Flask, como
+acontece em todo o resto dos testes deste arquivo).
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (log do motivo técnico por tribunal
+indisponível), `tests/test_conector_esaj_publico.py` (2 testes novos).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — nenhuma coluna nova no banco, não
+precisa rodar `sincronizar_schema.py`.
+
 ## -73. e-SAJ público (seção -72) mais rápido + mensagem de erro diz qual tribunal falhou
 
 **Pedido:** depois de a versão da seção -72 já estar no ar, você recebeu (usando um processo real) a

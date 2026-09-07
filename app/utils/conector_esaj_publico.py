@@ -50,6 +50,20 @@ atenção, é uma limitação real, não só um detalhe de implementação:
   respondeu/responderam", sem dizer quais, dificultando diagnosticar se é
   um bloqueio específico e permanente (ex: aquele tribunal bloqueia o IP
   do servidor) ou só uma lentidão pontual.
+- ATUALIZADO NA SEÇÃO -74: em produção, os mesmos dois tribunais (TJCE e
+  TJMS) voltaram a aparecer como "não responderam a tempo" — inclusive já
+  tinha acontecido antes da mudança pra paralelo (seção -73), quando cada
+  um tinha 20s pra responder em vez de 10s. Isso é evidência de que pode
+  não ser só "faltou tempo": pode ser bloqueio/indisponibilidade real
+  desses dois tribunais específicos a partir do servidor. Como a mensagem
+  mostrada ao usuário precisa ficar simples, o motivo técnico REAL de cada
+  falha (timeout puro, conexão recusada, falha de TLS, DNS etc. —
+  `requests.RequestException` cobre todos esses casos igual) agora também
+  vai pro log do servidor (`current_app.logger.warning`, mesmo padrão já
+  usado em app/utils/email.py e app/utils/whatsapp.py) quando um tribunal
+  fica indisponível — próxima vez que isso acontecer, os logs do
+  servidor (os mesmos que você já colou aqui outras vezes) vão trazer o
+  motivo técnico específico de cada tribunal, não só "não respondeu".
 
 ⚠️ Demais avisos, já válidos desde a seção -71 e que continuam valendo pra
 todos os tribunais cobertos aqui:
@@ -80,6 +94,7 @@ from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
+from flask import current_app
 from requests.adapters import HTTPAdapter
 
 from app.utils.captura_conectores import (
@@ -484,6 +499,24 @@ class ConectorEsajPublico(ConectorCaptura):
                     break  # achou o tribunal certo, só não tem acesso sem senha
                 if status == "indisponivel":
                     indisponiveis.append(tribunal)
+                    # ATUALIZADO NA SEÇÃO -74: a mensagem que o usuário vê
+                    # (mais abaixo) precisa ficar simples/não-técnica, então
+                    # o motivo técnico REAL (timeout puro? recusa de
+                    # conexão? falha de TLS? DNS?) só vai pro log do
+                    # servidor — é o que precisamos pra saber se é só
+                    # lentidão (aumentar o timeout resolveria) ou bloqueio
+                    # de fato (não resolveria). Roda na thread principal
+                    # (não na thread de rede), então `current_app` funciona
+                    # normalmente aqui, EXCETO em teste unitário direto (sem
+                    # request Flask nenhuma) — nesse caso só não loga, nunca
+                    # deixa uma falha de log quebrar a consulta de verdade.
+                    try:
+                        current_app.logger.warning(
+                            f"e-SAJ público: {tribunal.nome} não respondeu à consulta do processo "
+                            f"{numero_cnj} dentro do prazo — motivo técnico: {valor}"
+                        )
+                    except RuntimeError:
+                        pass
                 # "nao_encontrado": não faz nada especial, só segue esperando os outros
         finally:
             # wait=False: não trava a resposta esperando os tribunais que
