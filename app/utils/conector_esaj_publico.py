@@ -26,18 +26,30 @@ atenção, é uma limitação real, não só um detalhe de implementação:
   contra o DataJud: ela também exige que o tribunal seja informado
   explicitamente por quem chama, nunca adivinha só pelo número.
   Por isso, pra qualquer processo estadual que NÃO seja TJSP, este
-  conector tenta cada um dos outros 5 tribunais, em sequência, até achar —
-  a MESMA estratégia (e o mesmo motivo) que app/utils/conector_datajud.py
-  já usa pra tentar os 27 tribunais estaduais no DataJud. É mais lento (até
-  5 requisições reais a 5 tribunais diferentes por busca), mas nunca
-  arrisca atribuir o processo errado a um tribunal errado: cada tribunal só
-  "acha" um processo que realmente exista lá — os demais respondem "não
-  encontrado" de forma limpa (mesmo comportamento já tratado desde a seção
-  -71).
-- Encontrar uma tela de "processo protegido por senha" interrompe a busca
-  IMEDIATAMENTE, sem tentar os tribunais seguintes — o próprio tribunal
-  reconhecer o número e pedir senha já é sinal de que o processo está
-  NAQUELE tribunal específico (só sem acesso público aos dados).
+  conector tenta os outros 5 tribunais até achar — a MESMA estratégia (e o
+  mesmo motivo) que app/utils/conector_datajud.py já usa pra tentar os 27
+  tribunais estaduais no DataJud, mas nunca arrisca atribuir o processo
+  errado a um tribunal errado: cada tribunal só "acha" um processo que
+  realmente exista lá — os demais respondem "não encontrado" de forma
+  limpa (mesmo comportamento já tratado desde a seção -71).
+- ATUALIZADO NA SEÇÃO -73 (relato real de demora em produção): esses 5
+  tribunais são consultados EM PARALELO (não mais um de cada vez), porque
+  tentar 5 tribunais em sequência, com qualquer um deles fora do ar/lento,
+  deixava a busca visivelmente lenta (cada tentativa esperava até 20s antes
+  de desistir e passar pro próximo). Rodando em paralelo, a espera total é
+  a do tribunal mais lento, não a soma de todos — e o timeout por tribunal
+  também caiu pra 10s nesse caminho (só o TJSP, que é 1 requisição só,
+  mantém 20s). Efeito colateral aceito dessa mudança: como as 5 chamadas
+  saem praticamente ao mesmo tempo, não dá mais pra "parar antes" de
+  consultar um tribunal só porque outro já respondeu — os 5 sempre são
+  perguntados, mesmo quando um deles responde rapidinho que está protegido
+  por senha (nesse caso a resposta certa já foi encontrada e as demais só
+  são descartadas ao chegar, mas a requisição de rede já tinha saído).
+  Quando um ou mais tribunais não respondem a tempo, a mensagem de erro
+  agora aponta exatamente QUAL(IS) — antes só dizia "N tribunal(is) não
+  respondeu/responderam", sem dizer quais, dificultando diagnosticar se é
+  um bloqueio específico e permanente (ex: aquele tribunal bloqueia o IP
+  do servidor) ou só uma lentidão pontual.
 
 ⚠️ Demais avisos, já válidos desde a seção -71 e que continuam valendo pra
 todos os tribunais cobertos aqui:
@@ -60,6 +72,7 @@ todos os tribunais cobertos aqui:
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import re
 from dataclasses import dataclass
@@ -82,6 +95,12 @@ USER_AGENT = (
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 TIMEOUT_SEGUNDOS = 20
+# Timeout menor usado só na busca em PARALELO pelos 5 tribunais candidatos
+# (ver seção -73) — com 5 chamadas simultâneas, esperar 20s por cada uma
+# faria a busca inteira demorar 20s de qualquer jeito se UM tribunal
+# estiver fora do ar; 10s é generoso pra um e-SAJ respondendo normalmente
+# e mantém a espera total razoável mesmo no pior caso.
+TIMEOUT_CANDIDATOS_SEGUNDOS = 10
 
 # Segmento "8" = Justiça Estadual (ver app/utils/cnj.py) — único segmento
 # que algum tribunal coberto aqui atende; "26" = TJSP, o único código de
@@ -145,6 +164,38 @@ CANDIDATOS_DEMAIS_TRIBUNAIS = [
 TODOS_TRIBUNAIS = [TJSP] + CANDIDATOS_DEMAIS_TRIBUNAIS
 
 
+def _nova_sessao_para(tribunal: _TribunalEsaj) -> requests.Session:
+    """Sessão nova (não compartilhada) pra consultar um tribunal — usada
+    na busca em PARALELO pelos 5 candidatos (ver seção -73):
+    `requests.Session` não é documentado como garantidamente seguro pra
+    uso concorrente entre threads, então cada chamada em paralelo recebe a
+    própria sessão em vez de reaproveitar `self.session`/`self._sessao_tjce`
+    (esses continuam existindo só pro caminho direto do TJSP, que nunca
+    roda em paralelo com mais nada)."""
+    sessao = requests.Session()
+    sessao.headers.update({"User-Agent": USER_AGENT})
+    if tribunal.tls_seclevel1:
+        sessao.mount("https://", _TJCETLSAdapter())
+    return sessao
+
+
+def _tentar_tribunal_candidato(numero_cnj: str, tribunal: _TribunalEsaj) -> tuple:
+    """Roda em thread separada (ver ConectorEsajPublico.consultar_processo)
+    — nunca levanta exceção pra fora, devolve (status, tribunal, valor)
+    pra quem chamou decidir o que fazer com cada resultado à medida que
+    forem chegando, na ordem em que completarem (não na ordem de início)."""
+    sessao = _nova_sessao_para(tribunal)
+    try:
+        html = _obter_html_processo(sessao, numero_cnj, tribunal, timeout=TIMEOUT_CANDIDATOS_SEGUNDOS)
+        return ("encontrado", tribunal, html)
+    except EsajProtegidoPorSenhaError as e:
+        return ("senha", tribunal, e)
+    except EsajIndisponivelError as e:
+        return ("indisponivel", tribunal, e)
+    except ErroEsajPublico as e:
+        return ("nao_encontrado", tribunal, e)
+
+
 def _parse_data_br(texto: str | None) -> datetime | None:
     """Aceita 'dd/mm/aaaa' ou 'dd/mm/aaaa às HH:MM - ...' (formato do
     campo de distribuição). Devolve None em vez de levantar exceção —
@@ -192,11 +243,12 @@ def _montar_parametros_busca(numero_cnj: str) -> dict:
     }
 
 
-def _obter_html_processo(session: requests.Session, numero_cnj: str, tribunal: _TribunalEsaj) -> str:
+def _obter_html_processo(session: requests.Session, numero_cnj: str, tribunal: _TribunalEsaj,
+                          timeout: int = TIMEOUT_SEGUNDOS) -> str:
     dados_busca = _montar_parametros_busca(numero_cnj)
     url = f"{tribunal.base_url}cpopg/search.do"
     try:
-        resposta = session.get(url, params=dados_busca["params"], timeout=TIMEOUT_SEGUNDOS)
+        resposta = session.get(url, params=dados_busca["params"], timeout=timeout)
     except requests.RequestException as e:
         raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ do {tribunal.nome}: {e}") from e
 
@@ -233,7 +285,7 @@ def _obter_html_processo(session: requests.Session, numero_cnj: str, tribunal: _
             else:
                 url_final = f"{tribunal.base_url}{url_processo.lstrip('/')}"
             try:
-                resposta2 = session.get(url_final, timeout=TIMEOUT_SEGUNDOS)
+                resposta2 = session.get(url_final, timeout=timeout)
             except requests.RequestException as e:
                 raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ do {tribunal.nome}: {e}") from e
             if resposta2.status_code != 200:
@@ -408,32 +460,62 @@ class ConectorEsajPublico(ConectorCaptura):
             return _parse_processo(html, somente_digitos(numero_cnj), TJSP.slug)
 
         # Código de tribunal diferente do único confirmado (TJSP) — tenta
-        # cada um dos outros tribunais e-SAJ conhecidos, em ordem, até
-        # achar (ver aviso completo no topo do arquivo sobre por que não
-        # adivinhamos qual deles é só pelo número).
-        erros_indisponibilidade = []
-        for tribunal in CANDIDATOS_DEMAIS_TRIBUNAIS:
-            try:
-                html = _obter_html_processo(self._sessao_para(tribunal), numero_cnj, tribunal)
-            except EsajProtegidoPorSenhaError:
-                raise  # achou o tribunal certo, só não tem acesso sem senha — não tenta mais nenhum
-            except EsajIndisponivelError as e:
-                erros_indisponibilidade.append(str(e))
-                continue
-            except ErroEsajPublico:
-                continue  # "não encontrado" neste tribunal — tenta o próximo
+        # os outros tribunais e-SAJ conhecidos EM PARALELO até achar (ver
+        # aviso completo no topo do arquivo sobre por que não adivinhamos
+        # qual deles é só pelo número, e sobre a mudança pra paralelo —
+        # antes era um de cada vez — feita na seção -73 por causa de
+        # relato real de lentidão em produção).
+        indisponiveis: list[_TribunalEsaj] = []
+        resultado_senha = None
+        resultado_encontrado = None
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=len(CANDIDATOS_DEMAIS_TRIBUNAIS))
+        futuros = {
+            executor.submit(_tentar_tribunal_candidato, numero_cnj, tribunal): tribunal
+            for tribunal in CANDIDATOS_DEMAIS_TRIBUNAIS
+        }
+        try:
+            for futuro in concurrent.futures.as_completed(futuros):
+                status, tribunal, valor = futuro.result()
+                if status == "encontrado":
+                    resultado_encontrado = (tribunal, valor)
+                    break  # já achou — não precisa esperar os outros terminarem
+                if status == "senha":
+                    resultado_senha = (tribunal, valor)
+                    break  # achou o tribunal certo, só não tem acesso sem senha
+                if status == "indisponivel":
+                    indisponiveis.append(tribunal)
+                # "nao_encontrado": não faz nada especial, só segue esperando os outros
+        finally:
+            # wait=False: não trava a resposta esperando os tribunais que
+            # ainda não terminaram quando já temos o que precisamos (achou,
+            # ou achou a tela de senha) — as threads restantes terminam
+            # sozinhas em segundo plano e são descartadas.
+            executor.shutdown(wait=False)
+
+        if resultado_encontrado:
+            tribunal, html = resultado_encontrado
             return _parse_processo(html, somente_digitos(numero_cnj), tribunal.slug)
+        if resultado_senha:
+            _, erro = resultado_senha
+            raise erro
 
         nomes = ", ".join(t.nome for t in CANDIDATOS_DEMAIS_TRIBUNAIS)
-        if erros_indisponibilidade and len(erros_indisponibilidade) == len(CANDIDATOS_DEMAIS_TRIBUNAIS):
+        if len(indisponiveis) == len(CANDIDATOS_DEMAIS_TRIBUNAIS):
             raise EsajIndisponivelError(
                 f"Não foi possível consultar nenhum dos tribunais e-SAJ testados ({nomes}) agora — "
                 "todos falharam ao responder. Tente de novo mais tarde."
             )
-        aviso_indisponiveis = (
-            f" ({len(erros_indisponibilidade)} tribunal(is) não respondeu/responderam e não pôde/puderam "
-            "ser conferido(s) agora — pode estar lá mesmo assim)" if erros_indisponibilidade else ""
-        )
+        aviso_indisponiveis = ""
+        if indisponiveis:
+            nomes_indisponiveis = ", ".join(t.nome for t in indisponiveis)
+            # Nomeia EXATAMENTE quais tribunais não responderam (antes só
+            # dizia "N tribunal(is)", sem dizer quais — dificultava saber
+            # se é um bloqueio específico e permanente daquele tribunal ou
+            # só lentidão pontual; ver seção -73).
+            aviso_indisponiveis = (
+                f" ({nomes_indisponiveis} não responderam a tempo e não puderam ser conferidos agora "
+                "— pode estar lá mesmo assim)"
+            )
         raise ErroEsajPublico(
             f"Processo não encontrado em nenhum dos tribunais e-SAJ testados ({nomes})"
             f"{aviso_indisponiveis} — confira o número, ou pode ser de um tribunal/segredo de "

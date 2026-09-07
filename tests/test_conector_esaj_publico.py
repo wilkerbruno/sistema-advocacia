@@ -197,23 +197,24 @@ def test_nao_encontrado_em_nenhum_tribunal_esaj():
             conector.consultar_processo(numero)
 
 
-def test_senha_interrompe_busca_sem_tentar_os_demais_tribunais():
+def test_senha_em_um_tribunal_leva_a_esajprotegidoporsenhaerror():
+    """Desde a seção -73 os 5 candidatos são consultados EM PARALELO (não
+    mais um de cada vez) — não dá mais pra afirmar "parou depois de 2
+    chamadas", já que as 5 requisições saem juntas; o que continua valendo
+    é o RESULTADO: achar a senha em qualquer um deles vira
+    EsajProtegidoPorSenhaError, citando o tribunal certo."""
     numero = _numero_cnj_estadual("99")
     conector = mod.ConectorEsajPublico()
-    chamadas = []
-
-    def _get(url, **kwargs):
-        chamadas.append(url)
-        if "esaj.tjac.jus.br" in url:
-            return _resposta_fake(HTML_NAO_ENCONTRADO)
-        if "www2.tjal.jus.br" in url:
-            return _resposta_fake(HTML_SENHA)
-        raise AssertionError(f"não deveria ter tentado {url} depois de achar a tela de senha")
-
-    with patch.object(requests.Session, "get", side_effect=_get):
-        with pytest.raises(mod.EsajProtegidoPorSenhaError):
+    respostas = {
+        "esaj.tjac.jus.br": HTML_NAO_ENCONTRADO,
+        "www2.tjal.jus.br": HTML_SENHA,
+        "consultasaj.tjam.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjce.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjms.jus.br": HTML_NAO_ENCONTRADO,
+    }
+    with patch.object(requests.Session, "get", side_effect=_get_por_dominio(respostas)):
+        with pytest.raises(mod.EsajProtegidoPorSenhaError, match="TJAL"):
             conector.consultar_processo(numero)
-    assert len(chamadas) == 2  # parou no tjal (senha), nunca tentou tjam/tjce/tjms
 
 
 def test_todos_tribunais_indisponiveis_vira_esaj_indisponivel():
@@ -222,6 +223,38 @@ def test_todos_tribunais_indisponiveis_vira_esaj_indisponivel():
     with patch.object(requests.Session, "get", side_effect=requests.RequestException("timeout")):
         with pytest.raises(mod.EsajIndisponivelError, match="Não foi possível consultar nenhum"):
             conector.consultar_processo(numero)
+
+
+def test_mensagem_de_erro_nomeia_tribunais_indisponiveis():
+    """Seção -73 — relato real de produção: a mensagem antiga só dizia "2
+    tribunal(is) não respondeu/responderam", sem dizer QUAIS, o que
+    impedia diagnosticar se era um bloqueio específico e permanente de um
+    tribunal. Agora nomeia exatamente quais não responderam."""
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    respostas = {
+        "esaj.tjac.jus.br": HTML_NAO_ENCONTRADO,
+        "www2.tjal.jus.br": HTML_NAO_ENCONTRADO,
+        "consultasaj.tjam.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjce.jus.br": requests.RequestException("timeout"),
+        "esaj.tjms.jus.br": requests.RequestException("timeout"),
+    }
+    with patch.object(requests.Session, "get", side_effect=_get_por_dominio(respostas)):
+        with pytest.raises(mod.ErroEsajPublico) as excinfo:
+            conector.consultar_processo(numero)
+    mensagem = str(excinfo.value)
+    assert "TJCE" in mensagem
+    assert "TJMS" in mensagem
+    assert "não responderam a tempo" in mensagem
+    # Os que responderam limpo "não encontrado" não entram na lista de indisponíveis.
+    assert "TJAC" not in mensagem.split("não responderam a tempo")[0].split("(")[-1]
+
+
+def test_timeout_dos_candidatos_e_menor_que_o_do_tjsp():
+    """Seção -73: o timeout por tribunal na busca em paralelo caiu pra
+    10s (o do TJSP, que é 1 requisição só, continua 20s) — evita que um
+    único tribunal fora do ar deixe a busca inteira lenta."""
+    assert mod.TIMEOUT_CANDIDATOS_SEGUNDOS < mod.TIMEOUT_SEGUNDOS
 
 
 def test_tjce_usa_sessao_separada_com_tls_seclevel1():

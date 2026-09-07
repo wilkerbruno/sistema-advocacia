@@ -1,5 +1,55 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -73. e-SAJ público (seção -72) mais rápido + mensagem de erro diz qual tribunal falhou
+
+**Pedido:** depois de a versão da seção -72 já estar no ar, você recebeu (usando um processo real) a
+mensagem "Processo não encontrado em nenhum dos tribunais e-SAJ testados (TJAC, TJAL, TJAM, TJCE, TJMS)
+(2 tribunal(is) não respondeu/responderam e não pôde/puderam ser conferido(s) agora — pode estar lá mesmo
+assim)" e perguntou, além da demora, se eu poderia conferir e corrigir.
+
+Eram dois problemas reais nessa mensagem: (1) a busca é lenta porque os 5 tribunais eram consultados **um
+de cada vez** (sequencial), então no pior caso (nenhum responde rápido) a espera é a soma dos 5 tempos; e
+(2) a mensagem só dizia "2 tribunais não responderam", sem dizer QUAIS — impossível saber se é um problema
+passageiro (rede lenta num instante) ou permanente (ex: aquele tribunal específico bloqueando o IP do
+servidor, o mesmo risco que já estava documentado desde a seção -71).
+
+**O que mudei:**
+
+Os 5 tribunais (TJAC, TJAL, TJAM, TJCE, TJMS) agora são consultados **em paralelo** (uma tarefa por
+tribunal, ao mesmo tempo), em vez de um de cada vez — a espera passa a ser limitada pelo tribunal mais
+lento entre os 5, não pela soma de todos. Também reduzi o tempo limite de cada um desses 5 de 20s pra 10s
+(o TJSP, que é 1 requisição só e direta, continua com 20s — não mudou). Na prática isso deve deixar a
+busca sensivelmente mais rápida no caso comum.
+
+Efeito colateral, aceito de propósito: antes, se a busca encontrasse uma tela de "protegido por senha" no
+2º tribunal tentado, ela parava ali e nunca chegava a consultar o 3º, 4º e 5º (economia de tempo). Como
+agora as 5 saem praticamente ao mesmo tempo, essa economia deixa de existir — mas isso não muda o
+resultado que você vê, só o número de requisições feitas nos bastidores, e o ganho de velocidade do
+paralelismo compensa de sobra.
+
+A mensagem de erro final agora **nomeia** qual(is) tribunal(is) especificamente não respondeu(ram) a
+tempo — por exemplo "(TJCE, TJMS não responderam a tempo e não puderam ser conferidos agora — pode estar
+lá mesmo assim)" em vez de só "(2 tribunal(is)...)". Da próxima vez que isso acontecer, me manda a
+mensagem nova: se for sempre o(s) mesmo(s) tribunal(is) toda vez, é sinal de bloqueio permanente naquele
+tribunal específico (aí dá pra investigar uma solução dedicada pra ele); se forem tribunais diferentes a
+cada tentativa, é só lentidão passageira de rede mesmo.
+
+**Testado:** suíte inteira passando — 178 testes (176 de antes, menos 1 teste antigo que checava a
+*quantidade* de tribunais consultados antes de parar numa tela de senha — deixou de fazer sentido sob
+paralelismo, já que as 5 chamadas saem juntas — mais 3 novos: a tela de senha ainda é detectada e para a
+busca corretamente independente da ordem de chegada das respostas; a mensagem final realmente nomeia os
+tribunais certos quando dois deles não respondem a tempo; e o tempo limite dos 5 candidatos é mesmo menor
+que o do TJSP).
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (busca paralela com `ThreadPoolExecutor`,
+sessão HTTP nova por tribunal em cada chamada paralela — `requests.Session` não é garantidamente segura
+entre threads —, tempo limite reduzido pros 5 candidatos, mensagem de erro nomeando os tribunais que não
+responderam), `tests/test_conector_esaj_publico.py` (teste antigo de contagem de chamadas trocado por um
+que testa só o resultado; 2 testes novos).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — nenhuma coluna nova no banco, não
+precisa rodar `sincronizar_schema.py`.
+
 ## -72. e-SAJ público estendido pra mais tribunais + busca automática antes de cadastrar
 
 **Pedido:** depois de testar a seção -71 (você tentou com um número fictício e recebeu, corretamente,
