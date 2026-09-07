@@ -303,8 +303,28 @@ def test_tjce_usa_sessao_separada_com_tls_seclevel1():
     assert sessao_normal is conector.session
     assert sessao_tjce is not conector.session
     assert isinstance(sessao_tjce.adapters["https://"], mod._TJCETLSAdapter)
+    # Seção -75: log de produção mostrou SSLCertVerificationError (certificado
+    # autoassinado na cadeia do TJCE) — verificação desligada só pra ele.
+    assert sessao_tjce.verify is False
+    assert sessao_normal.verify is not False
     # Chamar de novo devolve a MESMA sessão (não recria a cada busca).
     assert conector._sessao_para(tjce) is sessao_tjce
+
+
+def test_sessao_paralela_do_tjce_tambem_desliga_verificacao_de_certificado():
+    """Mesmo problema do teste acima, mas no caminho realmente usado em
+    produção (busca em paralelo pelos 5 candidatos, seção -73) — ver
+    `_nova_sessao_para`, não `ConectorEsajPublico._sessao_para`."""
+    tjce = mod.CANDIDATOS_DEMAIS_TRIBUNAIS[3]
+    assert tjce.slug == "tjce"
+    sessao_tjce = mod._nova_sessao_para(tjce)
+    assert isinstance(sessao_tjce.adapters["https://"], mod._TJCETLSAdapter)
+    assert sessao_tjce.verify is False
+
+    tjam = mod.CANDIDATOS_DEMAIS_TRIBUNAIS[2]
+    assert tjam.slug == "tjam"
+    sessao_tjam = mod._nova_sessao_para(tjam)
+    assert sessao_tjam.verify is not False
 
 
 # ---------- Rota (reaproveita o pipeline de captura) ----------

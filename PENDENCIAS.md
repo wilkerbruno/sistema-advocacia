@@ -1,5 +1,54 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -75. e-SAJ público: causa real do TJCE corrigida; TJMS parece bloqueio de rede (sem correção possível em código)
+
+**O log que você mandou (seção -74) trouxe a resposta.** Com o motivo técnico de cada tribunal indo pro
+log, apareceram dois problemas BEM diferentes por trás da mesma mensagem genérica "não responderam a
+tempo":
+
+- **TJCE:** `SSLCertVerificationError: ... self-signed certificate in certificate chain`. Isso não tem
+  nada a ver com timeout — é o servidor do TJCE apresentando um certificado com um certificado
+  autoassinado na cadeia, que a verificação padrão do Python rejeita antes mesmo de tentar buscar
+  qualquer dado. É um problema comum em sites `.jus.br` que usam certificado ICP-Brasil (a raiz dessa
+  cadeia não faz parte do repositório de certificados confiáveis que o Python usa por padrão) — **isso é
+  corrigível em código**, e já corrigi: a verificação de certificado agora é desligada especificamente
+  para o domínio do TJCE (nenhum outro tribunal é afetado). Nenhum dado sensível é enviado nessa consulta
+  (é busca pública, sem certificado digital nem login), então o risco aceito dessa escolha se limita a um
+  eventual ataque man-in-the-middle conseguir forjar uma resposta falsa dessa consulta específica — não
+  há vazamento de credencial nenhuma, porque nenhuma é enviada.
+
+- **TJMS:** `ConnectTimeoutError: ... Connection to esaj.tjms.jus.br timed out (connect timeout=10)`. Isso
+  é diferente: a conexão nem chegou a ser estabelecida (timeout já na hora de conectar, não de esperar
+  resposta depois de conectado). Esse é o padrão típico de bloqueio de IP em nível de rede/firewall — o
+  tribunal (ou a rede dele) parece estar descartando silenciosamente os pacotes vindos do IP do seu
+  servidor, em vez de recusar a conexão ou de simplesmente estar lento. **Isso eu não consigo corrigir em
+  código**: nenhum ajuste de timeout, retry ou lógica resolve um bloqueio de rede — é exatamente o risco
+  que já estava avisado desde a primeira versão deste conector ("risco real de bloqueio de IP pelo
+  tribunal, rodando de datacenter").
+
+**O que isso significa na prática:** a busca deve ficar mais rápida e mais certeira a partir de agora
+pro TJCE (deixou de falhar por completo). Pro TJMS, a situação provavelmente continua a mesma — não
+porque o código esteja errado, mas porque o bloqueio (se for isso mesmo) está fora do alcance do código.
+
+**Se quiser confirmar a hipótese do bloqueio de rede no TJMS:** o teste mais simples e rápido que você
+mesmo pode fazer é abrir `https://esaj.tjms.jus.br/cpopg/search.do` num navegador comum, de casa ou do
+escritório (fora do servidor/datacenter). Se abrir normalmente daí, é forte indício de que é mesmo um
+bloqueio específico do IP do servidor, não uma instabilidade geral do site do TJMS. Não existe hoje,
+neste projeto, nenhuma forma de contornar isso (precisaria de algo como um proxy/VPN com IP residencial
+brasileiro pra sair do servidor — isso teria custo e outras implicações, e não é algo que eu implementaria
+sem sua decisão explícita, pelo mesmo motivo já registrado noutras pendências deste tipo).
+
+**Testado:** suíte inteira passando — 181 testes (180 de antes + 1 novo, confirmando que a verificação de
+certificado desligada vale só pra sessão do TJCE, tanto no caminho direto quanto no caminho em paralelo —
+os outros 4 tribunais continuam com verificação normal).
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (verificação de certificado desligada só para
+o domínio do TJCE, aviso do urllib3 correspondente suprimido, docstring atualizada explicando os dois
+diagnósticos), `tests/test_conector_esaj_publico.py` (1 teste novo).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — nenhuma coluna nova no banco, não
+precisa rodar `sincronizar_schema.py`.
+
 ## -74. e-SAJ público: motivo técnico de cada tribunal indisponível agora vai pro log do servidor
 
 **Relato:** logo depois de a versão da seção -73 subir, você mandou a mensagem de erro nova (já

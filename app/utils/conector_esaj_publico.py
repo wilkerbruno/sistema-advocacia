@@ -64,6 +64,24 @@ atenção, é uma limitação real, não só um detalhe de implementação:
   fica indisponível — próxima vez que isso acontecer, os logs do
   servidor (os mesmos que você já colou aqui outras vezes) vão trazer o
   motivo técnico específico de cada tribunal, não só "não respondeu".
+- ATUALIZADO NA SEÇÃO -75 (log de produção trouxe a resposta): com o log
+  novo da seção -74, o motivo técnico real de cada um dos dois apareceu, e
+  são DOIS problemas DIFERENTES, não um só:
+  - TJCE: `SSLCertVerificationError` — certificado autoassinado na cadeia
+    do servidor do TJCE (comum em sites .jus.br com certificado ICP-Brasil,
+    cuja raiz não está no repositório de CAs confiáveis que o Python usa
+    por padrão). Isto é CORRIGÍVEL em código — ver aviso completo junto de
+    `_TJCETLSAdapter` mais abaixo — e já foi corrigido nesta seção.
+  - TJMS: `ConnectTimeoutError` — a conexão nem chegou a ser aberta (timeout
+    já na fase de conectar, não de esperar resposta). Esse é o padrão
+    clássico de bloqueio de IP em nível de rede/firewall (um "descarte
+    silencioso" de pacote, diferente de "conexão recusada" ou "DNS não
+    resolvido") — o mesmo risco já avisado no item anterior sobre bloqueio
+    de IP por datacenter. NÃO tem correção possível em código pra isto: se
+    o tribunal (ou a rede dele) está descartando pacotes vindos do IP do
+    seu servidor, nenhum ajuste de timeout ou retry vai resolver. Continua
+    em aberto — ver PENDENCIAS.md seção -75 para o que dá pra fazer a
+    respeito (nada garantido do lado do código).
 
 ⚠️ Demais avisos, já válidos desde a seção -71 e que continuam valendo pra
 todos os tribunais cobertos aqui:
@@ -79,10 +97,17 @@ todos os tribunais cobertos aqui:
   pelo tribunal — o próprio juscraper documenta isso para outros tribunais
   (TJAP passou a exigir CAPTCHA). Se acontecer aqui, `EsajIndisponivelError`
   é levantado com mensagem clara; NÃO há retry automático nem fallback
-  silencioso (evita mascarar o problema).
+  silencioso (evita mascarar o problema). Ver TJMS na seção -75 acima —
+  provável exemplo real disso.
 - TJCE exige uma configuração de TLS mais permissiva (SECLEVEL=1) por causa
   do servidor dele — mesma necessidade documentada pelo próprio juscraper
   (`src/juscraper/courts/tjce/_tls.py`); replicada aqui em `_TJCETLSAdapter`.
+  ATUALIZADO NA SEÇÃO -75: o mesmo servidor também apresenta um certificado
+  autoassinado na cadeia, então a verificação de certificado é desligada
+  SÓ pra este domínio (ver aviso completo junto do `_TJCETLSAdapter` mais
+  abaixo) — nenhum dado sensível é enviado nesta consulta (sem
+  certificado/login), então o risco aceito é limitado a uma eventual
+  resposta forjada por um MITM, não vazamento de credencial.
 """
 from __future__ import annotations
 
@@ -93,6 +118,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import requests
+import urllib3
 from bs4 import BeautifulSoup
 from flask import current_app
 from requests.adapters import HTTPAdapter
@@ -156,6 +182,24 @@ class _TJCETLSAdapter(HTTPAdapter):
         return super().init_poolmanager(*args, **kwargs)
 
 
+# ATUALIZADO NA SEÇÃO -75 (log de produção confirmou a causa real): o
+# certificado do domínio do TJCE tem um certificado AUTOASSINADO na cadeia
+# ("self-signed certificate in certificate chain"), que a verificação
+# padrão do Python rejeita — problema comum em sites .jus.br que usam
+# certificado ICP-Brasil (cuja raiz não faz parte do repositório de CAs
+# confiáveis que o Python usa por padrão), diferente do domínio dos outros
+# tribunais cobertos aqui. Sem desligar a verificação SÓ pra este domínio,
+# toda requisição pro TJCE falhava (SSLCertVerificationError), mesmo com o
+# ajuste de SECLEVEL acima. Aceito o mesmo tipo de contrapartida documentada
+# já para o SECLEVEL=1 deste tribunal (é scraping de página pública, sem
+# certificado nem login, sem nenhum dado sensível enviado — o risco real de
+# desligar a verificação aqui é um MITM conseguir forjar uma RESPOSTA falsa
+# desta consulta específica, não vazamento de credencial nenhuma, já que
+# nenhuma é enviada). Suprime o aviso correspondente do urllib3 pra não
+# poluir o log do servidor com um aviso sobre algo já decidido conscientemente.
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+
 @dataclass(frozen=True)
 class _TribunalEsaj:
     slug: str
@@ -191,6 +235,11 @@ def _nova_sessao_para(tribunal: _TribunalEsaj) -> requests.Session:
     sessao.headers.update({"User-Agent": USER_AGENT})
     if tribunal.tls_seclevel1:
         sessao.mount("https://", _TJCETLSAdapter())
+        # Ver aviso completo na seção -75 acima de _TJCETLSAdapter: o
+        # certificado do TJCE tem um certificado autoassinado na cadeia,
+        # que a verificação padrão rejeita (SSLCertVerificationError) —
+        # sem isso a requisição falha antes mesmo do SECLEVEL importar.
+        sessao.verify = False
     return sessao
 
 
@@ -454,6 +503,9 @@ class ConectorEsajPublico(ConectorCaptura):
             self._sessao_tjce = requests.Session()
             self._sessao_tjce.headers.update({"User-Agent": USER_AGENT})
             self._sessao_tjce.mount("https://", _TJCETLSAdapter())
+            # Ver aviso da seção -75 acima de _TJCETLSAdapter: certificado
+            # autoassinado na cadeia do TJCE — verificação padrão rejeitaria.
+            self._sessao_tjce.verify = False
         return self._sessao_tjce
 
     def consultar_processo(self, numero_cnj: str) -> dict:
