@@ -311,6 +311,26 @@ def test_tjce_usa_sessao_separada_com_tls_seclevel1():
     assert conector._sessao_para(tjce) is sessao_tjce
 
 
+def test_tjce_contexto_tls_nao_conflita_check_hostname_com_verify_none():
+    """Seção -76 — 500 REAL em produção causado pela correção da seção -75:
+    `create_urllib3_context()` sem argumentos cria um ssl_context com
+    `check_hostname=True` por padrão. Isso conflitava com `session.verify =
+    False` (ligado pra este tribunal na seção -75) — na hora de conectar de
+    verdade, o urllib3 tenta setar `verify_mode = CERT_NONE` nesse MESMO
+    contexto (ver urllib3.connection._ssl_wrap_socket_and_match_hostname),
+    e o próprio ssl.SSLContext do Python recusa isso enquanto check_hostname
+    continuar True: "ValueError: Cannot set verify_mode to CERT_NONE when
+    check_hostname is enabled." Corrigido desligando check_hostname (e já
+    deixando verify_mode em CERT_NONE) na hora de montar o adaptador."""
+    adapter = mod._TJCETLSAdapter()
+    ctx = adapter.poolmanager.connection_pool_kw["ssl_context"]
+    assert ctx.check_hostname is False
+    assert ctx.verify_mode == mod.ssl.CERT_NONE
+    # Simula exatamente o que o urllib3 faz de verdade ao conectar — não
+    # pode levantar ValueError (é isto que quebrava em produção).
+    ctx.verify_mode = mod.ssl.CERT_NONE
+
+
 def test_sessao_paralela_do_tjce_tambem_desliga_verificacao_de_certificado():
     """Mesmo problema do teste acima, mas no caminho realmente usado em
     produção (busca em paralelo pelos 5 candidatos, seção -73) — ver

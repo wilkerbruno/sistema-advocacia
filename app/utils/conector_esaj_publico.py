@@ -114,6 +114,7 @@ from __future__ import annotations
 import concurrent.futures
 import hashlib
 import re
+import ssl
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -172,12 +173,26 @@ class _TJCETLSAdapter(HTTPAdapter):
     """TJCE exige TLS SECLEVEL=1 por causa da configuração do servidor
     dele — mesma necessidade já documentada pelo juscraper
     (src/juscraper/courts/tjce/_tls.py). Sem isso, toda requisição pro
-    domínio do TJCE falha na negociação TLS, mesmo com a URL certa."""
+    domínio do TJCE falha na negociação TLS, mesmo com a URL certa.
+
+    ATUALIZADO NA SEÇÃO -76 (500 em produção, causado pela correção da
+    seção -75): `create_urllib3_context()` sem argumento nenhum de
+    `cert_reqs` cria um contexto com `check_hostname=True` "de fábrica".
+    Isso conflita com a seção -75 ter ligado `session.verify = False` pra
+    este tribunal — na hora de conectar de verdade, o urllib3 tenta setar
+    `verify_mode = CERT_NONE` neste MESMO contexto, e o próprio Python
+    recusa isso (`ValueError: Cannot set verify_mode to CERT_NONE when
+    check_hostname is enabled`) enquanto `check_hostname` continuar True.
+    A ordem de baixo (`check_hostname` ANTES de `verify_mode`) é exigida
+    pelo próprio `ssl.SSLContext` — depois de `check_hostname=False`, o
+    `verify_mode=CERT_NONE` que o urllib3 seta depois não conflita mais."""
 
     def init_poolmanager(self, *args, **kwargs):
         from urllib3.util.ssl_ import create_urllib3_context
         ctx = create_urllib3_context()
         ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
         kwargs["ssl_context"] = ctx
         return super().init_poolmanager(*args, **kwargs)
 

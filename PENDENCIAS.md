@@ -1,5 +1,40 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -76. Corrigido o erro 500 que a correção do TJCE (seção -75) causou
+
+**Meu erro:** a correção da seção -75 (desligar a verificação de certificado só pro TJCE) tinha um
+defeito que só aparece na hora de conectar de verdade — passou pelos meus testes automatizados porque,
+neste ambiente onde eu trabalho, existe uma variável de configuração de rede própria dele que mascarava
+exatamente esse problema (fazia esta consulta ignorar silenciosamente o "desligar verificação" e usar um
+certificado de outro tipo por baixo dos panos, sem erro nenhum). Só depois de forçar esse mesmo ambiente a
+se comportar como o seu servidor de produção (sem essa variável) foi que consegui reproduzir o 500 exato
+que você recebeu, usando o traceback que você mandou.
+
+**A causa técnica, pro registro:** ao criar o contexto de TLS mais permissivo que o TJCE precisa
+(SECLEVEL=1, seção -72), o Python cria esse contexto já com "verificar o nome do servidor no certificado"
+ligado por padrão. A correção da seção -75 tentava desligar a verificação de certificado só na hora de
+usar a sessão — mas o Python não permite desligar "verificar certificado" enquanto "verificar nome do
+servidor" continuar ligado no MESMO objeto: dá erro (`ValueError: Cannot set verify_mode to CERT_NONE when
+check_hostname is enabled`), e como ninguém tratava esse erro específico, ele subia até virar a página de
+erro 500 que você viu. A correção agora desliga as duas coisas juntas, na ordem certa, direto na criação do
+contexto do TJCE — sem essa inconsistência.
+
+**Testado:** reproduzi o crash exato de produção neste ambiente (forçando a mesma condição de rede
+"limpa", sem a variável que mascarava o problema) antes de corrigir, confirmei que a correção resolve, e
+rodei a suíte inteira depois — 182 testes (181 de antes + 1 novo, que trava exatamente essa combinação de
+configurações de TLS pra nunca mais regredir sem que um teste quebre primeiro).
+
+**Isso não muda nada do que foi dito na seção -75** sobre TJMS (continua parecendo bloqueio de rede, sem
+correção possível em código) nem sobre o TJCE em si (a verificação de certificado continua desligada só
+pra ele, pelo mesmo motivo já explicado — nenhum dado sensível é enviado nessa consulta).
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (contexto de TLS do TJCE corrigido),
+`tests/test_conector_esaj_publico.py` (1 teste novo).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — nenhuma coluna nova no banco, não
+precisa rodar `sincronizar_schema.py`. Peço desculpa pelo transtorno — essa dessa vez era um erro meu
+mesmo, não uma limitação de fora do meu controle como o caso do TJMS.
+
 ## -75. e-SAJ público: causa real do TJCE corrigida; TJMS parece bloqueio de rede (sem correção possível em código)
 
 **O log que você mandou (seção -74) trouxe a resposta.** Com o motivo técnico de cada tribunal indo pro
