@@ -72,6 +72,22 @@ class Empresa(db.Model):
     alcada_nivel1_valor = db.Column(db.Numeric(14, 2), nullable=True)
     alcada_nivel2_valor = db.Column(db.Numeric(14, 2), nullable=True)
 
+    # Timbrado do escritório (logo) — a pedido explícito ("quero ter uma
+    # opção do advogado colocar o timbrado do escritório dele no sistema"),
+    # ver app/utils/timbrado.py. Guarda só o NOME do arquivo salvo em disco
+    # (padrão idêntico a Documento.nome_arquivo), nunca o arquivo em si
+    # nesta coluna — o arquivo de verdade fica em
+    # `UPLOAD_FOLDER/timbrados_empresas/<empresa_id>/<logo_arquivo>`. Vale
+    # pra empresa INTEIRA (todas as unidades), não por unidade — decisão
+    # explícita: mais simples de configurar, e a maioria dos escritórios
+    # cliente tem uma identidade visual só. None = sem logo cadastrada
+    # ainda, caso em que o cabeçalho dos PDFs gerados continua só com texto
+    # (nome/CNPJ/endereço), exatamente como sempre foi — nenhuma mudança
+    # visual pra quem não configurar nada. nullable=True de propósito (mesma
+    # razão de sempre neste arquivo: sincronizar_schema.py só sabe
+    # adicionar coluna sem DEFAULT).
+    logo_arquivo = db.Column(db.String(255), nullable=True)
+
     unidades = db.relationship("Unidade", back_populates="empresa", lazy="dynamic")
     licenca = db.relationship("Licenca", back_populates="empresa", uselist=False)
     # Módulos vendidos separadamente (ver app/models/modulo.py e

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Modelo do manifesto do pacote MSIX — PENDENCIAS.md, seção -70.
+
+  Este arquivo NÃO é usado direto: tem 4 marcadores entre "__" que o
+  workflow do GitHub Actions substitui pelo valor real antes de rodar o
+  makeappx.exe (ver .github/workflows/build-agente-local.yml). Os dois
+  primeiros SÓ existem dentro da reserva do app no Partner Center — não
+  são valores que eu (ou o workflow) possam inventar:
+
+    __IDENTITY_NAME__          -> Partner Center > seu app > "Configuração
+                                   de pacote de aplicativo" (Package/Identity
+                                   Name). Algo como "12345SeuNome.AgenteJusControl".
+    __PUBLISHER__               -> mesmo lugar, campo "Publisher" — uma
+                                   string no formato "CN=XXXXXXXX-XXXX-...",
+                                   um GUID do SEU cadastro de desenvolvedor
+                                   (não é o nome da empresa digitado à mão).
+    __PUBLISHER_DISPLAY_NAME__  -> nome de publicador que aparece pro
+                                   usuário (Partner Center > Configurações
+                                   da conta > Perfil da conta > "Nome do
+                                   publicador"). Ex.: "JusControl" ou o seu
+                                   nome, dependendo do que você cadastrou.
+    __VERSION__                 -> gerado automaticamente pelo workflow a
+                                   partir da tag do Git (ex.: "agente-v1.2.3"
+                                   vira "1.2.3.0" — MSIX exige 4 números).
+
+  Depois de eu ter esses 3 primeiros valores (você tira do Partner Center),
+  atualizo o passo do workflow que faz essa substituição.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap rescap">
+
+  <Identity
+    Name="__IDENTITY_NAME__"
+    Publisher="__PUBLISHER__"
+    Version="__VERSION__"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Agente Local JusControl</DisplayName>
+    <PublisherDisplayName>__PUBLISHER_DISPLAY_NAME__</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="pt-br" />
+  </Resources>
+
+  <Applications>
+    <Application Id="AgenteJusControl" Executable="JusControlAgente.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Agente Local JusControl"
+        Description="Sincroniza processos e prazos do escritório com o sistema JusControl."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png" />
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

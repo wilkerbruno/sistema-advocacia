@@ -72,6 +72,18 @@
       </form>
       {% endif %}
       {% endif %}
+      {% if processo.numero_processo and processo.numero_processo|eh_cnj_tjsp %}
+      <form method="post" action="{{ url_for('governanca.tentar_captura_esaj', processo_id=processo.id) }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="small text-muted-doc mb-1">
+          Consulta pública do e-SAJ (TJSP) — sem certificado, sem token, sem
+          login. Fonte complementar ao DataJud: scraping de página pública,
+          sem contrato oficial (pode parar de funcionar se o TJSP mudar a
+          página, ou não alcançar processos com senha/sigilo).
+        </div>
+        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do e-SAJ (TJSP)</button>
+      </form>
+      {% endif %}
     </div>
   </div>
 
@@ -637,29 +649,45 @@
     <script>
     (function () {
       // Lembra em qual aba o usuário estava DENTRO DESTE PROCESSO (PENDENCIAS.md,
-      // seção -59) — sem isso, qualquer ação (registrar andamento, solicitar
-      // busca de autos, cadastrar prazo etc.) faz um POST -> redirect -> GET
-      // que sempre volta pra aba "Andamentos" (a única marcada "active" no
-      // HTML), mesmo quando a ação foi feita numa aba diferente (ex:
-      // "Documentos"). Guarda no sessionStorage (só desta aba do navegador,
-      // não sincroniza com nada) sempre que uma aba é aberta, e restaura na
-      // carga da página.
-      var chaveAbaAtiva = "jc_aba_processo_{{ processo.id }}";
-      var botoesAba = document.querySelectorAll('#abasProcesso button[data-bs-toggle="tab"]');
+      // seção -59, corrigido de vez na -68) — sem isso, qualquer ação (registrar
+      // andamento, solicitar busca de autos, cadastrar prazo etc.) faz um POST ->
+      // redirect -> GET que sempre volta pra aba "Andamentos" (a única marcada
+      // "active" no HTML), mesmo quando a ação foi feita numa aba diferente (ex:
+      // "Documentos"). Guarda no sessionStorage (só desta aba do navegador, não
+      // sincroniza com nada) sempre que uma aba é aberta, e restaura na carga da
+      // página.
+      //
+      // IMPORTANTE (bug da primeira versão, seção -68): este <script> fica no
+      // meio do bloco "conteudo" do base.html, que é renderizado ANTES do
+      // <script src=".../bootstrap.bundle.min.js">, lá embaixo perto do
+      // </body>. Rodar a restauração aqui direto (fora de qualquer espera)
+      // significa que `window.bootstrap` AINDA NÃO EXISTE nesse instante — a
+      // condição `&& window.bootstrap` falhava sempre, silenciosamente, e a
+      // aba nunca era restaurada de verdade (só o `sessionStorage.setItem`
+      // funcionava, guardando o valor certo, mas sem nunca usá-lo). Por isso
+      // envolvemos tudo em "DOMContentLoaded": esse evento só dispara depois
+      // que TODOS os scripts síncronos anteriores (inclusive o do Bootstrap)
+      // já rodaram — não importa a posição deste <script> no HTML, o
+      // navegador só entrega o evento depois que o parsing inteiro da página
+      // termina.
+      document.addEventListener("DOMContentLoaded", function () {
+        var chaveAbaAtiva = "jc_aba_processo_{{ processo.id }}";
+        var botoesAba = document.querySelectorAll('#abasProcesso button[data-bs-toggle="tab"]');
 
-      botoesAba.forEach(function (botao) {
-        botao.addEventListener("shown.bs.tab", function (evento) {
-          sessionStorage.setItem(chaveAbaAtiva, evento.target.getAttribute("data-bs-target"));
+        botoesAba.forEach(function (botao) {
+          botao.addEventListener("shown.bs.tab", function (evento) {
+            sessionStorage.setItem(chaveAbaAtiva, evento.target.getAttribute("data-bs-target"));
+          });
         });
-      });
 
-      var abaSalva = sessionStorage.getItem(chaveAbaAtiva);
-      if (abaSalva) {
-        var botaoAlvo = document.querySelector('#abasProcesso button[data-bs-target="' + abaSalva + '"]');
-        if (botaoAlvo && window.bootstrap) {
-          new bootstrap.Tab(botaoAlvo).show();
+        var abaSalva = sessionStorage.getItem(chaveAbaAtiva);
+        if (abaSalva) {
+          var botaoAlvo = document.querySelector('#abasProcesso button[data-bs-target="' + abaSalva + '"]');
+          if (botaoAlvo && window.bootstrap) {
+            new bootstrap.Tab(botaoAlvo).show();
+          }
         }
-      }
+      });
     })();
     </script>
 

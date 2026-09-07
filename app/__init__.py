@@ -234,6 +234,15 @@ def create_app(config_class=Config):
             return "-"
         return valor.strftime("%d/%m/%Y %H:%M")
 
+    @app.template_filter("eh_cnj_tjsp")
+    def eh_cnj_tjsp(numero_processo):
+        """Usado só pra mostrar/esconder o botão "Buscar dados públicos do
+        e-SAJ (TJSP)" na tela do processo (PENDENCIAS.md, seção -71) — o
+        conector em si valida de novo (nunca confia só no template)."""
+        from app.utils.cnj import somente_digitos
+        d = somente_digitos(numero_processo)
+        return len(d) == 20 and d[13] == "8" and d[14:16] == "26"
+
     @app.errorhandler(403)
     def erro_403(e):
         from flask import render_template

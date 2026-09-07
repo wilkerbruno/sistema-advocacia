@@ -19,16 +19,21 @@ from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils.notificacoes import notificar
 
 
-def montar_nota_datajud(dados_capturados):
+def montar_nota_datajud(dados_capturados, fonte_rotulo="DataJud"):
     """
-    Monta uma notinha de texto só com o que o DataJud devolve que NÃO tem
+    Monta uma notinha de texto só com o que a fonte devolve que NÃO tem
     campo próprio no cadastro (ver app/templates/processos/form.html):
     mais de um assunto CNJ (o campo "Área do direito" só guarda um texto
     corrido), se o processo é eletrônico/físico e por qual sistema (PJe,
-    e-Proc...), e um alerta se o DataJud sinalizar algum nível de sigilo —
+    e-SAJ...), e um alerta se a fonte sinalizar algum nível de sigilo —
     pra virar preenchimento automático da "Descrição/objeto" (ver
     `aplicar_carga_inicial` abaixo) em vez de ficar um dado capturado mas
     perdido, sem aparecer em lugar nenhum do cadastro.
+
+    `fonte_rotulo`: nome mostrado na nota ("DataJud" por padrão, pra não
+    mudar o texto de nenhuma nota já existente) — o conector e-SAJ
+    público (PENDENCIAS.md, seção -71) passa "e-SAJ" aqui, pra nota não
+    ficar dizendo "DataJud" quando os dados vieram de outro lugar.
 
     Devolve None quando não há nada que valha a pena registrar (nenhum
     desses três só um assunto e sem sistema/sigilo informado).
@@ -52,16 +57,16 @@ def montar_nota_datajud(dados_capturados):
     nivel_sigilo = dados_capturados.get("nivel_sigilo")
     if nivel_sigilo not in (None, 0):
         partes.append(
-            f"Atenção: o DataJud indica nível de sigilo {nivel_sigilo} neste processo — "
+            f"Atenção: o {fonte_rotulo} indica nível de sigilo {nivel_sigilo} neste processo — "
             "confira se deve estar marcado como \"Segredo de justiça\"."
         )
 
     if not partes:
         return None
-    return "Dados do DataJud (captura automática): " + " ".join(partes)
+    return f"Dados do {fonte_rotulo} (captura automática): " + " ".join(partes)
 
 
-def aplicar_carga_inicial(processo, dados_capturados):
+def aplicar_carga_inicial(processo, dados_capturados, fonte_rotulo="DataJud"):
     """
     Preenche campos do Processo com o retorno de
     ConectorCaptura.consultar_processo() — só quando o campo ainda está
@@ -93,7 +98,7 @@ def aplicar_carga_inicial(processo, dados_capturados):
         except (TypeError, ValueError):
             pass  # formato inesperado — não trava o cadastro por causa de um campo secundário
 
-    nota = montar_nota_datajud(dados_capturados)
+    nota = montar_nota_datajud(dados_capturados, fonte_rotulo=fonte_rotulo)
     if nota and not processo.descricao:
         processo.descricao = nota
 
@@ -116,11 +121,18 @@ JANELA_DIAS_MOVIMENTACAO_RECENTE = 60
 # um alerta genuinamente recente.
 
 
-def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captura_inicial=False):
+def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captura_inicial=False,
+                                        origem_captura="datajud"):
     """
     Persiste uma lista de MovimentacaoCapturada (dataclass de
     captura_conectores.py) como registros de Movimentacao, deduplicando
     por hash, rodando a máquina de estados e o motor de próxima ação.
+
+    `origem_captura`: gravado em `Movimentacao.origem_captura` — era
+    hardcoded como "datajud" até esta função passar a ser reaproveitada
+    também pelo e-SAJ público (PENDENCIAS.md, seção -71); mantém
+    "datajud" como padrão pra não mudar o comportamento de nenhum
+    chamador existente que não passe este argumento.
 
     Uma movimentação SEM regra cadastrada só gera o prazo genérico de
     "Análise necessária" quando é RECENTE (ver JANELA_DIAS_MOVIMENTACAO_RECENTE
@@ -174,7 +186,7 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captu
         mov = Movimentacao(
             processo_id=processo.id, data=capturada.data,
             codigo_tpu=capturada.codigo_tpu, texto_integral=capturada.texto_integral,
-            origem_captura="datajud", hash_dedup=capturada.hash_dedup,
+            origem_captura=origem_captura, hash_dedup=capturada.hash_dedup,
             complemento=getattr(capturada, "complemento", None),
         )
         db.session.add(mov)

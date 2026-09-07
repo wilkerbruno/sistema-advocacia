@@ -1,4 +1,317 @@
-# Status das pendências do briefing (atualizado em 04/09/2026)
+# Status das pendências do briefing (atualizado em 07/09/2026)
+
+## -71. Conector "e-SAJ público" (TJSP) — busca dados sem certificado, sem token, sem login
+
+**Pedido:** você mandou o repositório `github.com/jtrecenti/juscraper` perguntando se dava pra usar
+algo de lá pra buscar o processo completo (ou mais completo) e um PDF, sem precisar do certificado ou
+token do advogado. Analisei o código-fonte do juscraper (não só a documentação) antes de responder,
+porque a resposta é diferente pra cada parte do processo:
+
+- **TJSP (e-SAJ), consulta de andamentos/partes em 1º grau:** o juscraper faz isso sem NENHUMA
+  credencial — confirmei lendo o código, não tem login, cookie nem certificado em lugar nenhum.
+  **Isso deu pra aproveitar de verdade** — é o que foi construído nesta rodada.
+- **PDF dos autos de verdade (JusBR/PDPJ):** ao contrário do que parecia à primeira vista, essa parte
+  do juscraper EXIGE um token JWT obtido via login SSO do próprio advogado (gov.br/certificado) — é
+  exatamente o token que você queria evitar. Não é uma limitação do juscraper, é uma exigência da
+  Justiça (sigilo processual/LGPD) — nenhuma ferramenta legítima contorna isso. **Isso NÃO deu pra
+  aproveitar.**
+
+Depois você perguntou especificamente se dava pra pegar os cookies do navegador do advogado (ex: se
+ele logar no TJSP, buscar esse cookie e usar pra puxar tudo daquele tribunal) — expliquei que o Chrome
+tem uma proteção (desde meados de 2024, "App-Bound Encryption") feita justamente pra impedir que um
+programa de fora do navegador leia esses cookies, e que o e-SAJ/PJe agora exige verificação por e-mail
+no login (desde março/abril de 2025), então nem o login em si dá pra automatizar silenciosamente. Você
+então sugeriu usar uma extensão de navegador (tipo "Cookie-Editor") — **e essa ideia está certa**: uma
+extensão lê os cookies por dentro do próprio navegador (API `chrome.cookies`), então quem descriptografa
+é o Chrome mesmo antes de entregar pra extensão autorizada — isso contorna o problema do App-Bound
+Encryption de um jeito diferente do que o juscraper faz (ele só suporta Firefox, que não tem essa
+proteção). Essa parte (extensão + ponte com o Agente Local) ainda **não foi construída** — é coisa
+maior, envolve decidir entre Native Messaging (mais "oficial", mas precisa mexer no registro do
+Windows) ou um servidor local HTTP dentro do Agente Local (mais simples de testar, mas precisa validar
+a origem da requisição pra não virar porta aberta pra qualquer site) — fica como próximo passo.
+
+**O que foi implementado nesta rodada (só a parte pública, sem login):** um novo conector,
+`app/utils/conector_esaj_publico.py`, que busca a página pública do processo diretamente no site do
+TJSP (`esaj.tjsp.jus.br`) — sem enviar nenhum header de autorização, cookie ou certificado (testado
+explicitamente: `test_consulta_publica_sem_nenhuma_credencial`). Ele extrai classe, assunto, foro,
+vara, valor da causa, partes (com os advogados listados) e o histórico de movimentações, usando os
+mesmos nomes de campo/IDs de HTML confirmados no código do juscraper (que é MIT, então pude conferir a
+lógica exata deles). Reaproveita o MESMO pipeline de carga inicial e deduplicação por hash que o
+DataJud já usa (`aplicar_carga_inicial` e `registrar_movimentacoes_capturadas`, em
+`app/utils/captura_pipeline.py` — só ganharam dois parâmetros novos, `fonte_rotulo` e `origem_captura`,
+com valor padrão igual ao de sempre, então nada que já existe muda de comportamento), então é seguro
+rodar quantas vezes quiser: nunca duplica movimentação nem sobrescreve campo já preenchido à mão.
+
+Na tela do processo, aparece um botão novo "Buscar dados públicos do e-SAJ (TJSP)" — só quando o número
+CNJ do processo é de fato do TJSP (segmento "8", código de tribunal "26"; ver filtro `eh_cnj_tjsp` em
+`app/__init__.py`) — ao lado do botão de nova tentativa via DataJud, com um aviso explicando que é uma
+fonte complementar (scraping de página pública, sem contrato oficial — pode parar de funcionar se o
+TJSP mudar a página, e não alcança processos com senha/segredo de justiça, que o conector detecta e
+sinaliza como erro específico em vez de travar).
+
+**Limitações importantes, pra não vender como mais do que é:**
+1. Só cobre TJSP (código de tribunal 26) — outros tribunais no e-SAJ (TJMS, por exemplo, da seção -64)
+   não são atendidos por este conector.
+2. Só 1º grau, e só o que a página pública mostra — não é o PDF dos autos completos (isso continua
+   exigindo login, como explicado acima).
+3. Processo com senha/segredo de justiça é detectado e rejeitado com uma mensagem clara (não trava o
+   sistema, mas também não consegue os dados — é o próprio TJSP bloqueando quem não tem acesso).
+4. É scraping de página HTML pública, sem contrato/SLA da Justiça — se o TJSP mudar o layout da página,
+   o conector para de funcionar até eu ajustar o parsing.
+
+**Testado:** suíte inteira passando — 168 testes (159 de antes + 9 novos: parsing completo de uma
+página de processo real, rejeição de número CNJ de outro tribunal, confirmação de que NENHUMA
+credencial é enviada, detecção de processo protegido por senha, processo não encontrado, erro de rede
+virando mensagem clara, os dois métodos da interface `ConectorCaptura` que este conector não implementa
+(monitoramento por OAB e due diligence — fora de escopo aqui) levantando erro explícito em vez de falha
+silenciosa, e os dois testes de ponta a ponta da rota nova, incluindo o caso de falha registrando log).
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (novo), `app/utils/captura_pipeline.py`
+(dois parâmetros novos, retrocompatíveis), `app/routes/governanca.py` (rota nova
+`tentar_captura_esaj`), `app/__init__.py` (filtro `eh_cnj_tjsp`),
+`app/templates/processos/detalhe.html` (botão novo), `requirements.txt` (adicionado
+`beautifulsoup4`, usado pro parsing do HTML), `tests/test_conector_esaj_publico.py` (novo).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — não tem coluna nova no banco
+(`origem_captura` já existe, é só um texto livre), então **não precisa** rodar
+`sincronizar_schema.py` desta vez.
+
+## -70. Geração do .msix (Microsoft Store) — construído, falta você cadastrar 3 valores no GitHub
+
+**Pedido:** *"já fiz o cadastro [de desenvolvedor], agora conseguiria gerar o .msix do aplicativo para
+que eu possa colocar na loja da Microsoft?"* — sequência da pesquisa da seção -67 (que confirmou que dá
+pra fazer isso de graça, e que a própria Microsoft reassina o pacote depois da certificação, resolvendo
+o bloqueio do SmartScreen/Smart App Control sem comprar certificado nenhum).
+
+**O que eu consegui construir sozinho (sem precisar de nada seu):**
+
+- `agente_local_jc/build/gerar_assets_msix.py` (novo): gera as 3 imagens que o pacote MSIX exige
+  (`Square44x44Logo.png`, `Square150x150Logo.png`, `StoreLogo.png`), reaproveitando o mesmo desenho do
+  ícone de sempre (círculo azul-marinho com "J" branco) — testei aqui e as 3 saem nítidas mesmo no
+  tamanho pequeno (44×44). Roda automaticamente no GitHub Actions, igual o `gerar_icone.py` já faz hoje.
+- `agente_local_jc/build/AppxManifest.xml.template` (novo): o "manifesto" que todo pacote MSIX precisa
+  ter — mas com 4 marcadores (`__IDENTITY_NAME__`, `__PUBLISHER__`, `__PUBLISHER_DISPLAY_NAME__`,
+  `__VERSION__`) que o workflow do GitHub Actions preenche automaticamente antes de empacotar.
+
+**O que eu NÃO tenho e não posso inventar — precisa vir do SEU cadastro no Partner Center:** o "Nome do
+identity" e o "Publisher" (uma string tipo `CN=XXXXXXXX-XXXX-...`) só existem depois que você reserva o
+nome do app lá dentro do Partner Center — são identificadores únicos ligados à SUA conta de
+desenvolvedor, não algo que eu possa gerar ou adivinhar. Errar esse valor faz o pacote ser recusado na
+hora de submeter à Store.
+
+**Como resolver isso sem precisar me mandar esses valores no chat:** em vez de eu colocar esses 3
+valores direto no código (o que exigiria eu mexer de novo no arquivo do workflow toda vez que algo
+mudasse), configurei o workflow pra ler 3 "repository variables" do próprio GitHub — você mesmo cadastra
+isso direto na tela do GitHub, sem precisar me colar nada aqui:
+
+1. No repositório, vá em **Settings → Secrets and variables → Actions → aba "Variables"** (não é a aba
+   "Secrets") → **"New repository variable"**.
+2. Cadastre 3 variáveis, com os valores exatos que aparecem na reserva do app no Partner Center:
+   - `MSIX_IDENTITY_NAME` → Partner Center → seu app → "Configuração de pacote de aplicativo" → campo
+     "Nome do identity" (algo como `12345SeuNome.AgenteJusControl`).
+   - `MSIX_PUBLISHER` → mesma tela, campo "Publisher" (uma string `CN=XXXXXXXX-XXXX-...`).
+   - `MSIX_PUBLISHER_DISPLAY_NAME` → Partner Center → Configurações da conta → Perfil da conta → "Nome
+     do publicador".
+
+Sem essas 3 variáveis cadastradas, o workflow continua funcionando exatamente como hoje — o passo do
+MSIX é **pulado automaticamente**, e o instalador `.exe` de sempre continua sendo gerado normalmente.
+Depois de cadastrar as 3 variáveis, a PRÓXIMA vez que o workflow rodar (nova tag `agente-vX.Y.Z`, ou
+manualmente pela aba "Actions") já vai gerar também um `JusControlAgente.msix`, publicado junto do
+instalador de sempre (como artefato do workflow e, se veio de uma tag, também anexado à Release).
+
+**Mudança no workflow (`.github/workflows/build-agente-local.yml`):** esse arquivo é um dos que não
+consigo escrever direto na sua pasta (junto com qualquer coisa em `.github/**`, e arquivos `.env`) — a
+ferramenta que uso pra sincronizar arquivos recusa esse caminho de propósito. Por isso, o conteúdo NOVO
+COMPLETO desse arquivo vem no final desta mensagem, pra você colar substituindo o arquivo atual (o
+`agente_local.spec` e o `instalador.iss` não mudaram, só o `.yml` do workflow).
+
+**Não testado de ponta a ponta:** este ambiente não tem Windows nem o Windows SDK/`makeappx.exe`
+disponíveis, então não consigo rodar o empacotamento MSIX aqui de verdade — testei só a geração das
+imagens (script rodou e as 3 saíram corretas) e validei a sintaxe do `.yml` novo. A primeira execução
+real no GitHub Actions, depois de você cadastrar as 3 variáveis, é a validação de fato; se der erro, o
+log do passo "Empacotar o MSIX (makeappx.exe)" mostra o motivo exato.
+
+**Depois de gerar o `.msix` com sucesso, os próximos passos (fora do meu alcance, do lado da Microsoft)
+são:** enviar esse arquivo pro Partner Center como um envio novo do seu app, esperar a certificação
+(pode levar de horas a poucos dias), e então baixar o link de instalação — nesse momento é que a
+Microsoft reassina o pacote e o bloqueio do SmartScreen/Smart App Control desaparece de vez, sem custo.
+
+**Arquivos tocados:** `agente_local_jc/build/gerar_assets_msix.py` (novo),
+`agente_local_jc/build/AppxManifest.xml.template` (novo), `.github/workflows/build-agente-local.yml`
+(conteúdo completo entregue como texto, pra você colar).
+
+## -69. Timbrado do escritório (logo) nos PDFs gerados — implementado nesta rodada
+
+**Pedido:** *"quero ter uma opção do advogado colocar o timbrado do escritório dele no sistema, isso
+seria possível?"*
+
+**Perguntei três coisas antes de construir, pra não ter que refazer depois:**
+
+1. O timbrado é uma logo pequena somada ao texto que já existe (nome/CNPJ/endereço), ou uma imagem
+   única substituindo o cabeçalho inteiro? → **Você escolheu: logo + texto atual.**
+2. Vale pro escritório inteiro (Empresa) ou pode variar por unidade/filial? → **Você escolheu: por
+   escritório inteiro** (todas as unidades da mesma empresa usam a mesma logo).
+3. Onde deve valer, além do recibo em PDF que já existe hoje? → **Você escolheu: recibo + preparar
+   para futuros documentos** (ou seja, construir de um jeito reaproveitável, não só colado no recibo).
+
+**O que foi implementado:** em "Minha empresa → Integrações" (`/minhas-integracoes`), qualquer usuário
+com papel "admin" da empresa agora tem um terceiro cartão, "Timbrado do escritório", com upload de
+PNG/JPG (até 3 MB), pré-visualização da logo cadastrada e botão para remover. A lógica de
+validar/salvar/desenhar ficou num módulo novo e isolado (`app/utils/timbrado.py`) — não depende de
+nada específico do recibo, exatamente para poder ser reaproveitado por qualquer gerador de PDF futuro
+do sistema, como você pediu no item 3. Hoje só o recibo em PDF do Financeiro chama isso
+(`app/routes/financeiro.py::recibo`), trocando o bloco que desenhava só o texto do cabeçalho por uma
+chamada a `timbrado.desenhar_cabecalho(...)`, que desenha a logo à esquerda (altura fixa, largura
+proporcional à imagem original) e o texto ao lado dela — sem nenhuma logo cadastrada, o PDF sai
+IDÊNTICO a como sempre foi (nenhuma mudança visual pra quem não configurar nada).
+
+A logo é guardada como arquivo em disco (mesmo padrão já usado para documentos de processo — ver
+`app/routes/processos.py::add_documento`), nunca no banco; só o nome do arquivo salvo fica numa coluna
+nova, `Empresa.logo_arquivo` (nullable, não exige migração — basta rodar `sincronizar_schema.py` depois
+do deploy). A validação rejeita extensão fora de PNG/JPG, arquivo maior que 3 MB, e também um arquivo
+com extensão certa mas que não é uma imagem de verdade por dentro (usando `Image.open(...).verify()`
+do Pillow) — sem deixar arquivo temporário esfarrapado pra trás em nenhum desses casos de rejeição.
+
+**Testado:** suíte inteira (`pytest -q`) passando — 159 testes (154 de antes + 5 novos cobrindo upload
+válido, extensão inválida, conteúdo falso, remoção, e que só admin da própria empresa consegue
+configurar isso). Além disso, gerei e RENDERIZEI (não só validei os bytes) três recibos de teste em PNG
+via `pdftoppm`, pra confirmar visualmente o layout: (1) caso normal, logo + nome/CNPJ/endereço lado a
+lado, sem sobreposição; (2) caso sem logo, confirmando que fica byte-a-byte no mesmo estilo de sempre
+(regressão zero); (3) caso extremo, logo bem larga e baixa com pouquíssimo texto ao lado, confirmando
+que o cursor vertical (`y`) do resto do PDF nunca fica sobreposto pela logo mesmo quando ela ocupa mais
+altura que o texto.
+
+**Arquivos tocados:** `app/models/empresa.py` (coluna nova `logo_arquivo`), `app/utils/timbrado.py`
+(novo), `app/routes/integracoes.py` (3 rotas novas: salvar/remover/servir a imagem do timbrado),
+`app/routes/financeiro.py` (recibo passa a chamar `timbrado.desenhar_cabecalho`),
+`app/templates/integracoes/minhas_integracoes.html` (cartão novo), `requirements.txt` (adicionado
+`Pillow`, necessário pro reportlab conseguir desenhar imagens PNG/JPEG no PDF), `tests/test_timbrado.py`
+(novo).
+
+**Depois de subir esta versão:** (1) `git add`/`commit`/`push` normal (isto é do lado do servidor, não
+do instalador — não precisa de tag nem de rebuild do instalador do agente local); (2) rodar
+`python sincronizar_schema.py` dentro do container do EasyPanel, pra criar a coluna nova
+`Empresa.logo_arquivo`.
+
+## -68. Aba do processo voltando pra "Andamentos" DE NOVO — a correção da seção -60 nunca tinha funcionado de verdade
+
+**Pedido:** você reportou de novo que qualquer ação dentro de um processo redireciona pra aba
+"Andamentos", mesmo depois da correção que eu tinha entregue lá na seção -60.
+
+**Causa raiz — a correção anterior nunca funcionou, e eu não tinha percebido:** o script que restaura
+a aba salva fica dentro do bloco principal de conteúdo da página (`detalhe.html`), que o `base.html`
+renderiza ANTES do `<script src=".../bootstrap.bundle.min.js">` (lá embaixo, perto do fechamento do
+`<body>`). Como esse script roda IMEDIATAMENTE, no momento em que o navegador lê aquela linha, o
+`window.bootstrap` ainda não existe — o Bootstrap só é carregado mais adiante no HTML. A condição
+`if (botaoAlvo && window.bootstrap)` falhava sempre, silenciosamente (sem erro nenhum no console), e a
+aba nunca era restaurada de verdade — só a PARTE de guardar no `sessionStorage` funcionava, guardando o
+valor certo, mas sem nunca chegar a usá-lo. Ou seja, o bug nunca tinha sido corrigido, apesar de eu ter
+achado que sim.
+
+**Correção:** a restauração agora roda dentro de um listener de `DOMContentLoaded` — esse evento só
+dispara depois que TODOS os scripts síncronos anteriores (inclusive o do Bootstrap) já terminaram de
+rodar, não importa a posição deste `<script>` no HTML.
+
+**Testado de um jeito que realmente prova o bug e a correção, não só leitura de código:** montei uma
+reprodução mínima (HTML com as mesmas duas abas + um dublê do Bootstrap que expõe a mesma API usada
+pelo código real — `window.bootstrap.Tab` e o evento `shown.bs.tab`) e rodei num Chromium de verdade
+via Playwright: clicar na aba "Documentos" e recarregar a página. Com o código ANTIGO (seção -60), a
+aba sempre voltava pra "Andamentos" depois de recarregar — reproduzindo exatamente o bug relatado. Com
+o código NOVO (`DOMContentLoaded`), a aba "Documentos" continuava ativa depois de recarregar. Também
+rodei a suíte inteira (`pytest -q`, 154 passando) — e ela pegou um erro REAL que eu tinha introduzido
+sem querer nesta mesma correção: o comentário explicativo citava literalmente `{% block conteudo %}`
+como exemplo de texto, e o Jinja não entende comentário de JavaScript — ele processa esse texto como se
+fosse uma tag de verdade, quebrando a renderização da página inteira com `TemplateSyntaxError`. Troquei
+a citação por texto sem `{%`/`%}` antes de mandar pra você; a suíte confirma que a página volta a
+renderizar normalmente.
+
+**Arquivo tocado:** `app/templates/processos/detalhe.html` (só este).
+
+## -67. Pesquisa: dá pra resolver o bloqueio (seção -61) via MSIX + Microsoft Store, de graça?
+
+**Pergunta:** você perguntou se "MSIX + Microsoft Store" resolveria o bloqueio do instalador de forma
+gratuita, em vez de comprar um certificado de assinatura de código.
+
+**Resposta: sim, é o caminho mais barato que existe pra resolver isso de vez** (não só um contorno
+temporário como a seção -66) — e também corrige uma informação que eu tinha te dado errada na seção
+-61: eu tinha recomendado certificado **EV** como o único jeito de ter confiança IMEDIATA no
+SmartScreen/Smart App Control. Isso deixou de ser verdade — confirmei agora que, desde 2024, a
+Microsoft removeu o tratamento especial que certificados EV tinham; hoje EV e OV se comportam do
+mesmo jeito (constroem reputação aos poucos, sem confiança imediata). Ou seja, nenhum dos dois
+certificados pagos resolve o problema de forma imediata — só o caminho da Store resolve isso de
+graça e na hora.
+
+**Como funciona:** ao publicar o app empacotado como **MSIX** na Microsoft Store, a própria Microsoft
+**reassina o pacote depois da certificação** — o app passa a herdar a reputação da Microsoft
+automaticamente, sem SmartScreen nem Smart App Control bloquearem nada, sem precisar comprar
+certificado nenhum. Isso só vale pro formato MSIX — se fosse só submeter o `.exe`/instalador atual
+(Inno Setup) pra Store sem empacotar como MSIX, a Microsoft NÃO reassina, e o bloqueio continua.
+
+**Custo confirmado:** desde setembro/2025, a Microsoft **zerou a taxa de cadastro de desenvolvedor
+individual** (antes custava US$19 único) — cadastro em storedeveloper.microsoft.com, verificação de
+identidade com documento oficial + selfie (não tem custo, é só um processo de verificação), e depois
+acesso ao Partner Center pra publicar. Nenhum custo recorrente depois disso.
+
+**Não precisa deixar público:** dá pra publicar como "não detectável" (o app não aparece em busca nem
+navegação da Store, só quem tiver o link direto consegue instalar) — perfeito pro piloto de agora, só
+você e o advogado colega. Tem uma opção ainda mais restrita ("Público-alvo privado", com grupo de
+usuários específico exigindo conta pessoal da Microsoft) pra quando quiser controlar exatamente quem
+instala, mas essa é mais burocrática — não recomendo pro piloto atual.
+
+**O que precisa acontecer pra usar esse caminho (trabalho real, não é só configuração):**
+1. **Você** precisa criar a conta gratuita de desenvolvedor (isso exige SEU documento oficial + selfie
+   — não é algo que eu consigo fazer por você).
+2. **Eu preciso mudar o pipeline de build** (`.github/workflows/build-agente-local.yml`) pra também
+   gerar um pacote `.msix` (hoje só gera o `.exe` via PyInstaller + Inno Setup) — isso envolve criar um
+   manifesto do app (`AppxManifest.xml`) e empacotar com as ferramentas do Windows SDK
+   (`MakeAppx.exe`), é trabalho de verdade, não é imediato.
+3. **Submeter pro Partner Center** e esperar a certificação da Microsoft (normalmente leva alguns dias
+   — não é instantâneo como o `git push` do instalador atual).
+
+**Minha recomendação:** vale a pena investir nisso pra resolver de vez (é literalmente grátis e
+melhor que qualquer certificado pago), mas não é uma correção de 5 minutos — enquanto isso, a
+seção -66 (desligar o Smart App Control temporariamente) continua sendo o jeito mais rápido de destravar
+o teste com o advogado colega HOJE. Me avise se quer que eu comece a preparar o empacotamento MSIX no
+pipeline enquanto você cria a conta de desenvolvedor.
+
+Fontes consultadas: [Code signing options for Windows app developers](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/code-signing-options), [Free developer registration for individual developers](https://learn.microsoft.com/en-us/windows/apps/publish/whats-new-individual-developer), [Choose visibility options for MSIX app](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/visibility-options), [Windows Apps PSA: EV Certs do not grant immediate reputation anymore](https://www.todesktop.com/blog/posts/windows-apps-psa-ev-certs-do-not-grant-immediate-reputation-anymore)
+
+## -66. Contorno temporário pro bloqueio do Smart App Control (pendência -61) — pra você e o advogado colega testarem o instalador
+
+**Pedido:** o instalador voltou a ser bloqueado ("CreateProcess falhou; código 4551 — Uma política de
+Controle de Aplicativo bloqueou este arquivo") ao tentar instalar a versão nova, e o advogado colega
+provavelmente vai bater no mesmo bloqueio na máquina dele. Você pediu um jeito de corrigir isso, pelo
+menos por um tempo.
+
+**Boa notícia que muda o que eu tinha escrito antes (seção -61):** eu tinha anotado que desligar o
+Smart App Control só voltava a ligar com reinstalação limpa do Windows — isso era verdade, mas
+**mudou**. Pesquisei agora e confirmei: desde a atualização cumulativa **KB5083769** (14/abril/2026),
+já disponível pra qualquer Windows 11 atualizado (não é mais só canal Insider), desligar e religar o
+Smart App Control voltou a ser **reversível**, sem precisar reinstalar nada. Isso muda o cálculo: dá
+pra desligar só pra instalar, e religar depois — genuinamente temporário, exatamente o que você pediu.
+
+**Passo a passo (pra você e pra passar pro advogado colega):**
+1. Abra **Segurança do Windows** (pesquise no menu Iniciar, ou Configurações → Privacidade e segurança
+   → Segurança do Windows → Abrir Segurança do Windows).
+2. Vá em **Controle de aplicativos e navegador** ("App & browser control").
+3. Role até a seção **Smart App Control** e clique em **Configurações do Smart App Control**.
+4. Mude de "Ativado"/"Avaliação" para **"Desativado"** — pode pedir confirmação de administrador (UAC)
+   e, às vezes, reiniciar o computador pra valer de fato.
+5. Rode o instalador (`JusControlAgente-Setup.exe`) de novo — agora deve instalar sem o erro 4551.
+6. **Depois de instalar** (recomendado, já que agora é reversível): volte na mesma tela e religue o
+   Smart App Control, pra não deixar a proteção desligada por mais tempo que o necessário.
+
+**Se o botão estiver acinzentado/travado:** normalmente é porque a conta não é administradora da
+máquina, ou porque uma política de empresa (GPO/Intune) está fixando essa configuração — nesses casos
+não dá pra contornar por aqui, e a saída continua sendo rodar direto da fonte (`python tray_app.py`,
+já documentado na seção -61) ou avançar com o certificado de assinatura de código.
+
+**Isso NÃO substitui o certificado de assinatura de código** (ver opções na seção -61) — continua
+sendo a única solução que funciona pra distribuir o instalador em escala, sem pedir pra cada advogado
+mexer numa configuração de segurança do Windows. Serve bem pro momento atual (só você + 1 colega
+testando), mas não escala pro escritório inteiro.
+
+Fontes consultadas: [Microsoft confirms you can soon disable Smart App Control without reinstalling Windows 11](https://www.windowslatest.com/2025/12/16/microsoft-confirms-you-can-soon-disable-smart-app-control-without-reinstalling-windows-11/), [Smart App Control in Windows 11 can now be re-enabled without reinstalling](https://blog-en.topedia.com/2026/04/smart-app-control-in-windows-11-can-now-be-re-enabled-without-reinstalling/)
 
 ## -65. Janela "Avançado" virou botões separados (Certificado, PJe, Projudi, e-SAJ) em vez de uma lista comprida
 
@@ -176,8 +489,12 @@ custo/prioridade, não técnica):**
    passa a confiar depois de um período de reputação acumulada (milhares de downloads/execuções) —
    ou seja, mesmo assinado, pode continuar sendo bloqueado pelo Smart App Control por um tempo.
 3. **Desativar o Smart App Control** em cada máquina que for instalar — não é uma solução de
-   distribuição (cada advogado teria que fazer isso na própria máquina) e, uma vez desligado, só
-   volta a ligar com reinstalação limpa do Windows — não recomendo pedir isso pra outros advogados.
+   distribuição (cada advogado teria que fazer isso na própria máquina). ⚠️ **Atualização
+   (ver seção -66 abaixo):** a informação de que isso só voltava a ligar com reinstalação limpa do
+   Windows estava correta até o fim de 2025, mas mudou — desde a atualização cumulativa de abril/2026
+   (KB5083769), desligar e religar o Smart App Control passou a ser reversível, sem reinstalar nada.
+   Isso torna essa opção viável como solução TEMPORÁRIA (piloto com poucos advogados), o que não era
+   antes — mas continua não sendo uma solução de distribuição em escala.
 
 **Próximo passo, quando você quiser retomar isso:** decidir se vale investir num certificado EV antes
 de distribuir o instalador pra outros advogados do escritório (rodar da fonte é aceitável só pra uso

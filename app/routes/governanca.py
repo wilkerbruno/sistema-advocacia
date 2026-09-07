@@ -33,6 +33,7 @@ from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
+from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
@@ -484,6 +485,54 @@ def tentar_captura(processo_id):
     db.session.commit()
     flash(f"Processo encontrado no DataJud — {novas} movimentação(ões) capturada(s). "
           f"Agora está em monitoramento automático.", "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@governanca_bp.route("/processos/<int:processo_id>/tentar-captura-esaj", methods=["POST"])
+@login_required
+def tentar_captura_esaj(processo_id):
+    """
+    Busca dados públicos direto do e-SAJ (TJSP) — sem certificado, sem
+    token, sem login (PENDENCIAS.md, seção -71). Complementar ao DataJud
+    (`tentar_captura` acima): só cobre TJSP, 1º grau, e é scraping de
+    página pública (sem contrato oficial) em vez de API do CNJ — ver
+    avisos completos em app/utils/conector_esaj_publico.py.
+
+    Reaproveita o mesmo pipeline de carga inicial + dedup por hash do
+    DataJud, mas com origem_captura="esaj_publico" — seguro rodar quantas
+    vezes precisar, e nunca sobrescreve campo já preenchido manualmente.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    if not processo.numero_processo:
+        flash("Este processo não tem número CNJ cadastrado — não dá pra buscar no e-SAJ.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    try:
+        conector = ConectorEsajPublico()
+        dados_capturados = conector.consultar_processo(processo.numero_processo)
+    except ErroEsajPublico as e:
+        db.session.add(LogCaptura(fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp",
+                                   status="falha", mensagem=str(e)[:500]))
+        db.session.commit()
+        flash(f"Não foi possível buscar o processo no e-SAJ agora: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    aplicar_carga_inicial(processo, dados_capturados, fonte_rotulo="e-SAJ")
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados_capturados["movimentacoes"], captura_inicial=True, origem_captura="esaj_publico",
+    )
+    qtd_partes = len(dados_capturados.get("partes") or [])
+
+    db.session.add(LogCaptura(
+        fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp", status="sucesso",
+        mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) do e-SAJ público.",
+    ))
+    registrar_log(current_user, "tentou_captura_esaj_publico", "Processo", processo.id, processo.numero_processo)
+    db.session.commit()
+    flash(f"Processo encontrado no e-SAJ (TJSP) — {novas} movimentação(ões) nova(s) e {qtd_partes} "
+          f"parte(s) identificada(s). Fonte pública, sem certificado nem token.", "success")
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
 

@@ -39,14 +39,14 @@ alguma empresa — mesmo padrão de app/routes/licenciamento.py, exceto que
 licenciamento continua bloqueado pra empresa dona da plataforma (ela não
 tem licença) e esta tela não.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, Response, abort
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify, Response, abort, current_app
 from flask_login import login_required, current_user
 
 from app.extensions import db
 from app.models import Empresa
 from app.utils.acesso import apenas_admin
 from app.utils.notificacoes import registrar_log
-from app.utils import cofre, claude_api, whatsapp
+from app.utils import cofre, claude_api, whatsapp, timbrado
 
 integracoes_bp = Blueprint("integracoes", __name__)
 
@@ -92,6 +92,7 @@ def minhas_integracoes():
         whatsapp_status=whatsapp_status,
         whatsapp_numero=whatsapp_numero,
         whatsapp_erro=whatsapp_erro,
+        logo_configurada=bool(timbrado.caminho_logo(current_app.config["UPLOAD_FOLDER"], empresa)),
     )
 
 
@@ -292,3 +293,70 @@ def desconectar_whatsapp():
     flash("Número de WhatsApp desconectado. Os lembretes por WhatsApp desta empresa ficam pausados até "
           "conectar outro número.", "info")
     return redirect(url_for("integracoes.minhas_integracoes"))
+
+
+# ---------------------- Timbrado do escritório (logo nos PDFs gerados) ----------------------
+# A pedido explícito ("quero ter uma opção do advogado colocar o timbrado
+# do escritório dele no sistema", PENDENCIAS.md seção -69). Vale pra
+# empresa INTEIRA (todas as unidades) — ver decisão registrada em
+# app/models/empresa.py::Empresa.logo_arquivo e app/utils/timbrado.py.
+
+@integracoes_bp.route("/minhas-integracoes/timbrado", methods=["POST"])
+@login_required
+@apenas_admin
+def salvar_timbrado():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+
+    arquivo = request.files.get("logo")
+    if not arquivo or arquivo.filename == "":
+        flash("Selecione uma imagem (PNG ou JPG) para o timbrado.", "warning")
+        return redirect(url_for("integracoes.minhas_integracoes"))
+
+    try:
+        nome_salvo = timbrado.salvar_logo(current_app.config["UPLOAD_FOLDER"], empresa, arquivo)
+    except timbrado.ArquivoLogoInvalido as e:
+        flash(str(e), "danger")
+        return redirect(url_for("integracoes.minhas_integracoes"))
+
+    empresa.logo_arquivo = nome_salvo
+    registrar_log(current_user, "atualizou_timbrado", "Empresa", empresa.id)
+    db.session.commit()
+    flash("Timbrado atualizado — a logo já aparece nos próximos PDFs gerados (ex.: recibos).", "success")
+    return redirect(url_for("integracoes.minhas_integracoes"))
+
+
+@integracoes_bp.route("/minhas-integracoes/timbrado/remover", methods=["POST"])
+@login_required
+@apenas_admin
+def remover_timbrado():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    timbrado.remover_logo(current_app.config["UPLOAD_FOLDER"], empresa)
+    empresa.logo_arquivo = None
+    registrar_log(current_user, "removeu_timbrado", "Empresa", empresa.id)
+    db.session.commit()
+    flash("Timbrado removido — os PDFs gerados voltam a usar só o cabeçalho de texto.", "info")
+    return redirect(url_for("integracoes.minhas_integracoes"))
+
+
+@integracoes_bp.route("/minhas-integracoes/timbrado/imagem")
+@login_required
+@apenas_admin
+def imagem_timbrado():
+    """Serve a imagem da logo cadastrada, pra pré-visualização na própria
+    tela de configuração — mesmo padrão de `qr_whatsapp` acima (backend lê
+    e repassa os bytes em vez de expor um caminho de disco pro navegador)."""
+    empresa = _empresa_atual()
+    if empresa is None:
+        abort(403)
+    caminho = timbrado.caminho_logo(current_app.config["UPLOAD_FOLDER"], empresa)
+    if not caminho:
+        abort(404)
+    ext = caminho.rsplit(".", 1)[-1].lower()
+    mimetype = "image/jpeg" if ext in ("jpg", "jpeg") else "image/png"
+    with open(caminho, "rb") as f:
+        conteudo = f.read()
+    return Response(conteudo, mimetype=mimetype, headers={"Cache-Control": "no-store"})

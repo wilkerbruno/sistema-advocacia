@@ -2,7 +2,7 @@ import io
 from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, abort
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, abort, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
@@ -11,6 +11,7 @@ from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_regist
 from app.utils.notificacoes import registrar_log
 from app.utils.financeiro_util import filtro_conta_terceiros as _filtro_conta_terceiros
 from app.utils import alcada as alcada_util
+from app.utils import timbrado
 
 financeiro_bp = Blueprint("financeiro", __name__)
 
@@ -498,19 +499,11 @@ def recibo(lancamento_id):
     margem = 2.5 * cm
     y = altura - margem
 
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(margem, y, empresa.nome if empresa else "Escritório de advocacia")
-    y -= 0.6 * cm
-    c.setFont("Helvetica", 9)
-    if empresa and empresa.cnpj:
-        c.drawString(margem, y, f"CNPJ: {empresa.cnpj}")
-        y -= 0.45 * cm
-    if unidade and unidade.endereco:
-        partes_endereco = unidade.endereco
-        if unidade.cidade:
-            partes_endereco += f" — {unidade.cidade}/{unidade.estado or ''}"
-        c.drawString(margem, y, partes_endereco)
-        y -= 0.45 * cm
+    # Cabeçalho com nome/CNPJ/endereço — e a logo da empresa ao lado, se ela
+    # tiver cadastrado uma em "Minhas Integrações" (PENDENCIAS.md, seção
+    # -69). Sem logo cadastrada, `desenhar_cabecalho` desenha só o texto,
+    # exatamente como sempre foi.
+    y = timbrado.desenhar_cabecalho(c, empresa, unidade, margem, y, current_app.config["UPLOAD_FOLDER"])
 
     y -= 0.8 * cm
     c.setFont("Helvetica-Bold", 14)

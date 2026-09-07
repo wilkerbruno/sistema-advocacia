@@ -143,6 +143,43 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- ---------------- Timbrado do escritório ---------------- -->
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 h-100">
+      <h4 class="mb-1" style="font-size:1rem;">Timbrado do escritório</h4>
+      <p class="small text-muted-doc mb-3">
+        Logo do escritório, usada ao lado do nome/CNPJ/endereço no cabeçalho dos PDFs gerados pelo
+        sistema (hoje: o recibo em PDF do Financeiro). Vale para a empresa inteira — todas as unidades
+        usam a mesma logo.
+      </p>
+
+      {% if logo_configurada %}
+      <div class="mb-3">
+        <img src="{{ url_for('integracoes.imagem_timbrado') }}" alt="Logo do escritório"
+             style="max-height:70px; max-width:220px; border:1px solid var(--brass-200); border-radius:6px; padding:4px; background:#fff;">
+      </div>
+      {% else %}
+      <div class="small text-muted-doc mb-3">Nenhuma logo cadastrada ainda — os PDFs usam só o cabeçalho de texto.</div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('integracoes.salvar_timbrado') }}" enctype="multipart/form-data" class="mb-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-2">
+          <input type="file" name="logo" accept=".png,.jpg,.jpeg,image/png,image/jpeg" class="form-control form-control-sm">
+          <div class="form-text small">PNG ou JPG, até 3 MB.</div>
+        </div>
+        <button type="submit" class="btn btn-brass btn-sm">{{ "Trocar logo" if logo_configurada else "Enviar logo" }}</button>
+      </form>
+
+      {% if logo_configurada %}
+      <form method="post" action="{{ url_for('integracoes.remover_timbrado') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Remover logo</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
 </div>
 
 <script>
