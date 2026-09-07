@@ -59,9 +59,11 @@
           </button>
         </div>
         <div class="small text-muted-doc mt-1">
-          Digite o número e clique em <strong>Buscar</strong> (ou aperte Enter) — o sistema
-          consulta o DataJud (base pública do CNJ) e já preenche os campos abaixo com o que
-          encontrar; o que não for encontrado fica em branco para você preencher.
+          Assim que terminar de digitar o número o sistema já busca sozinho (ou clique em
+          <strong>Buscar</strong>/aperte Enter para forçar antes disso) — consulta o DataJud
+          (base pública do CNJ) e, se não achar, tenta também o e-SAJ público (TJSP e outros
+          tribunais estaduais que usam essa plataforma), preenchendo os campos abaixo com o
+          que encontrar; o que não for encontrado fica em branco para você preencher.
         </div>
       </div>
       <div class="col-md-4">
@@ -94,8 +96,9 @@
         <input type="text" name="numero_processo" id="numero_processo" class="form-control"
                placeholder="0000000-00.0000.0.00.0000" value="{{ processo.numero_processo or '' }}">
         <div class="small text-muted-doc mt-1">
-          Digite o número e aperte <strong>Enter</strong> pra já buscar e preencher os
-          campos abaixo com os dados do DataJud (base pública do CNJ), antes de salvar.
+          Muda o número e o sistema já busca sozinho (ou aperte <strong>Enter</strong> pra
+          forçar antes disso) — DataJud (base pública do CNJ) e, se não achar, e-SAJ público —
+          preenchendo os campos abaixo antes de salvar.
         </div>
         <div id="cnj-preview-status" class="small mt-1"></div>
       </div>
@@ -313,7 +316,7 @@
 
 {% block scripts_extra %}
 <script>
-// Busca do DataJud a partir do número CNJ — usada tanto em "Novo processo"
+// Busca automática a partir do número CNJ — usada tanto em "Novo processo"
 // (onde também controla o Passo 1 -> Passo 2, ver #novo-processo-passo1/
 // #novo-processo-resto) quanto em "Editar processo" (onde só preenche
 // campos vazios, sem esconder nada, exatamente como antes). Só LÊ dados
@@ -322,8 +325,15 @@
 // (que tenta a mesma busca de novo e persiste de fato — ver
 // app/routes/processos.py, _tentar_captura_automatica_no_cadastro).
 //
-// O que o DataJud NÃO tem, então nunca preenche/trava sozinho: Nº de
-// controle interno, Cliente, Unidade, Fase, Polo do cliente, Parte
+// Desde a seção -72, a busca tenta primeiro o DataJud (API oficial do
+// CNJ, qualquer segmento de Justiça) e, se não achar, tenta o e-SAJ
+// público como segunda chance (só tribunais estaduais que usam essa
+// plataforma — TJSP, TJAC, TJAL, TJAM, TJCE, TJMS; ver
+// app/utils/conector_esaj_publico.py) — o campo `fonte` na resposta diz
+// qual das duas achou, pra mensagem de status ficar correta.
+//
+// O que nenhuma das duas fontes tem, então nunca preenche/trava sozinho:
+// Nº de controle interno, Cliente, Unidade, Fase, Polo do cliente, Parte
 // contrária/Advogado da parte contrária (LGPD), Responsável — todos
 // esses continuam sempre como campo comum, editável desde o início.
 (function () {
@@ -400,7 +410,8 @@
         return;
       }
 
-      if (status) status.innerHTML = `<span class="text-success">Processo encontrado no DataJud (${(dados.tribunal_slug || "").toUpperCase()}) — ` +
+      const fonteRotulo = dados.fonte || "DataJud";
+      if (status) status.innerHTML = `<span class="text-success">Processo encontrado no ${fonteRotulo} (${(dados.tribunal_slug || "").toUpperCase()}) — ` +
         `${dados.qtd_movimentacoes} movimentação(ões). Campos preenchidos automaticamente aparecem como texto, com um lápis ao lado para corrigir.</span>` +
         (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
 
@@ -447,6 +458,30 @@
       ev.preventDefault();
       buscarEPreencher();
     }
+  });
+
+  // ---- Busca automática ao digitar (PENDENCIAS.md, seção -72) ----
+  // Além do botão "Buscar" e do Enter (que continuam funcionando igual),
+  // dispara sozinho assim que o número CNJ estiver COMPLETO (20 dígitos)
+  // e o usuário parar de digitar por um instante — sem exigir clique
+  // nenhum. Debounce de 700ms (não dispara a cada tecla, só depois de uma
+  // pausa) + guarda contra repetir a mesma busca (não refaz a consulta se
+  // o número não mudou desde a última vez, ex: o usuário só tirou o foco
+  // do campo e voltou).
+  let debounceBuscaAutomatica = null;
+  let ultimoNumeroConsultadoAuto = null;
+  function contarDigitos(valor) {
+    return (valor.match(/\d/g) || []).length;
+  }
+  campoNumero.addEventListener("input", function () {
+    if (debounceBuscaAutomatica) clearTimeout(debounceBuscaAutomatica);
+    const numero = campoNumero.value.trim();
+    if (contarDigitos(numero) < 20) return; // número ainda incompleto — não gasta requisição à toa
+    debounceBuscaAutomatica = setTimeout(function () {
+      if (numero === ultimoNumeroConsultadoAuto) return;
+      ultimoNumeroConsultadoAuto = numero;
+      buscarEPreencher();
+    }, 700);
   });
 })();
 </script>

@@ -1,5 +1,79 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -72. e-SAJ público estendido pra mais tribunais + busca automática antes de cadastrar
+
+**Pedido:** depois de testar a seção -71 (você tentou com um número fictício e recebeu, corretamente,
+"processo não encontrado"), você pediu duas coisas: (1) *"preciso que isso funcione com todos os outros
+processos também e não somente o e-SAJ"* — ou seja, cobrir mais tribunais, não só TJSP; e (2)
+*"quero que busque ainda antes de adicionar um novo processo"*.
+
+Perguntei antes de construir (duas escolhas suas): tribunais → **"outros tribunais que usam e-SAJ"**
+(TJMS, TJAC etc., em vez de tentar cobrir os 27 estaduais com qualquer sistema, ou só os tribunais do
+seu escritório); busca antes de cadastrar → **"automática assim que o número for digitado"**, sem
+precisar clicar em nada.
+
+**Tribunais — o que descobri antes de construir, porque mudou o desenho:** fui conferir no código-fonte
+do juscraper (mesma fonte da seção -71) quais tribunais além do TJSP realmente rodam a plataforma e-SAJ
+— confirmei **TJAC, TJAL, TJAM, TJCE e TJMS** (o juscraper faz scraping desses 6 no total, incluindo
+TJSP). Mas achei um problema ao tentar identificar automaticamente QUAL desses tribunais um número CNJ
+pertence: não existe uma tabela confiável do "código de tribunal (2 dígitos) → qual estado" que eu
+conseguisse confirmar com segurança — o próprio sistema já tinha essa mesma preocupação registrada em
+`app/utils/tribunais_datajud.py` (decisão de não adivinhar isso, pelo risco de atribuir dados de um
+processo ao tribunal errado) e uma biblioteca de terceiros que conferi
+(`joaotextor/busca-processos-judiciais`) também exige que o tribunal seja informado explicitamente,
+nunca adivinha só pelo número.
+
+Por isso, a única exceção é o TJSP (código "26" já confirmado e usado desde a seção -71 — 1 requisição
+direta). Para os outros 5, o conector agora **tenta cada um em sequência até achar** — a mesma estratégia
+que `app/utils/conector_datajud.py` já usa pra tentar os 27 tribunais estaduais no DataJud. É mais lento
+no pior caso (até 5 requisições reais a 5 tribunais diferentes), mas nunca arrisca atribuir o processo
+errado a um tribunal errado — cada tribunal só "acha" um processo que realmente exista lá; encontrar uma
+tela de "protegido por senha" interrompe a busca na hora (é sinal de que o processo está justamente
+naquele tribunal). O TJCE precisou de um ajuste extra de TLS (o servidor dele exige uma configuração mais
+permissiva, "SECLEVEL=1") — o mesmo ajuste que o próprio juscraper já documentava ter sido necessário.
+
+Na tela do processo, o botão "Buscar dados públicos do e-SAJ" agora aparece pra qualquer número de
+Justiça Estadual (antes só aparecia pra TJSP) — inclusive pra tribunais que este conector ainda não
+cobre (TJMG, TJRS etc.), caso em que o clique só resulta na mensagem honesta "não encontrado em nenhum
+dos tribunais e-SAJ testados", nunca um erro confuso.
+
+**Busca automática antes de cadastrar — descoberta importante:** ao investigar onde encaixar isso, achei
+que a tela "Novo processo" **já tinha** uma busca de pré-visualização (via DataJud) que roda antes de
+salvar — botão "Buscar" + tecla Enter no campo do número, preenchendo os campos vazios do formulário sem
+gravar nada no banco ainda (rota `governanca.consultar_cnj_preview`). Ou seja, a base do que você pediu
+já existia; faltavam duas coisas: (1) ela só tentava o DataJud, nunca o e-SAJ público; (2) exigia clicar
+em "Buscar" ou apertar Enter — não disparava sozinha.
+
+Resolvi as duas: a rota de pré-visualização agora tenta o DataJud primeiro e, se não achar (ou não
+estiver configurado), tenta o e-SAJ público como segunda chance — sem custo de espera perceptível, já
+que o usuário ia esperar o DataJud responder de qualquer jeito. E o campo do número agora dispara a busca
+sozinho, automaticamente, assim que você termina de digitar os 20 dígitos e para por um instante (~0,7s)
+— o botão "Buscar" e a tecla Enter continuam funcionando do mesmo jeito, pra quem quiser forçar antes
+disso. Isso vale tanto em "Novo processo" (o pedido original) quanto em "Editar processo" (já tinha o
+mesmo botão/Enter ali, então ganhou a busca automática de brinde, por consistência).
+
+**O que fica de fora, por ainda não ter uma fonte confiável:** tribunais estaduais que não usam e-SAJ
+(a maioria — TJMG, TJRJ, TJRS, TJPR e outros), e qualquer segmento fora da Justiça Estadual (Federal,
+Trabalhista etc.) — esses continuam cobertos só pelo DataJud, como já era.
+
+**Testado:** suíte inteira passando — 176 testes (173 de antes + 3 novos direto na rota de
+pré-visualização, cobrindo os três cenários: e-SAJ público encontra quando o DataJud falha, nenhum dos
+dois encontra (mensagem combinada, citando as duas fontes tentadas), e um número fora da Justiça Estadual
+nem tenta o e-SAJ). Além disso, 5 testes novos no conector em si: tenta o próximo tribunal até achar,
+não encontrado em nenhum dos 5, tela de senha interrompe a busca sem tentar os demais, todos os 5
+indisponíveis vira erro claro, e o TJCE usa mesmo a sessão com o ajuste de TLS.
+
+**Arquivos tocados:** `app/utils/conector_esaj_publico.py` (catálogo dos 6 tribunais, lógica de
+"tenta até achar", adaptador de TLS do TJCE), `app/routes/governanca.py` (rota de pré-visualização agora
+tenta os dois conectores, função nova `_preview_json_encontrado` compartilhada), `app/__init__.py`
+(filtro `eh_cnj_tjsp` renomeado pra `eh_cnj_esaj_candidato`, agora vale pra qualquer Justiça Estadual),
+`app/templates/processos/detalhe.html` (texto do botão atualizado), `app/templates/processos/form.html`
+(busca automática ao digitar + mensagens mencionando as duas fontes), `tests/test_conector_esaj_publico.py`
+(14 testes novos).
+
+**Depois de subir esta versão:** só `git add`/`commit`/`push` normal — nenhuma coluna nova no banco,
+não precisa rodar `sincronizar_schema.py`.
+
 ## -71. Conector "e-SAJ público" (TJSP) — busca dados sem certificado, sem token, sem login
 
 **Pedido:** você mandou o repositório `github.com/jtrecenti/juscraper` perguntando se dava pra usar

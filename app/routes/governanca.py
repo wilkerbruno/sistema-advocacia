@@ -33,7 +33,7 @@ from app.utils.cnj import validar_numero_cnj, somente_digitos
 from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, CofreNaoConfiguradoError
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
-from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico
+from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico, EsajProtegidoPorSenhaError
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
@@ -137,42 +137,18 @@ def novo_por_cnj():
                             tribunais_datajud=tribunais_datajud.TODOS)
 
 
-@governanca_bp.route("/processos/consultar-cnj")
-@login_required
-def consultar_cnj_preview():
+def _preview_json_encontrado(dados, fonte_rotulo, aviso_dv=None):
     """
-    Pré-visualização via AJAX dos dados de um processo no DataJud a partir
-    do número CNJ — chamada pelo JS de novo_por_cnj.html ao apertar Enter
-    no campo do número, ANTES de clicar em "Validar e cadastrar". NUNCA
-    grava nada no banco — é só uma consulta de leitura, para o usuário ver
-    classe/assunto/órgão julgador e confirmar que é o processo certo antes
-    de cadastrar de fato (o cadastro em si continua acontecendo só no POST
-    de novo_por_cnj(), que faz a mesma consulta de novo e persiste).
+    Monta o JSON de "achou" da pré-visualização (usado tanto pelo DataJud
+    quanto pelo e-SAJ público — ver consultar_cnj_preview abaixo), a
+    partir do dict padrão que todo ConectorCaptura.consultar_processo()
+    devolve (mesmas chaves: classe, assunto, orgao_julgador, comarca,
+    instancia, data_ajuizamento, valor_causa, movimentacoes, nivel_sigilo).
+
+    `fonte_rotulo`: "DataJud" ou "e-SAJ público" — vai tanto no JSON (pro
+    JS decidir a mensagem certa) quanto na nota de descrição (ver
+    montar_nota_datajud).
     """
-    numero = request.args.get("numero_cnj", "")
-    # exigir_dv=False: mesmo raciocínio de novo_por_cnj() acima — não barra
-    # a busca por dígito verificador que não bate, só avisa (aviso_dv).
-    resultado = validar_numero_cnj(numero, exigir_dv=False)
-    if not resultado["valido"]:
-        return jsonify(valido=False, motivo=resultado["motivo"])
-
-    tribunal_hint = request.args.get("tribunal_datajud") or None
-
-    try:
-        conector = obter_conector("padrao", empresa=current_user.empresa)
-    except ConectorNaoConfiguradoError as e:
-        return jsonify(valido=True, encontrado=False, motivo=str(e))
-
-    try:
-        dados = conector.consultar_processo(resultado["partes"]["formatado"], tribunal_hint=tribunal_hint)
-    except TribunalNaoIdentificadoError as e:
-        return jsonify(valido=True, encontrado=False, motivo=str(e), precisa_tribunal=True)
-    except ConexaoDataJudError as e:
-        return jsonify(valido=True, encontrado=False, motivo=str(e))
-
-    # Comarca veio vazia — explica qual dos dois motivos foi (ver comentário
-    # em conector_datajud.py sobre "comarca_codigo_ibge"), em vez de deixar
-    # o campo simplesmente em branco sem explicação nenhuma.
     comarca_aviso = None
     if not dados.get("comarca"):
         codigo_municipio = dados.get("comarca_codigo_ibge")
@@ -180,12 +156,12 @@ def consultar_cnj_preview():
             comarca_aviso = (f"O DataJud indicou o código de município IBGE {codigo_municipio} para "
                               "este processo, mas não consegui confirmar o nome agora (falha ao consultar "
                               "a API do IBGE) — tente de novo em instantes, ou preencha a comarca à mão.")
-        else:
+        elif fonte_rotulo == "DataJud":
             comarca_aviso = ("O DataJud não informou o código do município para este processo/tribunal "
                               "— preencha a comarca à mão.")
 
     return jsonify(
-        valido=True, encontrado=True,
+        valido=True, encontrado=True, fonte=fonte_rotulo,
         tribunal_slug=dados["tribunal_slug"],
         classe=dados["classe"],
         assunto=dados["assunto"],
@@ -198,11 +174,11 @@ def consultar_cnj_preview():
         data_ajuizamento_iso=dados["data_ajuizamento"].strftime("%Y-%m-%d") if dados["data_ajuizamento"] else None,
         valor_causa=str(dados["valor_causa"]) if dados["valor_causa"] is not None else None,
         qtd_movimentacoes=len(dados["movimentacoes"]),
-        aviso_dv=dados.get("aviso_dv"),
-        # Adicionados nesta rodada — ver app/utils/conector_datajud.py
-        # (campo "grau" do DataJud) e app/utils/ibge.py (nome do município
-        # a partir do código IBGE que vem dentro de "orgaoJulgador"). Nem
-        # todo tribunal/processo devolve esses dois; ficam None quando não dá.
+        aviso_dv=aviso_dv,
+        # Ver app/utils/conector_datajud.py (campo "grau" do DataJud) e
+        # app/utils/ibge.py (nome do município a partir do código IBGE que
+        # vem dentro de "orgaoJulgador"). Nem todo tribunal/processo/fonte
+        # devolve esses dois; ficam None quando não dá.
         instancia=dados.get("instancia"),
         comarca=dados.get("comarca"),
         comarca_aviso=comarca_aviso,
@@ -210,9 +186,79 @@ def consultar_cnj_preview():
         # assunto, sistema/formato, sigilo) — ver
         # app/utils/captura_pipeline.py::montar_nota_datajud. None quando
         # não há nada extra que valha a pena mostrar.
-        descricao_sugerida=montar_nota_datajud(dados),
+        descricao_sugerida=montar_nota_datajud(dados, fonte_rotulo=fonte_rotulo),
         sigilo_sugerido=bool(dados.get("nivel_sigilo") not in (None, 0)),
     )
+
+
+@governanca_bp.route("/processos/consultar-cnj")
+@login_required
+def consultar_cnj_preview():
+    """
+    Pré-visualização via AJAX dos dados de um processo a partir do número
+    CNJ — chamada pelo JS de processos/form.html (tanto ao apertar Enter
+    quanto, desde a seção -72, automaticamente enquanto o usuário digita o
+    número completo) ANTES de salvar o processo. NUNCA grava nada no
+    banco — é só uma consulta de leitura, para o usuário ver
+    classe/assunto/órgão julgador e confirmar que é o processo certo antes
+    de cadastrar de fato (o cadastro em si continua acontecendo só no POST
+    da tela "Novo processo"/"Editar processo", que faz a mesma consulta de
+    novo e persiste).
+
+    Ordem de tentativa (PENDENCIAS.md, seção -72): primeiro o DataJud (API
+    oficial do CNJ, cobre qualquer segmento de Justiça); se não achar (ou
+    não estiver configurado), tenta o e-SAJ público como segunda chance —
+    só cobre tribunais estaduais que usam essa plataforma (ver
+    app/utils/conector_esaj_publico.py), mas quando cobre é uma fonte a
+    mais sem custo de espera perceptível pro usuário (ele já ia esperar o
+    DataJud responder de qualquer jeito). Nunca tenta o e-SAJ público fora
+    do segmento Estadual — o conector rejeitaria mesmo, e só acrescentaria
+    ruído na mensagem de erro final.
+    """
+    numero = request.args.get("numero_cnj", "")
+    # exigir_dv=False: mesmo raciocínio do cadastro em si — não barra a
+    # busca por dígito verificador que não bate, só avisa (aviso_dv).
+    resultado = validar_numero_cnj(numero, exigir_dv=False)
+    if not resultado["valido"]:
+        return jsonify(valido=False, motivo=resultado["motivo"])
+
+    partes = resultado["partes"]
+    tribunal_hint = request.args.get("tribunal_datajud") or None
+    motivo_datajud = None
+    precisa_tribunal = False
+
+    try:
+        conector = obter_conector("padrao", empresa=current_user.empresa)
+        dados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
+        return _preview_json_encontrado(dados, "DataJud", aviso_dv=dados.get("aviso_dv"))
+    except ConectorNaoConfiguradoError as e:
+        motivo_datajud = str(e)
+    except TribunalNaoIdentificadoError as e:
+        motivo_datajud = str(e)
+        precisa_tribunal = True
+    except ConexaoDataJudError as e:
+        motivo_datajud = str(e)
+
+    if partes["segmento_codigo"] != "8":
+        # Fora da Justiça Estadual — nenhum tribunal e-SAJ atende, tentar
+        # só acrescentaria uma mensagem de erro irrelevante.
+        return jsonify(valido=True, encontrado=False, motivo=motivo_datajud, precisa_tribunal=precisa_tribunal)
+
+    try:
+        dados_esaj = ConectorEsajPublico().consultar_processo(partes["formatado"])
+        return _preview_json_encontrado(dados_esaj, "e-SAJ público")
+    except EsajProtegidoPorSenhaError as e:
+        motivo = f"{motivo_datajud} Também tentei o e-SAJ público: {e}" if motivo_datajud else str(e)
+        return jsonify(valido=True, encontrado=False, motivo=motivo)
+    except ErroEsajPublico as e:
+        motivo_esaj = str(e)
+
+    motivo_final = motivo_datajud
+    if motivo_datajud and motivo_esaj:
+        motivo_final = f"{motivo_datajud} Também tentei o e-SAJ público: {motivo_esaj}"
+    elif not motivo_datajud:
+        motivo_final = motivo_esaj
+    return jsonify(valido=True, encontrado=False, motivo=motivo_final, precisa_tribunal=precisa_tribunal)
 
 
 # ---------- Importação em lote (CSV) ----------

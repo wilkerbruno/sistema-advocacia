@@ -72,16 +72,18 @@
       </form>
       {% endif %}
       {% endif %}
-      {% if processo.numero_processo and processo.numero_processo|eh_cnj_tjsp %}
+      {% if processo.numero_processo and processo.numero_processo|eh_cnj_esaj_candidato %}
       <form method="post" action="{{ url_for('governanca.tentar_captura_esaj', processo_id=processo.id) }}" class="mt-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <div class="small text-muted-doc mb-1">
-          Consulta pública do e-SAJ (TJSP) — sem certificado, sem token, sem
-          login. Fonte complementar ao DataJud: scraping de página pública,
-          sem contrato oficial (pode parar de funcionar se o TJSP mudar a
-          página, ou não alcançar processos com senha/sigilo).
+          Consulta pública do e-SAJ (TJSP, TJAC, TJAL, TJAM, TJCE, TJMS) —
+          sem certificado, sem token, sem login. Fonte complementar ao
+          DataJud: scraping de página pública, sem contrato oficial (pode
+          parar de funcionar se o tribunal mudar a página, ou não alcançar
+          processos com senha/sigilo; tribunais estaduais fora dessa lista
+          ainda não são cobertos por este conector).
         </div>
-        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do e-SAJ (TJSP)</button>
+        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do e-SAJ</button>
       </form>
       {% endif %}
     </div>

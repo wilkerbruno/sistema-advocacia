@@ -1,49 +1,73 @@
 """
 Conector "e-SAJ público" — captura automática (sem certificado, sem
-token, sem login nenhum) direto da consulta pública de 1º grau do e-SAJ
-(TJSP), a mesma página que qualquer pessoa acessa em
-https://esaj.tjsp.jus.br/cpopg/open.do sem estar logada — PENDENCIAS.md,
-seção -71.
+token, sem login nenhum) direto da consulta pública de 1º grau do e-SAJ —
+PENDENCIAS.md, seções -71 (TJSP) e -72 (demais tribunais + busca antes de
+cadastrar).
 
-Origem da lógica: portado (estrutura de URL/parâmetros e nomes de
-campo/IDs do HTML) do pacote open source `juscraper`
-(https://github.com/jtrecenti/juscraper, licença MIT,
-`src/juscraper/courts/tjsp/cpopg_download.py` e `cpopg_parse.py`) — a
-única fonte que encontramos com esses detalhes confirmados contra o
-e-SAJ de verdade. Reimplementado aqui sem a dependência de `pandas`
-(devolve `dict`/`list` simples, não DataFrame) pra não engordar as
-dependências do servidor Flask só por causa disto, e adaptado ao
-contrato `ConectorCaptura` já usado pelo DataJud (ver
-app/utils/captura_conectores.py).
+Cobre hoje: TJSP, TJAC, TJAL, TJAM, TJCE e TJMS — os únicos tribunais que
+confirmamos rodarem a plataforma e-SAJ (Softplan) olhando o código-fonte do
+pacote open source `juscraper` (MIT, https://github.com/jtrecenti/juscraper,
+`src/juscraper/courts/{tjsp,tjac,tjal,tjam,tjce,tjms}/`) — a mesma fonte já
+usada na seção -71 pra confirmar a URL/parâmetros/campos do TJSP.
 
-⚠️ Diferença importante em relação ao DataJud (app/utils/conector_datajud.py):
-- DataJud é uma API OFICIAL do CNJ, documentada, com contrato estável.
-- Isto aqui é **scraping de página pública HTML**, sem documentação nem
-  contrato oficial — o TJSP pode mudar a estrutura da página a qualquer
-  momento e quebrar isto silenciosamente até alguém notar. Trate como
-  fonte COMPLEMENTAR (mais partes/detalhes quando disponíveis), nunca
-  como substituta do DataJud.
-- Só cobre TJSP (1º grau, `cpopg`). Processos de outros tribunais, ou de
-  2º grau, não são suportados por este conector.
-- Processos com sigilo/senha no e-SAJ (a mesma "senha do processo" que
-  o JusControl já modela em app/models/senha_processo.py) não são
-  legíveis por esta consulta pública — o e-SAJ mostra uma tela pedindo
-  a senha em vez dos dados; este conector detecta isso e levanta
-  `EsajProtegidoPorSenhaError` em vez de fingir que não achou nada.
+⚠️ Sobre COMO cada tribunal é escolhido a partir do número CNJ — leia com
+atenção, é uma limitação real, não só um detalhe de implementação:
+- TJSP tem código de tribunal "26" confirmado (é o único que tratamos como
+  certeza — amplamente documentado e já usado desde a seção -71). Pra esse
+  caso o conector sabe direto qual domínio consultar: 1 requisição só.
+- Para os outros 5 tribunais (TJAC/TJAL/TJAM/TJCE/TJMS) NÃO existe uma
+  tabela confiável e verificada de "código de tribunal (2 dígitos) -> qual
+  estado" que desse pra usar aqui com segurança. Isto não é um detalhe
+  novo: app/utils/tribunais_datajud.py já tinha decidido, antes desta
+  rodada, NÃO adivinhar isso, pelo mesmo motivo (ver o docstring daquele
+  arquivo) — o risco é atribuir dados de um processo ao tribunal errado.
+  Conferimos também uma biblioteca de terceiros
+  (github.com/joaotextor/busca-processos-judiciais) que faz a mesma busca
+  contra o DataJud: ela também exige que o tribunal seja informado
+  explicitamente por quem chama, nunca adivinha só pelo número.
+  Por isso, pra qualquer processo estadual que NÃO seja TJSP, este
+  conector tenta cada um dos outros 5 tribunais, em sequência, até achar —
+  a MESMA estratégia (e o mesmo motivo) que app/utils/conector_datajud.py
+  já usa pra tentar os 27 tribunais estaduais no DataJud. É mais lento (até
+  5 requisições reais a 5 tribunais diferentes por busca), mas nunca
+  arrisca atribuir o processo errado a um tribunal errado: cada tribunal só
+  "acha" um processo que realmente exista lá — os demais respondem "não
+  encontrado" de forma limpa (mesmo comportamento já tratado desde a seção
+  -71).
+- Encontrar uma tela de "processo protegido por senha" interrompe a busca
+  IMEDIATAMENTE, sem tentar os tribunais seguintes — o próprio tribunal
+  reconhecer o número e pedir senha já é sinal de que o processo está
+  NAQUELE tribunal específico (só sem acesso público aos dados).
+
+⚠️ Demais avisos, já válidos desde a seção -71 e que continuam valendo pra
+todos os tribunais cobertos aqui:
+- É scraping de página pública HTML, sem documentação nem contrato oficial
+  — cada tribunal pode mudar a estrutura da página a qualquer momento e
+  quebrar isto silenciosamente até alguém notar. Trate como fonte
+  COMPLEMENTAR (mais partes/detalhes quando disponíveis), nunca substituta
+  do DataJud (que é uma API oficial do CNJ, com contrato estável).
+- Só cobre 1º grau (`cpopg`). Processos de 2º grau não são suportados.
+- Processos com sigilo/senha no e-SAJ não são legíveis por esta consulta
+  pública (ver `EsajProtegidoPorSenhaError` acima).
 - Rodando do servidor (datacenter), existe risco real de bloqueio de IP
-  pelo tribunal — o próprio juscraper documenta isso para outros
-  tribunais (TJAP passou a exigir CAPTCHA). Se isso acontecer aqui,
-  `EsajIndisponivelError` é levantado com uma mensagem clara; NÃO há
-  fallback automático (evita mascarar o problema).
+  pelo tribunal — o próprio juscraper documenta isso para outros tribunais
+  (TJAP passou a exigir CAPTCHA). Se acontecer aqui, `EsajIndisponivelError`
+  é levantado com mensagem clara; NÃO há retry automático nem fallback
+  silencioso (evita mascarar o problema).
+- TJCE exige uma configuração de TLS mais permissiva (SECLEVEL=1) por causa
+  do servidor dele — mesma necessidade documentada pelo próprio juscraper
+  (`src/juscraper/courts/tjce/_tls.py`); replicada aqui em `_TJCETLSAdapter`.
 """
 from __future__ import annotations
 
 import hashlib
 import re
+from dataclasses import dataclass
 from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
 
 from app.utils.captura_conectores import (
     ConectorCaptura,
@@ -53,15 +77,16 @@ from app.utils.captura_conectores import (
 )
 from app.utils.cnj import somente_digitos, validar_numero_cnj
 
-BASE_URL = "https://esaj.tjsp.jus.br/"
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
 TIMEOUT_SEGUNDOS = 20
 
-# Segmento "8" = Justiça Estadual, tribunal "26" = TJSP — únicos números
-# CNJ que este conector sabe consultar (ver app/utils/cnj.py).
+# Segmento "8" = Justiça Estadual (ver app/utils/cnj.py) — único segmento
+# que algum tribunal coberto aqui atende; "26" = TJSP, o único código de
+# tribunal que tratamos como confirmado (ver aviso completo no topo do
+# arquivo sobre os demais).
 SEGMENTO_ESTADUAL = "8"
 TRIBUNAL_TJSP = "26"
 
@@ -81,6 +106,43 @@ class EsajIndisponivelError(ErroEsajPublico):
     """Falha de rede, CAPTCHA ou bloqueio — não é "processo não existe",
     é "não deu pra perguntar" (ver aviso sobre bloqueio de IP no topo do
     arquivo)."""
+
+
+class _TJCETLSAdapter(HTTPAdapter):
+    """TJCE exige TLS SECLEVEL=1 por causa da configuração do servidor
+    dele — mesma necessidade já documentada pelo juscraper
+    (src/juscraper/courts/tjce/_tls.py). Sem isso, toda requisição pro
+    domínio do TJCE falha na negociação TLS, mesmo com a URL certa."""
+
+    def init_poolmanager(self, *args, **kwargs):
+        from urllib3.util.ssl_ import create_urllib3_context
+        ctx = create_urllib3_context()
+        ctx.set_ciphers("DEFAULT:@SECLEVEL=1")
+        kwargs["ssl_context"] = ctx
+        return super().init_poolmanager(*args, **kwargs)
+
+
+@dataclass(frozen=True)
+class _TribunalEsaj:
+    slug: str
+    nome: str
+    base_url: str
+    tls_seclevel1: bool = False
+
+
+# TJSP primeiro (é o único com código de tribunal confirmado — ver aviso no
+# topo do arquivo); os demais na ordem em que o juscraper os documenta.
+# Domínios conferidos linha por linha contra o BASE_URL de cada scraper em
+# src/juscraper/courts/<sigla>/client.py (juscraper, MIT).
+TJSP = _TribunalEsaj("tjsp", "TJSP", "https://esaj.tjsp.jus.br/")
+CANDIDATOS_DEMAIS_TRIBUNAIS = [
+    _TribunalEsaj("tjac", "TJAC", "https://esaj.tjac.jus.br/"),
+    _TribunalEsaj("tjal", "TJAL", "https://www2.tjal.jus.br/"),
+    _TribunalEsaj("tjam", "TJAM", "https://consultasaj.tjam.jus.br/"),
+    _TribunalEsaj("tjce", "TJCE", "https://esaj.tjce.jus.br/", tls_seclevel1=True),
+    _TribunalEsaj("tjms", "TJMS", "https://esaj.tjms.jus.br/"),
+]
+TODOS_TRIBUNAIS = [TJSP] + CANDIDATOS_DEMAIS_TRIBUNAIS
 
 
 def _parse_data_br(texto: str | None) -> datetime | None:
@@ -115,12 +177,6 @@ def _montar_parametros_busca(numero_cnj: str) -> dict:
     if not validado["valido"]:
         raise ErroEsajPublico(f"Número CNJ inválido: {validado['motivo']}")
     partes = validado["partes"]
-    if partes["segmento_codigo"] != SEGMENTO_ESTADUAL or partes["tribunal_codigo"] != TRIBUNAL_TJSP:
-        raise ErroEsajPublico(
-            "Este conector só sabe consultar o TJSP (Justiça Estadual, tribunal 26) — "
-            f"o número informado é de outro tribunal (segmento {partes['segmento_codigo']}, "
-            f"tribunal {partes['tribunal_codigo']})."
-        )
     return {
         "params": {
             "conversationId": "",
@@ -132,21 +188,22 @@ def _montar_parametros_busca(numero_cnj: str) -> dict:
             "dadosConsulta.tipoNuProcesso": "UNIFICADO",
         },
         "formatado": partes["formatado"],
+        "partes": partes,
     }
 
 
-def _obter_html_processo(session: requests.Session, numero_cnj: str) -> str:
+def _obter_html_processo(session: requests.Session, numero_cnj: str, tribunal: _TribunalEsaj) -> str:
     dados_busca = _montar_parametros_busca(numero_cnj)
-    url = f"{BASE_URL}cpopg/search.do"
+    url = f"{tribunal.base_url}cpopg/search.do"
     try:
         resposta = session.get(url, params=dados_busca["params"], timeout=TIMEOUT_SEGUNDOS)
     except requests.RequestException as e:
-        raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ: {e}") from e
+        raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ do {tribunal.nome}: {e}") from e
 
     if resposta.status_code != 200:
         raise EsajIndisponivelError(
-            f"e-SAJ respondeu {resposta.status_code} de forma inesperada — pode ser bloqueio "
-            "temporário de IP ou instabilidade do tribunal; tente de novo mais tarde."
+            f"e-SAJ do {tribunal.nome} respondeu {resposta.status_code} de forma inesperada — pode ser "
+            "bloqueio temporário de IP ou instabilidade do tribunal; tente de novo mais tarde."
         )
 
     soup = BeautifulSoup(resposta.text, "html.parser")
@@ -158,10 +215,10 @@ def _obter_html_processo(session: requests.Session, numero_cnj: str) -> str:
     # Pediu senha do processo (sigilo) antes de mostrar qualquer coisa?
     if soup.find("form", id="popupSenha"):
         raise EsajProtegidoPorSenhaError(
-            "Este processo está protegido por senha no e-SAJ — a consulta pública não "
-            "alcança os dados sem ela. Submissão de senha não é suportada por este "
-            "conector ainda (ver app/models/senha_processo.py para a senha já cadastrada "
-            "no JusControl, se houver)."
+            f"Este processo está protegido por senha no e-SAJ do {tribunal.nome} — a consulta "
+            "pública não alcança os dados sem ela. Submissão de senha não é suportada por este "
+            "conector ainda (ver app/models/senha_processo.py para a senha já cadastrada no "
+            "JusControl, se houver)."
         )
 
     # Lista de resultados (mais de uma tramitação/instância com o mesmo
@@ -174,18 +231,20 @@ def _obter_html_processo(session: requests.Session, numero_cnj: str) -> str:
             if url_processo.startswith("http"):
                 url_final = url_processo
             else:
-                url_final = f"{BASE_URL}{url_processo.lstrip('/')}"
+                url_final = f"{tribunal.base_url}{url_processo.lstrip('/')}"
             try:
                 resposta2 = session.get(url_final, timeout=TIMEOUT_SEGUNDOS)
             except requests.RequestException as e:
-                raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ: {e}") from e
+                raise EsajIndisponivelError(f"Falha de conexão com o e-SAJ do {tribunal.nome}: {e}") from e
             if resposta2.status_code != 200:
-                raise EsajIndisponivelError(f"e-SAJ respondeu {resposta2.status_code} ao abrir o processo.")
+                raise EsajIndisponivelError(
+                    f"e-SAJ do {tribunal.nome} respondeu {resposta2.status_code} ao abrir o processo."
+                )
             return resposta2.text
 
     raise ErroEsajPublico(
-        f"Processo {dados_busca['formatado']} não encontrado na consulta pública do e-SAJ "
-        "(TJSP, 1º grau) — confira o número, ou é possível que o processo seja de outro "
+        f"Processo {dados_busca['formatado']} não encontrado na consulta pública do e-SAJ do "
+        f"{tribunal.nome} (1º grau) — confira o número, ou é possível que o processo seja de outro "
         "tribunal/grau, ou tenha sido baixado/arquivado fora do e-SAJ."
     )
 
@@ -260,7 +319,7 @@ def _parse_movimentacoes(soup: BeautifulSoup, numero_cnj: str) -> list[Movimenta
     return movimentacoes
 
 
-def _parse_processo(html: str, numero_cnj: str) -> dict:
+def _parse_processo(html: str, numero_cnj: str, tribunal_slug: str = "tjsp") -> dict:
     soup = BeautifulSoup(html, "html.parser")
 
     classe = _extrair_texto(soup, "span", "classeProcesso")
@@ -287,7 +346,7 @@ def _parse_processo(html: str, numero_cnj: str) -> dict:
     movimentacoes = _parse_movimentacoes(soup, numero_cnj)
 
     return {
-        "tribunal_slug": "tjsp",
+        "tribunal_slug": tribunal_slug,
         "classe": classe,
         "assunto": assunto,
         "assuntos_lista": [assunto] if assunto else [],
@@ -305,9 +364,10 @@ def _parse_processo(html: str, numero_cnj: str) -> dict:
 
 
 class ConectorEsajPublico(ConectorCaptura):
-    """Consulta pública do e-SAJ (TJSP, 1º grau) — sem certificado, sem
-    token, sem login. Ver aviso completo no topo do arquivo sobre as
-    limitações em relação ao DataJud."""
+    """Consulta pública do e-SAJ (TJSP, TJAC, TJAL, TJAM, TJCE, TJMS — 1º
+    grau) — sem certificado, sem token, sem login. Ver aviso completo no
+    topo do arquivo sobre como cada tribunal é escolhido e as limitações
+    em relação ao DataJud."""
 
     nome_fonte = "esaj_publico"
 
@@ -315,10 +375,70 @@ class ConectorEsajPublico(ConectorCaptura):
         self.sleep_time = sleep_time
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
+        # Sessão à parte, criada só se/quando precisar — o TJCE exige um
+        # adaptador de TLS diferente (ver _TJCETLSAdapter), que não faz
+        # sentido montar em toda sessão só por causa de um tribunal.
+        self._sessao_tjce: requests.Session | None = None
+
+    def _sessao_para(self, tribunal: _TribunalEsaj) -> requests.Session:
+        if not tribunal.tls_seclevel1:
+            return self.session
+        if self._sessao_tjce is None:
+            self._sessao_tjce = requests.Session()
+            self._sessao_tjce.headers.update({"User-Agent": USER_AGENT})
+            self._sessao_tjce.mount("https://", _TJCETLSAdapter())
+        return self._sessao_tjce
 
     def consultar_processo(self, numero_cnj: str) -> dict:
-        html = _obter_html_processo(self.session, numero_cnj)
-        return _parse_processo(html, somente_digitos(numero_cnj))
+        validado = validar_numero_cnj(numero_cnj, exigir_dv=False)
+        if not validado["valido"]:
+            raise ErroEsajPublico(f"Número CNJ inválido: {validado['motivo']}")
+        partes = validado["partes"]
+
+        if partes["segmento_codigo"] != SEGMENTO_ESTADUAL:
+            nomes = ", ".join(t.nome for t in TODOS_TRIBUNAIS)
+            raise ErroEsajPublico(
+                f"Este conector só sabe consultar tribunais estaduais que usam a plataforma "
+                f"e-SAJ ({nomes}) — o número informado é de outro segmento de Justiça "
+                f"(código {partes['segmento_codigo']})."
+            )
+
+        if partes["tribunal_codigo"] == TRIBUNAL_TJSP:
+            html = _obter_html_processo(self._sessao_para(TJSP), numero_cnj, TJSP)
+            return _parse_processo(html, somente_digitos(numero_cnj), TJSP.slug)
+
+        # Código de tribunal diferente do único confirmado (TJSP) — tenta
+        # cada um dos outros tribunais e-SAJ conhecidos, em ordem, até
+        # achar (ver aviso completo no topo do arquivo sobre por que não
+        # adivinhamos qual deles é só pelo número).
+        erros_indisponibilidade = []
+        for tribunal in CANDIDATOS_DEMAIS_TRIBUNAIS:
+            try:
+                html = _obter_html_processo(self._sessao_para(tribunal), numero_cnj, tribunal)
+            except EsajProtegidoPorSenhaError:
+                raise  # achou o tribunal certo, só não tem acesso sem senha — não tenta mais nenhum
+            except EsajIndisponivelError as e:
+                erros_indisponibilidade.append(str(e))
+                continue
+            except ErroEsajPublico:
+                continue  # "não encontrado" neste tribunal — tenta o próximo
+            return _parse_processo(html, somente_digitos(numero_cnj), tribunal.slug)
+
+        nomes = ", ".join(t.nome for t in CANDIDATOS_DEMAIS_TRIBUNAIS)
+        if erros_indisponibilidade and len(erros_indisponibilidade) == len(CANDIDATOS_DEMAIS_TRIBUNAIS):
+            raise EsajIndisponivelError(
+                f"Não foi possível consultar nenhum dos tribunais e-SAJ testados ({nomes}) agora — "
+                "todos falharam ao responder. Tente de novo mais tarde."
+            )
+        aviso_indisponiveis = (
+            f" ({len(erros_indisponibilidade)} tribunal(is) não respondeu/responderam e não pôde/puderam "
+            "ser conferido(s) agora — pode estar lá mesmo assim)" if erros_indisponibilidade else ""
+        )
+        raise ErroEsajPublico(
+            f"Processo não encontrado em nenhum dos tribunais e-SAJ testados ({nomes})"
+            f"{aviso_indisponiveis} — confira o número, ou pode ser de um tribunal/segredo de "
+            "justiça que este conector ainda não alcança."
+        )
 
     def monitorar_publicacoes_por_oab(self, numero_oab: str, uf: str) -> list[PublicacaoCapturada]:
         raise NotImplementedError(

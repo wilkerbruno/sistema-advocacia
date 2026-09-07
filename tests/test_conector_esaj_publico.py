@@ -21,6 +21,7 @@ import requests
 from app.extensions import db
 from app.models import Processo, LogCaptura, Movimentacao
 from app.utils import conector_esaj_publico as mod
+from app.utils.cnj import calcular_digito_verificador
 
 HTML_PROCESSO = """
 <html><body>
@@ -64,6 +65,38 @@ def _resposta_fake(html, status=200):
     return r
 
 
+def _numero_cnj(segmento, tribunal_codigo, sequencial="1234567", ano="2023", origem="0100"):
+    """Monta um número CNJ válido (dígito verificador de verdade) com o
+    segmento/tribunal informados — usado nos testes abaixo pra não
+    depender de um número de processo real."""
+    dv = calcular_digito_verificador(sequencial, ano, segmento, tribunal_codigo, origem)
+    return f"{sequencial}-{dv}.{ano}.{segmento}.{tribunal_codigo}.{origem}"
+
+
+def _numero_cnj_estadual(tribunal_codigo, sequencial="1234567", ano="2023", origem="0100"):
+    """Monta um número CNJ válido (segmento 8 = Estadual) com o código de
+    tribunal informado — usado para testar o "tenta cada tribunal e-SAJ
+    até achar" (PENDENCIAS.md, seção -72), que vale para qualquer código
+    diferente de "26" (TJSP), sem precisar de um código real/confirmado."""
+    return _numero_cnj("8", tribunal_codigo, sequencial, ano, origem)
+
+
+HTML_NAO_ENCONTRADO = "<html><body>Nenhum processo localizado com os parâmetros informados.</body></html>"
+HTML_SENHA = '<html><body><form id="popupSenha"></form></body></html>'
+
+
+def _get_por_dominio(respostas):
+    """respostas: dict domínio-substring -> html (string) OU Exception a levantar."""
+    def _get(url, **kwargs):
+        for dominio, valor in respostas.items():
+            if dominio in url:
+                if isinstance(valor, Exception):
+                    raise valor
+                return _resposta_fake(valor)
+        raise AssertionError(f"URL não esperada neste teste: {url}")
+    return _get
+
+
 def test_parse_processo_completo():
     resultado = mod._parse_processo(HTML_PROCESSO, "12345678920238260100")
     assert resultado["classe"] == "Procedimento Comum Cível"
@@ -79,9 +112,9 @@ def test_parse_processo_completo():
     assert resultado["movimentacoes"][0].codigo_tpu is None
 
 
-def test_rejeita_numero_cnj_de_outro_tribunal():
+def test_rejeita_numero_cnj_de_outro_segmento():
     conector = mod.ConectorEsajPublico()
-    with pytest.raises(mod.ErroEsajPublico, match="só sabe consultar o TJSP"):
+    with pytest.raises(mod.ErroEsajPublico, match="só sabe consultar tribunais estaduais"):
         conector.consultar_processo("1234567-89.2023.4.03.0100")
 
 
@@ -125,6 +158,83 @@ def test_metodos_nao_cobertos_levantam_notimplemented():
         conector.monitorar_publicacoes_por_oab("123456", "SP")
     with pytest.raises(NotImplementedError):
         conector.buscar_processos_por_parte(nome="Fulano")
+
+
+# ---------- Múltiplos tribunais e-SAJ (PENDENCIAS.md, seção -72) ----------
+# TJSP (código "26") tem caminho próprio, testado acima. Os testes abaixo
+# cobrem o "tenta cada um dos outros tribunais e-SAJ até achar" — usam um
+# código de tribunal fictício ("99") de propósito: o comportamento testado
+# aqui (tentar TJAC/TJAL/TJAM/TJCE/TJMS em ordem) vale pra QUALQUER código
+# diferente de "26", já que não existe tabela confiável pra saber qual
+# tribunal de verdade cada código representa (ver aviso no topo do módulo).
+
+def test_tenta_proximo_tribunal_ate_achar():
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    respostas = {
+        "esaj.tjac.jus.br": HTML_NAO_ENCONTRADO,
+        "www2.tjal.jus.br": HTML_NAO_ENCONTRADO,
+        "consultasaj.tjam.jus.br": HTML_PROCESSO,  # achou aqui — não deveria chegar no tjce/tjms
+    }
+    with patch.object(requests.Session, "get", side_effect=_get_por_dominio(respostas)):
+        resultado = conector.consultar_processo(numero)
+    assert resultado["tribunal_slug"] == "tjam"
+    assert resultado["classe"] == "Procedimento Comum Cível"
+
+
+def test_nao_encontrado_em_nenhum_tribunal_esaj():
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    respostas = {
+        "esaj.tjac.jus.br": HTML_NAO_ENCONTRADO,
+        "www2.tjal.jus.br": HTML_NAO_ENCONTRADO,
+        "consultasaj.tjam.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjce.jus.br": HTML_NAO_ENCONTRADO,
+        "esaj.tjms.jus.br": HTML_NAO_ENCONTRADO,
+    }
+    with patch.object(requests.Session, "get", side_effect=_get_por_dominio(respostas)):
+        with pytest.raises(mod.ErroEsajPublico, match="não encontrado em nenhum dos tribunais e-SAJ testados"):
+            conector.consultar_processo(numero)
+
+
+def test_senha_interrompe_busca_sem_tentar_os_demais_tribunais():
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    chamadas = []
+
+    def _get(url, **kwargs):
+        chamadas.append(url)
+        if "esaj.tjac.jus.br" in url:
+            return _resposta_fake(HTML_NAO_ENCONTRADO)
+        if "www2.tjal.jus.br" in url:
+            return _resposta_fake(HTML_SENHA)
+        raise AssertionError(f"não deveria ter tentado {url} depois de achar a tela de senha")
+
+    with patch.object(requests.Session, "get", side_effect=_get):
+        with pytest.raises(mod.EsajProtegidoPorSenhaError):
+            conector.consultar_processo(numero)
+    assert len(chamadas) == 2  # parou no tjal (senha), nunca tentou tjam/tjce/tjms
+
+
+def test_todos_tribunais_indisponiveis_vira_esaj_indisponivel():
+    numero = _numero_cnj_estadual("99")
+    conector = mod.ConectorEsajPublico()
+    with patch.object(requests.Session, "get", side_effect=requests.RequestException("timeout")):
+        with pytest.raises(mod.EsajIndisponivelError, match="Não foi possível consultar nenhum"):
+            conector.consultar_processo(numero)
+
+
+def test_tjce_usa_sessao_separada_com_tls_seclevel1():
+    conector = mod.ConectorEsajPublico()
+    tjce = mod.CANDIDATOS_DEMAIS_TRIBUNAIS[3]
+    assert tjce.slug == "tjce"
+    sessao_normal = conector._sessao_para(mod.TJSP)
+    sessao_tjce = conector._sessao_para(tjce)
+    assert sessao_normal is conector.session
+    assert sessao_tjce is not conector.session
+    assert isinstance(sessao_tjce.adapters["https://"], mod._TJCETLSAdapter)
+    # Chamar de novo devolve a MESMA sessão (não recria a cada busca).
+    assert conector._sessao_para(tjce) is sessao_tjce
 
 
 # ---------- Rota (reaproveita o pipeline de captura) ----------
@@ -179,3 +289,56 @@ def test_rota_tentar_captura_esaj_falha_registra_log(client, login, post_csrf, p
     log = LogCaptura.query.filter_by(processo_id=processo_tjsp["processo_id"], fonte="esaj_publico").first()
     assert log is not None
     assert log.status == "falha"
+
+
+# ---------- Pré-visualização "Novo processo": fallback DataJud -> e-SAJ
+# público (PENDENCIAS.md, seção -72) ----------
+# O ambiente de teste não tem DATAJUD_API_KEY configurada (ver
+# config.py) — então, sem precisar mockar nada do DataJud, toda chamada a
+# esta rota já cai naturalmente no caminho "DataJud não configurado", que é
+# exatamente o cenário que deveria acionar o fallback pro e-SAJ público.
+
+@pytest.fixture()
+def usuario_preview(app, empresa_basica, criar_usuario):
+    unidade_id = empresa_basica["unidade_id"]
+    criar_usuario(unidade_id, "admin-preview@teste.com", papel="admin", nome="Admin Preview")
+    return {"unidade_id": unidade_id}
+
+
+def test_preview_cnj_cai_no_esaj_publico_quando_datajud_nao_configurado(client, login, usuario_preview):
+    login("admin-preview@teste.com")
+    numero = "1234567-89.2023.8.26.0100"  # TJSP
+    with patch.object(mod.ConectorEsajPublico, "consultar_processo",
+                       return_value=mod._parse_processo(HTML_PROCESSO, "12345678920238260100", "tjsp")):
+        r = client.get(f"/governanca/processos/consultar-cnj?numero_cnj={numero}")
+    dados = r.get_json()
+    assert dados["valido"] is True
+    assert dados["encontrado"] is True
+    assert dados["fonte"] == "e-SAJ público"
+    assert dados["classe"] == "Procedimento Comum Cível"
+    assert dados["tribunal_slug"] == "tjsp"
+
+
+def test_preview_cnj_nao_encontrado_nem_no_datajud_nem_no_esaj(client, login, usuario_preview):
+    login("admin-preview@teste.com")
+    numero = "1234567-89.2023.8.26.0100"
+    with patch.object(mod.ConectorEsajPublico, "consultar_processo",
+                       side_effect=mod.ErroEsajPublico("não encontrado em nenhum dos tribunais e-SAJ testados (…)")):
+        r = client.get(f"/governanca/processos/consultar-cnj?numero_cnj={numero}")
+    dados = r.get_json()
+    assert dados["valido"] is True
+    assert dados["encontrado"] is False
+    # Motivo combinado — dá pra ver que as DUAS fontes foram tentadas, não só uma.
+    assert "DATAJUD_API_KEY" in dados["motivo"]
+    assert "e-SAJ público" in dados["motivo"]
+
+
+def test_preview_cnj_fora_da_justica_estadual_nao_tenta_esaj(client, login, usuario_preview):
+    login("admin-preview@teste.com")
+    numero_trabalhista = _numero_cnj("5", "02")  # segmento 5 = Justiça do Trabalho
+    with patch.object(mod.ConectorEsajPublico, "consultar_processo") as m:
+        r = client.get(f"/governanca/processos/consultar-cnj?numero_cnj={numero_trabalhista}")
+    m.assert_not_called()
+    dados = r.get_json()
+    assert dados["valido"] is True
+    assert dados["encontrado"] is False
