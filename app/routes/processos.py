@@ -1,9 +1,10 @@
+import io
 import os
 import uuid
 from datetime import datetime, date, timedelta
 from decimal import Decimal
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                    flash, current_app, send_from_directory, abort)
+                    flash, current_app, send_from_directory, send_file, abort)
 from flask_login import login_required, current_user
 from werkzeug.utils import secure_filename
 from app.extensions import db
@@ -18,13 +19,14 @@ from app.utils.acesso import (
     unidades_do_escopo, usuarios_do_escopo, checar_acesso_processo_ou_403, filtrar_processos_visiveis,
 )
 from app.utils.notificacoes import registrar_log, notificar
-from app.utils import tribunais_datajud, agente_ia_router, tribunais_conectores
+from app.utils import tribunais_datajud, agente_ia_router, tribunais_conectores, timbrado
 from app.utils.analise_processo_ia import gerar_analise
 from app.utils.fila import enfileirar
 from app.utils.cnj import validar_numero_cnj
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
+from app.utils.pdf_processo import gerar_pdf_processo
 from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
 from app.utils.rede import resumir_user_agent
@@ -317,6 +319,31 @@ def detalhe(processo_id):
                             solicitacoes_busca_autos=solicitacoes_busca_autos,
                             opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
                             tem_agente_local_pareado=tem_agente_local_pareado)
+
+
+@processos_bp.route("/<int:processo_id>/pdf")
+@login_required
+def pdf(processo_id):
+    """
+    PDF de resumo do processo (PENDENCIAS.md, seção -77) — pedido explícito
+    depois de testar a busca no e-SAJ público. Não é o PDF real do processo
+    no tribunal (isso exigiria inteiro teor de documentos, que nenhum
+    conector gratuito hoje devolve — ver app/utils/pdf_processo.py); é um
+    resumo gerado pelo próprio JusControl com capa, partes, movimentações,
+    prazos e audiências já cadastrados, com o timbrado do escritório.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    unidade = processo.unidade
+    empresa = unidade.empresa if unidade else None
+    buffer = gerar_pdf_processo(processo, empresa, unidade, current_app.config["UPLOAD_FOLDER"])
+
+    registrar_log(current_user, "gerou_pdf_processo", "Processo", processo.id, processo.numero_processo)
+
+    numero = (processo.numero_processo or processo.numero_interno or str(processo.id)).replace("/", "-")
+    return send_file(buffer, mimetype="application/pdf", as_attachment=False,
+                      download_name=f"processo_{numero}.pdf")
 
 
 @processos_bp.route("/<int:processo_id>/editar", methods=["GET", "POST"])

@@ -4,9 +4,9 @@ real (ver app/utils/captura_conectores.py e app/utils/conector_datajud.py).
 Usado tanto no cadastro inicial por CNJ (app/routes/governanca.py -
 novo_por_cnj) quanto na captura periódica (capturar_movimentacoes.py), pra
 garantir que os dois caminhos apliquem exatamente a mesma lógica de
-deduplicação, máquina de estados (seção 6) e motor de próxima ação
-(seção 7.1) — o mesmo pipeline que já existia para o registro manual
-(governanca.nova_movimentacao).
+deduplicação, máquina de estados (seção 6), motor de próxima ação
+(seção 7.1) e detecção de audiência (PENDENCIAS.md, seção -77) — o mesmo
+pipeline que já existia para o registro manual (governanca.nova_movimentacao).
 """
 from datetime import datetime
 
@@ -16,6 +16,7 @@ from app.extensions import db
 from app.models import Movimentacao
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
+from app.utils.audiencias_engine import detectar_e_aplicar_audiencia
 from app.utils.notificacoes import notificar
 
 
@@ -66,6 +67,34 @@ def montar_nota_datajud(dados_capturados, fonte_rotulo="DataJud"):
     return f"Dados do {fonte_rotulo} (captura automática): " + " ".join(partes)
 
 
+def formatar_partes_texto(partes_capturadas):
+    """
+    Formata a lista de partes devolvida por
+    ConectorCaptura.consultar_processo() (chave "partes" — lista de dicts
+    com "tipo"/"nome"/"advogados", ver app/utils/conector_esaj_publico.py)
+    como texto pronto pra exibir, uma parte por linha. Antes desta função
+    (PENDENCIAS.md, seção -77) essa lista só era usada pra contar quantas
+    vieram na mensagem de sucesso da busca e depois descartada — não
+    ficava em lugar nenhum durável do cadastro.
+
+    O DataJud não devolve partes hoje (a API pública dele não expõe nomes
+    de parte), então isto só preenche de verdade quando a fonte for o
+    e-SAJ público — devolve None nesse caso, sem sobrescrever nada.
+    """
+    if not partes_capturadas:
+        return None
+    linhas = []
+    for parte in partes_capturadas:
+        tipo = parte.get("tipo") or "Parte"
+        nome = parte.get("nome") or "(nome não identificado)"
+        advogados = parte.get("advogados") or []
+        linha = f"{tipo}: {nome}"
+        if advogados:
+            linha += f" (Advogado(s): {', '.join(advogados)})"
+        linhas.append(linha)
+    return "\n".join(linhas) if linhas else None
+
+
 def aplicar_carga_inicial(processo, dados_capturados, fonte_rotulo="DataJud"):
     """
     Preenche campos do Processo com o retorno de
@@ -101,6 +130,15 @@ def aplicar_carga_inicial(processo, dados_capturados, fonte_rotulo="DataJud"):
     nota = montar_nota_datajud(dados_capturados, fonte_rotulo=fonte_rotulo)
     if nota and not processo.descricao:
         processo.descricao = nota
+
+    # Lista completa de partes (seção -77) — sempre SOBRESCREVE (diferente
+    # dos campos acima, que só preenchem quando vazios): não é um campo
+    # editável manualmente em lugar nenhum, é sempre um retrato do que a
+    # fonte devolveu por último, então atualizar a cada captura bem-sucedida
+    # é o comportamento certo, não um risco de perder edição de alguém.
+    partes_texto = formatar_partes_texto(dados_capturados.get("partes"))
+    if partes_texto:
+        processo.partes_texto = partes_texto
 
     # nivelSigilo > 0: o próprio DataJud está sinalizando alguma restrição
     # de acesso — só LIGA a marcação (nunca desliga uma que o usuário já
@@ -195,6 +233,13 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captu
         historico = traduzir_movimentacao(mov)
         if historico:
             db.session.add(historico)
+
+        # Detecção de audiência (seção -77) — roda pra QUALQUER movimentação
+        # nova, de qualquer origem; a própria função decide se o texto
+        # parece ser sobre audiência e se há informação suficiente pra
+        # agir (ver docstring de app/utils/audiencias_engine.py).
+        detectar_e_aplicar_audiencia(mov)
+        db.session.flush()
 
         permitir_generico = (hoje - capturada.data).days <= JANELA_DIAS_MOVIMENTACAO_RECENTE
         prazo_gerado = aplicar_regra_proxima_acao(mov, permitir_generico=permitir_generico)

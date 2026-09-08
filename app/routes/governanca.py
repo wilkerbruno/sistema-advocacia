@@ -37,6 +37,7 @@ from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
+from app.utils.audiencias_engine import detectar_e_aplicar_audiencia
 from app.utils import tribunais_datajud
 from app.utils.paginacao import paginar, limitar_com_total
 from app.utils.conflito_interesse import varrer_conflitos_da_empresa
@@ -437,6 +438,13 @@ def nova_movimentacao(processo_id):
     historico = traduzir_movimentacao(mov)
     if historico:
         db.session.add(historico)
+
+    # Detecção de audiência (PENDENCIAS.md, seção -77) — mesma função
+    # usada na captura automática (app/utils/captura_pipeline.py), pra
+    # este caminho manual continuar espelhando o que a captura
+    # automática faria (ver docstring desta rota acima).
+    detectar_e_aplicar_audiencia(mov)
+    db.session.flush()
 
     prazo_gerado = aplicar_regra_proxima_acao(mov)
     if prazo_gerado:

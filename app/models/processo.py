@@ -52,6 +52,18 @@ class Processo(db.Model):
     descricao = db.Column(db.Text)
     segredo_justica = db.Column(db.Boolean, default=False)
 
+    # Lista completa de partes (todos os polos, com advogados) devolvida
+    # pela captura automática (DataJud/e-SAJ público — PENDENCIAS.md, seção
+    # -77) — antes disso o retorno de `partes` do conector só era usado pra
+    # contar quantas vieram na mensagem de sucesso e depois descartado,
+    # sem nenhum lugar durável pra mostrar quem realmente são as partes
+    # além do texto livre de `parte_contraria` (que é preenchido manualmente
+    # e só guarda UM nome). Texto pronto pra exibir (uma parte por linha,
+    # com o(s) advogado(s) entre parênteses quando houver) — sobrescrito a
+    # cada captura bem-sucedida (é sempre um retrato do que a fonte
+    # devolveu por último, não um cadastro editável à parte).
+    partes_texto = db.Column(db.Text)
+
     # Governança / captura automática (seções 3, 5, 8)
     forma_acompanhamento = db.Column(db.String(20), default="automatico")  # ver FORMAS_ACOMPANHAMENTO
     monitoravel = db.Column(db.Boolean, default=True)  # False = "buraco silencioso" sinalizado no painel
@@ -271,6 +283,18 @@ class Audiencia(db.Model):
     # Lembrete automático (ver PENDENCIAS.md, seção -44) — mesmo mecanismo
     # de Prazo.lembrete_enviado_em acima.
     lembrete_enviado_em = db.Column(db.DateTime, nullable=True)
+
+    # Detecção automática a partir do texto da movimentação capturada
+    # (PENDENCIAS.md, seção -77 — ver app/utils/audiencias_engine.py).
+    # `deteccao_automatica=True` marca uma audiência que ESTE robô criou ou
+    # atualizou sozinho (nunca uma que o usuário cadastrou/editou à mão) —
+    # mesmo espírito de `Movimentacao.origem_captura`: nunca esconder de
+    # onde um dado veio. `movimentacao_id` aponta pra movimentação de onde
+    # veio a última detecção, pra quem for conferir conseguir ver o texto
+    # de origem exato (mesmo padrão de `Prazo.evidencia_movimentacao_id`).
+    deteccao_automatica = db.Column(db.Boolean, default=False)
+    movimentacao_id = db.Column(db.Integer, db.ForeignKey("movimentacoes.id"), nullable=True)
+    movimentacao = db.relationship("Movimentacao", foreign_keys=[movimentacao_id])
 
 
 class Documento(db.Model):

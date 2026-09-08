@@ -1,5 +1,82 @@
 # Status das pendências do briefing (atualizado em 07/09/2026)
 
+## -77. PDF do processo + detecção automática de audiências + lista de partes capturada
+
+**Pedido:** depois de a captura pelo e-SAJ público funcionar de verdade num processo real ("Processo
+encontrado no e-SAJ (TJSP) — 0 movimentação(ões) nova(s) e 2 parte(s) identificada(s)"), você pediu três
+coisas: (1) um PDF do processo; (2) buscar também documentos; (3) audiências e prazos "com status reais".
+
+Perguntei antes de construir o que deveria entrar no PDF (escolheu **resumo completo** — capa, partes,
+movimentações, prazos e audiências, com o timbrado do escritório) e se deveria construir a detecção
+automática de audiências agora (escolheu **sim**).
+
+**Sobre "buscar documentos" — não é possível hoje, e por quê:** nem o DataJud nem o e-SAJ público (a
+mesma limitação já registrada desde a seção -71) devolvem o CONTEÚDO real de petições/decisões — só
+metadados e o texto das movimentações. Buscar o inteiro teor de documentos exigiria contratar um provedor
+pago (Judit, Escavador, Digesto ou Codilo — ver app/utils/captura_conectores.py, onde essa limitação já
+estava documentada antes desta rodada). Não implementei nada que fingisse cobrir isso.
+
+**Sobre "prazos com status reais" — já estava funcionando, conferi e não precisou de nada novo:** toda
+movimentação capturada (De qualquer fonte — DataJud ou e-SAJ público) já passa pelo motor de próxima ação
+(app/utils/prazos_engine.py) desde antes desta rodada, criando o `Prazo` com status real
+(pendente/cumprido/perdido/etc.) — por regra cadastrada quando existe, ou como tarefa genérica "Análise
+necessária" quando não existe nenhuma regra pro texto daquela movimentação (nunca ignora o ato). Isso já
+vale igual pra movimentação vinda do e-SAJ público, então não havia nada faltando aqui.
+
+**Audiências com status reais — isso sim era uma lacuna real, e construí:** não existia NENHUMA detecção
+automática de audiência a partir do texto capturado — só cadastro manual (formulário na aba Audiências).
+Criei `app/utils/audiencias_engine.py`: reconhece por padrão de texto em português quando uma movimentação
+fala de audiência **designada**, **redesignada/remarcada**, **realizada** ou **cancelada**, extrai
+data/hora e o tipo (conciliação, instrução, julgamento etc.) quando aparecem no texto, e cria ou atualiza o
+registro de `Audiencia` correspondente sozinho. Roda tanto na captura automática (DataJud/e-SAJ público)
+quanto no registro manual de movimentação (mesmo pipeline).
+
+Isto é heurístico por natureza — nenhuma das duas fontes devolve hoje um campo estruturado "isto é uma
+audiência" (o DataJud até tem código TPU por movimentação, mas não existe uma tabela confiável de "quais
+códigos são de audiência", mesma cautela já registrada para outro problema em
+`app/utils/tribunais_datajud.py`) — por isso reconhece por texto, cobrindo as fórmulas mais comuns, mas
+qualquer tribunal que fugir muito disso simplesmente não é detectado (a movimentação continua registrada
+normalmente, só não vira Audiencia sozinha — nunca finge ter reconhecido algo incerto). Toda audiência
+criada ou atualizada por aqui fica marcada com um ícone 🤖 na aba Audiências (com a movimentação de origem
+nas observações) — nunca se disfarça de cadastro manual, sempre dá pra conferir e corrigir. Uma
+movimentação de status (realizada/cancelada/remarcada) só atualiza uma audiência JÁ agendada — nunca
+inventa uma audiência do nada sem pelo menos uma data ou uma agendada prévia pra associar.
+
+**PDF do processo:** botão "PDF" ao lado de "Editar" na tela do processo, abre numa aba nova. Reaproveita
+o mesmo timbrado do escritório já usado no recibo financeiro (PENDENCIAS.md, seção -69) e traz capa
+completa, a lista de partes (ver abaixo), todas as movimentações, todos os prazos (com status) e todas as
+audiências (com status, e marcando quais foram detectadas automaticamente). Não é o PDF real do processo
+no tribunal — é um resumo gerado pelo próprio JusControl com o que já está cadastrado (mesma limitação de
+"buscar documentos" acima).
+
+**De brinde, uma lacuna que apareceu ao planejar o PDF — lista de partes:** reparei que a lista de partes
+que o e-SAJ público devolve (nomes + advogados) nunca era guardada em lugar nenhum — só contada pra
+mensagem de sucesso da busca ("2 parte(s) identificada(s)") e descartada em seguida. Sem isso, o PDF não
+teria nada de útil pra mostrar na seção "Partes". Agora fica guardada em `Processo.partes_texto` (texto
+simples, uma parte por linha) e também aparece na tela do processo, embaixo de "Parte contrária". O
+DataJud não devolve partes hoje (a API pública dele não expõe isso), então esse campo só preenche de
+verdade a partir do e-SAJ público, por enquanto.
+
+**Testado:** suíte inteira passando — 203 testes (182 de antes + 21 novos: 13 do motor de detecção de
+audiência — designação com/sem hora, sem data extraível, deduplicação, realizada, cancelada, "não
+realizada" não confundida com "realizada", redesignação com e sem nova data, sem audiência prévia pra
+associar, e a integração via captura automática — e 8 do PDF/lista de partes — formatação da lista,
+sobrescrita a cada captura, PDF vazio e completo gerando um arquivo válido, e a rota).
+
+**Arquivos tocados:** `app/models/processo.py` (`Processo.partes_texto`; `Audiencia.deteccao_automatica` e
+`Audiencia.movimentacao_id`), `app/utils/audiencias_engine.py` (novo), `app/utils/captura_pipeline.py`
+(hook da detecção de audiência + `formatar_partes_texto` + preenchimento de `partes_texto`),
+`app/routes/governanca.py` (mesmo hook no registro manual de movimentação), `app/utils/pdf_processo.py`
+(novo), `app/routes/processos.py` (rota `/processos/<id>/pdf`), `app/templates/processos/detalhe.html`
+(botão PDF, lista de partes, ícone 🤖 nas audiências detectadas), `tests/test_audiencias_engine.py`
+(novo), `tests/test_pdf_processo.py` (novo).
+
+**Depois de subir esta versão:** ⚠️ **desta vez precisa rodar `python sincronizar_schema.py`** no
+terminal do EasyPanel depois do deploy — são 3 colunas novas (`Processo.partes_texto`,
+`Audiencia.deteccao_automatica`, `Audiencia.movimentacao_id`), todas opcionais (nullable), sem risco pros
+dados já cadastrados. Sem isso, tentar salvar um processo/audiência pode dar o mesmo tipo de erro "Unknown
+column" já visto antes (seção -69).
+
 ## -76. Corrigido o erro 500 que a correção do TJCE (seção -75) causou
 
 **Meu erro:** a correção da seção -75 (desligar a verificação de certificado só pro TJCE) tinha um

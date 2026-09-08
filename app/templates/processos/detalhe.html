@@ -19,7 +19,10 @@
     <div class="card-doc tab p-3 mb-4">
       <div class="d-flex justify-content-between align-items-start mb-2">
         <span class="badge-status badge-{{ processo.status }}">{{ processo.status }}</span>
-        <a href="{{ url_for('processos.editar', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+        <div class="d-flex gap-2">
+          <a href="{{ url_for('processos.pdf', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm" target="_blank" title="Resumo em PDF com capa, partes, movimentações, prazos e audiências">PDF</a>
+          <a href="{{ url_for('processos.editar', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+        </div>
       </div>
       <p class="small mb-1"><strong>Cliente:</strong> <a href="{{ url_for('clientes.detalhe', cliente_id=processo.cliente_id) }}">{{ processo.cliente.nome }}</a></p>
       <p class="small mb-1"><strong>Área:</strong> {{ processo.area_direito }}</p>
@@ -33,6 +36,11 @@
       <p class="small mb-1"><strong>Responsável:</strong> {{ processo.responsavel.nome if processo.responsavel else "—" }}</p>
       {% if current_user.is_admin %}<p class="small mb-1"><strong>Unidade:</strong> <span class="pill-unidade">{{ processo.unidade.codigo }}</span> {{ processo.unidade.nome }}</p>{% endif %}
       {% if processo.descricao %}<hr class="divider-doc"><p class="small mb-0">{{ processo.descricao }}</p>{% endif %}
+      {% if processo.partes_texto %}
+      <hr class="divider-doc">
+      <p class="small mb-1"><strong>Partes (captura automática):</strong></p>
+      <p class="small mb-0" style="white-space: pre-line;">{{ processo.partes_texto }}</p>
+      {% endif %}
     </div>
 
     <div class="card-doc tab p-3 mb-4">
@@ -321,7 +329,11 @@
             {% for a in processo.audiencias %}
             <tr>
               <td>{{ a.data_hora|data_hora_br }}</td>
-              <td>{{ a.tipo or "—" }}</td>
+              <td>{{ a.tipo or "—" }}
+                {% if a.deteccao_automatica %}
+                <span title="Detectado automaticamente a partir de uma movimentação capturada — confira antes de confiar cegamente.{% if a.observacoes %} {{ a.observacoes }}{% endif %}">🤖</span>
+                {% endif %}
+              </td>
               <td>{{ a.local or a.modalidade }}</td>
               <td><span class="badge-status badge-{{ a.status }}">{{ a.status }}</span></td>
               <td>
