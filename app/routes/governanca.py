@@ -34,6 +34,7 @@ from app.utils.cofre import cifrar_senha_processo, decifrar_senha_processo, Cofr
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
 from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico, EsajProtegidoPorSenhaError
+from app.utils.conector_pje_publico import ConectorPjePublico, ErroPjePublico
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
@@ -206,15 +207,18 @@ def consultar_cnj_preview():
     da tela "Novo processo"/"Editar processo", que faz a mesma consulta de
     novo e persiste).
 
-    Ordem de tentativa (PENDENCIAS.md, seção -72): primeiro o DataJud (API
-    oficial do CNJ, cobre qualquer segmento de Justiça); se não achar (ou
-    não estiver configurado), tenta o e-SAJ público como segunda chance —
-    só cobre tribunais estaduais que usam essa plataforma (ver
-    app/utils/conector_esaj_publico.py), mas quando cobre é uma fonte a
-    mais sem custo de espera perceptível pro usuário (ele já ia esperar o
-    DataJud responder de qualquer jeito). Nunca tenta o e-SAJ público fora
-    do segmento Estadual — o conector rejeitaria mesmo, e só acrescentaria
-    ruído na mensagem de erro final.
+    Ordem de tentativa (PENDENCIAS.md, seções -72 e -78): primeiro o
+    DataJud (API oficial do CNJ, cobre qualquer segmento de Justiça); se
+    não achar (ou não estiver configurado), tenta o e-SAJ público como
+    segunda chance (TJSP, TJAC, TJAL, TJAM, TJCE, TJMS — ver
+    app/utils/conector_esaj_publico.py); se ainda não achar, tenta o PJe
+    público como terceira chance (TJRJ, TJMG — ver
+    app/utils/conector_pje_publico.py, inclusive o aviso lá sobre por que
+    só esses dois). Todas sem custo de espera perceptível a mais pro
+    usuário além da primeira (ele já ia esperar o DataJud responder de
+    qualquer jeito). Nunca tenta nenhuma das duas fora do segmento
+    Estadual — os conectores rejeitariam mesmo, e só acrescentaria ruído
+    na mensagem de erro final.
     """
     numero = request.args.get("numero_cnj", "")
     # exigir_dv=False: mesmo raciocínio do cadastro em si — não barra a
@@ -245,6 +249,7 @@ def consultar_cnj_preview():
         # só acrescentaria uma mensagem de erro irrelevante.
         return jsonify(valido=True, encontrado=False, motivo=motivo_datajud, precisa_tribunal=precisa_tribunal)
 
+    motivo_esaj = None
     try:
         dados_esaj = ConectorEsajPublico().consultar_processo(partes["formatado"])
         return _preview_json_encontrado(dados_esaj, "e-SAJ público")
@@ -254,11 +259,29 @@ def consultar_cnj_preview():
     except ErroEsajPublico as e:
         motivo_esaj = str(e)
 
-    motivo_final = motivo_datajud
-    if motivo_datajud and motivo_esaj:
-        motivo_final = f"{motivo_datajud} Também tentei o e-SAJ público: {motivo_esaj}"
-    elif not motivo_datajud:
-        motivo_final = motivo_esaj
+    # Terceira chance (PENDENCIAS.md, seção -78): PJe público (TJRJ,
+    # TJMG) — mesma ideia do e-SAJ público, ver aviso completo em
+    # app/utils/conector_pje_publico.py sobre por que só esses dois
+    # tribunais e as limitações (sigilo indistinguível de "não achou",
+    # sem advogado nas partes).
+    try:
+        dados_pje = ConectorPjePublico().consultar_processo(partes["formatado"])
+        return _preview_json_encontrado(dados_pje, "PJe público")
+    except ErroPjePublico as e:
+        motivo_pje = str(e)
+
+    # Junta os motivos de quem foi tentado e não achou — o primeiro entra
+    # puro, os seguintes ganham o prefixo "Também tentei o <fonte>: " (mesma
+    # ideia de antes de existir uma terceira fonte, só generalizada).
+    motivos_com_rotulo = [
+        (rotulo, m) for rotulo, m in
+        (("DataJud", motivo_datajud), ("e-SAJ público", motivo_esaj), ("PJe público", motivo_pje))
+        if m
+    ]
+    motivo_final = None
+    for i, (rotulo, m) in enumerate(motivos_com_rotulo):
+        trecho = m if i == 0 else f"Também tentei o {rotulo}: {m}"
+        motivo_final = trecho if motivo_final is None else f"{motivo_final} {trecho}"
     return jsonify(valido=True, encontrado=False, motivo=motivo_final, precisa_tribunal=precisa_tribunal)
 
 
@@ -587,6 +610,57 @@ def tentar_captura_esaj(processo_id):
     db.session.commit()
     flash(f"Processo encontrado no e-SAJ (TJSP) — {novas} movimentação(ões) nova(s) e {qtd_partes} "
           f"parte(s) identificada(s). Fonte pública, sem certificado nem token.", "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@governanca_bp.route("/processos/<int:processo_id>/tentar-captura-pje", methods=["POST"])
+@login_required
+def tentar_captura_pje(processo_id):
+    """
+    Busca dados públicos direto do PJe (TJRJ, TJMG) — sem certificado,
+    sem token, sem login (PENDENCIAS.md, seção -78 — mesma ideia do
+    `tentar_captura_esaj` acima, aplicada à plataforma PJe em vez de
+    e-SAJ). Ver aviso completo em app/utils/conector_pje_publico.py sobre
+    por que só esses dois tribunais (TJRS e TJPR NÃO são cobertos ainda).
+
+    Reaproveita o mesmo pipeline de carga inicial + dedup por hash do
+    DataJud/e-SAJ público, com origem_captura="pje_publico" — seguro
+    rodar quantas vezes precisar, e nunca sobrescreve campo já
+    preenchido manualmente.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    if not processo.numero_processo:
+        flash("Este processo não tem número CNJ cadastrado — não dá pra buscar no PJe.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    try:
+        conector = ConectorPjePublico()
+        dados_capturados = conector.consultar_processo(processo.numero_processo)
+    except ErroPjePublico as e:
+        db.session.add(LogCaptura(fonte="pje_publico", processo_id=processo.id, tribunal=None,
+                                   status="falha", mensagem=str(e)[:500]))
+        db.session.commit()
+        flash(f"Não foi possível buscar o processo no PJe agora: {e}", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    tribunal_slug = dados_capturados.get("tribunal_slug")
+    aplicar_carga_inicial(processo, dados_capturados, fonte_rotulo="PJe")
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados_capturados["movimentacoes"], captura_inicial=True, origem_captura="pje_publico",
+    )
+    qtd_partes = len(dados_capturados.get("partes") or [])
+
+    db.session.add(LogCaptura(
+        fonte="pje_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
+        mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) do PJe público.",
+    ))
+    registrar_log(current_user, "tentou_captura_pje_publico", "Processo", processo.id, processo.numero_processo)
+    db.session.commit()
+    flash(f"Processo encontrado no PJe ({(tribunal_slug or '').upper()}) — {novas} movimentação(ões) "
+          f"nova(s) e {qtd_partes} parte(s) identificada(s). Fonte pública, sem certificado nem token.",
+          "success")
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
 

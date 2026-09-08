@@ -21,6 +21,7 @@ import requests
 from app.extensions import db
 from app.models import Processo, LogCaptura, Movimentacao
 from app.utils import conector_esaj_publico as mod
+from app.utils import conector_pje_publico as mod_pje
 from app.utils.cnj import calcular_digito_verificador
 
 HTML_PROCESSO = """
@@ -430,17 +431,24 @@ def test_preview_cnj_cai_no_esaj_publico_quando_datajud_nao_configurado(client, 
 
 
 def test_preview_cnj_nao_encontrado_nem_no_datajud_nem_no_esaj(client, login, usuario_preview):
+    """ATUALIZADO NA SEÇÃO -78: desde que o PJe público (TJRJ, TJMG —
+    app/utils/conector_pje_publico.py) virou a TERCEIRA chance da
+    pré-visualização, este teste precisa mockar ele também — senão a
+    chamada real tentaria sair pela rede de verdade neste teste."""
     login("admin-preview@teste.com")
     numero = "1234567-89.2023.8.26.0100"
     with patch.object(mod.ConectorEsajPublico, "consultar_processo",
-                       side_effect=mod.ErroEsajPublico("não encontrado em nenhum dos tribunais e-SAJ testados (…)")):
+                       side_effect=mod.ErroEsajPublico("não encontrado em nenhum dos tribunais e-SAJ testados (…)")), \
+         patch.object(mod_pje.ConectorPjePublico, "consultar_processo",
+                       side_effect=mod_pje.ErroPjePublico("não encontrado em nenhum dos tribunais PJe testados (…)")):
         r = client.get(f"/governanca/processos/consultar-cnj?numero_cnj={numero}")
     dados = r.get_json()
     assert dados["valido"] is True
     assert dados["encontrado"] is False
-    # Motivo combinado — dá pra ver que as DUAS fontes foram tentadas, não só uma.
+    # Motivo combinado — dá pra ver que as TRÊS fontes foram tentadas, não só uma.
     assert "DATAJUD_API_KEY" in dados["motivo"]
     assert "e-SAJ público" in dados["motivo"]
+    assert "PJe público" in dados["motivo"]
 
 
 def test_preview_cnj_fora_da_justica_estadual_nao_tenta_esaj(client, login, usuario_preview):

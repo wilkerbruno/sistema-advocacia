@@ -1,4 +1,69 @@
-# Status das pendências do briefing (atualizado em 07/09/2026)
+# Status das pendências do briefing (atualizado em 08/09/2026)
+
+## -78. Consulta pública "igual o e-SAJ" para TJRJ e TJMG (PJe) — TJRS e TJPR ficaram de fora, e um alerta sobre o TJSP
+
+**Pedido:** depois do PDF/audiências (seção -77), você pediu "quero que funcione igual o esaj para todos os
+outros tribunais também" — ou seja, estender a busca pública (sem certificado, sem token, sem login) pra
+tribunais além dos 6 que já usam e-SAJ.
+
+**Perguntei antes de construir** (dois cliques seus): por quais tribunais começar → você escolheu
+**"TJMG, TJRJ, TJRS, TJPR"**; o que fazer quando um tribunal não der pra fazer sem senha/certificado →
+você escolheu **"pular esse tribunal e avisar"**. Pesquisei os 4 antes de escrever qualquer código (mesma
+disciplina de nunca adivinhar já usada em app/utils/tribunais_datajud.py) e o resultado foi bem diferente
+do e-SAJ: lá, os 6 tribunais rodam a MESMA plataforma (Softplan); aqui, cada tribunal roda um sistema
+diferente, e o Brasil inteiro está no meio de uma migração nacional (coordenada pelo CNJ) de PJe/SAJ para
+um sistema mais novo chamado **eproc**, ao longo de 2026 — isso muda o que dá pra fazer com segurança
+tribunal por tribunal:
+
+- **TJRJ — implementado.** Roda PJe como sistema principal hoje (migração pro eproc em andamento desde
+  jan/2025, mas só parcial/por competência). A consulta pública é real: sem login, sem CAPTCHA aparente.
+- **TJMG — implementado, com aviso.** Também tem consulta pública PJe, mas está NO MEIO da migração pro
+  eproc (iniciada set/2025, 5 fases, previsão de concluir maio/2026 — ou seja, já deve estar bem avançada
+  hoje). Processos mais recentes do TJMG podem já ter migrado e não aparecer mais aqui; processos mais
+  antigos/parados devem continuar aparecendo. Não tem como saber de antemão qual é qual — só testando.
+- **TJRS — pulado, com aviso (conforme sua escolha).** O Rio Grande do Sul já roda "eproc" como sistema
+  PRINCIPAL (não é migração em andamento, já é assim hoje) — o endereço PJe que existe é só pra processos
+  antigos. Não existe (que eu tenha encontrado) nenhuma implementação de referência aberta e testada de
+  consulta pública do eproc pra tribunal ESTADUAL sem login — implementar às cegas arriscaria um conector
+  que parece funcionar mas nunca acha nada. Fica pra quando houver uma fonte confiável pra confirmar contra.
+- **TJPR — pulado, com aviso (conforme sua escolha).** Roda Projudi (sistema próprio do Paraná) hoje;
+  só começa a migrar pro eproc em abril/2026. A página pública dele é renderizada via JavaScript pesado —
+  não consegui inspecionar o formulário real a partir daqui, nem achei uma implementação de referência
+  aberta de consulta de PROCESSO (só de jurisprudência) no Projudi. Mesmo motivo do TJRS: sem uma forma
+  confiável de confirmar os campos, implementar seria adivinhar.
+
+**O que foi implementado:** um novo conector `app/utils/conector_pje_publico.py` (`ConectorPjePublico`),
+espelhando `conector_esaj_publico.py` — mesmo padrão de busca em paralelo pelos candidatos (TJRJ, TJMG),
+mesmo log do motivo técnico quando um tribunal não responde, mesmo reaproveitamento do pipeline de carga
+inicial. Ver o aviso completo no topo do arquivo pra duas diferenças importantes em relação ao e-SAJ:
+(1) a consulta pública do PJe não distingue processo em segredo de justiça de "não encontrado" (o e-SAJ
+mostra uma tela pedindo senha; o PJe simplesmente não devolve nada nos dois casos); (2) a tabela de partes
+do PJe não expõe advogado, só nome + situação processual — `partes_texto` (seção -77) vem sem advogado
+pra processos capturados por aqui. Também: como não consegui acessar `tjrj.pje.jus.br` nem
+`pje-consulta-publica.tjmg.jus.br` a partir daqui pra testar de verdade (diferente do e-SAJ, testado e
+ajustado contra processos reais nas seções -71 a -76), o formulário/fluxo foi replicado da ÚNICA
+implementação de referência aberta e testada que encontramos pra uma consulta pública de PJe sem login
+(o scraper que o pacote `juscraper` mantém pros Tribunais Regionais Federais) — é esperado que a PRIMEIRA
+tentativa real contra um processo de TJRJ/TJMG precise de 1-2 ajustes, do jeito que aconteceu com o e-SAJ
+do TJCE/TJMS. Quando testar, cole aqui a mensagem de erro exata (e o log do servidor, se houver).
+
+Na tela do processo, apareceu um botão novo "Buscar dados públicos do PJe", ao lado do botão do e-SAJ —
+mesma regra de visibilidade (qualquer processo da Justiça Estadual). A pré-visualização "Novo processo"
+(que já tentava DataJud → e-SAJ público) agora tenta também PJe público como terceira chance, sem custo de
+espera perceptível a mais (o usuário já ia esperar as outras responderem). Não precisa rodar
+`sincronizar_schema.py` desta vez — nenhuma coluna/tabela nova, só um conector e duas rotas novas. 10
+testes novos (`tests/test_conector_pje_publico.py`) + 1 teste existente atualizado (a pré-visualização
+"não encontrado em lugar nenhum" agora precisa mockar as três fontes) — suíte completa em 213 testes, sem
+nenhuma regressão.
+
+**⚠️ Achado à parte, sobre um recurso JÁ EXISTENTE (não corrigido agora, só um alerta):** durante esta
+pesquisa descobrimos que o próprio **TJSP** — coberto pelo conector e-SAJ já em produção — está migrando
+processos do e-SAJ pro eproc desde 2025, por área (Cível já migrou; Fazenda Pública a partir de
+agosto/2026). Não é um bug pra corrigir agora, mas é esperado que, com o tempo, uma fatia crescente de
+processos do TJSP pare de ser encontrada pelo botão "Buscar dados públicos do e-SAJ" — não porque quebrou,
+mas porque o processo literalmente mudou de sistema. Se isso começar a aparecer nos seus testes ("processo
+não encontrado" num processo do TJSP que antes funcionava), é esse o motivo mais provável — vamos precisar
+de um conector pro eproc do TJSP em algum momento, não uma correção no e-SAJ.
 
 ## -77. PDF do processo + detecção automática de audiências + lista de partes capturada
 
