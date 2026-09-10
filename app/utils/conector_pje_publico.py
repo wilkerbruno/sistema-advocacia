@@ -152,7 +152,12 @@ USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 )
-TIMEOUT_SEGUNDOS = 15
+# 15s inicial se mostrou curto no primeiro teste real (TJRJ ficou
+# "indisponível" por timeout enquanto TJMG respondeu normalmente) — o
+# PJe/Seam é notoriamente lento no primeiro golpe (cold start da sessão
+# JSF), então subimos a margem. Ainda pode não ser suficiente; ver
+# PENDENCIAS.md, seção -78, se continuar acontecendo.
+TIMEOUT_SEGUNDOS = 30
 
 SEGMENTO_ESTADUAL = "8"
 
@@ -551,10 +556,11 @@ class ConectorPjePublico(ConectorCaptura):
         aviso_indisponiveis = ""
         if indisponiveis:
             nomes_indisponiveis = ", ".join(t.nome for t in indisponiveis)
-            aviso_indisponiveis = (
-                f" ({nomes_indisponiveis} não responderam a tempo e não puderam ser conferidos agora "
-                "— pode estar lá mesmo assim)"
-            )
+            if len(indisponiveis) == 1:
+                frase = f"{nomes_indisponiveis} não respondeu a tempo e não pôde ser conferido agora"
+            else:
+                frase = f"{nomes_indisponiveis} não responderam a tempo e não puderam ser conferidos agora"
+            aviso_indisponiveis = f" ({frase} — pode estar lá mesmo assim)"
         raise ErroPjePublico(
             f"Processo não encontrado em nenhum dos tribunais PJe testados ({nomes})"
             f"{aviso_indisponiveis} — confira o número, ou pode ser de um tribunal (TJRS, TJPR e "
