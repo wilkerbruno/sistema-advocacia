@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, date
 from decimal import Decimal
 
 from flask import (Blueprint, render_template, request, redirect, url_for,
-                    flash, Response, current_app, jsonify)
+                    flash, Response, current_app, jsonify, abort)
 from flask_login import login_required, current_user
 from sqlalchemy import func, or_
 
@@ -662,6 +662,36 @@ def tentar_captura_pje(processo_id):
           f"nova(s) e {qtd_partes} parte(s) identificada(s). Fonte pública, sem certificado nem token.",
           "success")
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@governanca_bp.route("/processos/<int:processo_id>/abrir-eproc/<slug>")
+@login_required
+def abrir_eproc_auto_envio(processo_id, slug):
+    """
+    Ponte de auto-envio pra consulta pública do eproc "clássico" (TJRJ,
+    TJSC — PENDENCIAS.md, seção -81). NÃO é captura automática: renderiza
+    uma página com um <form> oculto que se auto-envia pro site OFICIAL do
+    tribunal, com os mesmos nomes de campo confirmados ao vivo no HTML
+    real de cada um (ver app/utils/eproc_links.py) — exatamente o que
+    aconteceria se um humano preenchesse e clicasse "Consultar" à mão.
+    Quem resolve o "confirme que é humano" do Cloudflare do outro lado é
+    a pessoa logada, numa aba nova; nada volta capturado pro JusControl.
+    """
+    from app.utils.eproc_links import formulario_post
+
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+    formulario = formulario_post(slug)
+    if not formulario or not processo.numero_processo:
+        abort(404)
+
+    validado = validar_numero_cnj(processo.numero_processo, exigir_dv=False)
+    numero_formatado = validado["partes"]["formatado"] if validado["valido"] else somente_digitos(processo.numero_processo)
+
+    registrar_log(current_user, "abriu_eproc_publico_externo", "Processo", processo.id,
+                  f"{slug}: {processo.numero_processo}")
+
+    return render_template("processos/_eproc_auto_envio.html", formulario=formulario, numero=numero_formatado)
 
 
 # ---------- Fila de intimações (seção 7.2) ----------

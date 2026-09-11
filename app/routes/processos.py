@@ -31,6 +31,7 @@ from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
 from app.utils.rede import resumir_user_agent
 from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSuportadaError
+from app.utils.eproc_links import links_eproc_estadual, links_eproc_federal
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -308,6 +309,16 @@ def detalhe(processo_id):
         AgenteLocalPareado.query.filter_by(usuario_id=current_user.id, ativo=True).first() is not None
     )
 
+    # Links de conveniência pro eproc (PENDENCIAS.md, seção -81) — NÃO é
+    # captura automática, só abre o site oficial do tribunal já com o
+    # número pronto, pra um humano resolver o "confirme que é humano" do
+    # Cloudflare (ver aviso completo em app/utils/eproc_links.py e a
+    # seção -80 sobre por que não existe um conector automático pro eproc).
+    eproc_links = []
+    if processo.numero_processo:
+        eproc_links = (links_eproc_estadual(processo.numero_processo)
+                       or links_eproc_federal(processo.numero_processo))
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
@@ -318,7 +329,8 @@ def detalhe(processo_id):
                             contagem_downloads_documentos=contagem_downloads_documentos,
                             solicitacoes_busca_autos=solicitacoes_busca_autos,
                             opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
-                            tem_agente_local_pareado=tem_agente_local_pareado)
+                            tem_agente_local_pareado=tem_agente_local_pareado,
+                            eproc_links=eproc_links)
 
 
 @processos_bp.route("/<int:processo_id>/pdf")

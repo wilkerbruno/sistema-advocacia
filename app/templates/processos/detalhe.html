@@ -110,6 +110,27 @@
         <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do PJe</button>
       </form>
       {% endif %}
+      {% if eproc_links %}
+      <div class="mt-2">
+        <div class="small text-muted-doc mb-1">
+          Consulta pública do eproc (TJRS, TJSC, TJRJ, TRF4/JFRS/JFSC/JFPR,
+          conforme o tribunal) — <strong>estes abrem o site oficial do
+          tribunal numa aba nova, fora do JusControl</strong>. Não é
+          captura automática: o eproc está protegido por CAPTCHA em todo
+          lugar que conseguimos testar, então quem resolve o "confirme que
+          é humano" é você mesmo, do outro lado. Nada volta pro sistema
+          sozinho — é só uma forma rápida de não ter que digitar o número
+          de novo.
+        </div>
+        {% for link in eproc_links %}
+          {% if link.tipo == 'link' %}
+          <a href="{{ link.url }}" target="_blank" rel="noopener" class="btn btn-outline-doc btn-sm w-100 mb-1">{{ link.rotulo }} ↗</a>
+          {% else %}
+          <a href="{{ url_for('governanca.abrir_eproc_auto_envio', processo_id=processo.id, slug=link.slug) }}" target="_blank" rel="noopener" class="btn btn-outline-doc btn-sm w-100 mb-1">{{ link.rotulo }} ↗</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 
