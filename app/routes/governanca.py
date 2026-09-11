@@ -24,7 +24,7 @@ from sqlalchemy import func, or_
 from app.extensions import db
 from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, Decisao,
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
-                         MapaEstadoTPU, RegraProximaAcao)
+                         MapaEstadoTPU, RegraProximaAcao, AgenteLocalPareado, SolicitacaoBuscaAutos)
 from app.utils.acesso import (aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
                                unidades_do_escopo, usuarios_do_escopo, apenas_admin,
                                checar_acesso_processo_ou_403, filtrar_processos_visiveis)
@@ -37,6 +37,7 @@ from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico
 from app.utils.conector_pje_publico import ConectorPjePublico, ErroPjePublico
 from app.utils.conector_pje_jt_publico import ConectorPjeJtPublico, ErroPjeJtPublico
 from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
+from app.utils import tribunais_conectores
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
 from app.utils.audiencias_engine import detectar_e_aplicar_audiencia
@@ -734,6 +735,225 @@ def tentar_captura_pje_jt(processo_id):
     flash(f"Processo encontrado no PJe-JT ({(tribunal_slug or '').upper()}) — {novas} movimentação(ões) "
           f"nova(s) e {qtd_partes} parte(s) identificada(s). Fonte pública, sem certificado nem token.",
           "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@governanca_bp.route("/processos/<int:processo_id>/buscar-processo", methods=["POST"])
+@login_required
+def buscar_processo(processo_id):
+    """
+    Rota unificada de busca (PENDENCIAS.md, seção -93) — o botão único
+    "Buscar processo" da tela do processo, que substitui (na TELA; as
+    rotas antigas continuam existindo por baixo, veja nota abaixo) os
+    quatro botões separados de DataJud/e-SAJ/PJe/PJe-JT e o formulário
+    manual de conector do Agente Local. Ordem de decisão:
+
+    1. O advogado logado tem um Agente Local pareado (token — ver
+       app/models/agente_local.py) e não pediu explicitamente pra pular
+       pro caminho público (`forcar_publico` no form)? Dispara os 3
+       conectores piloto (pje_mni, projudi, esaj_sp —
+       app/utils/tribunais_conectores.py) em paralelo, cada um virando
+       sua própria SolicitacaoBuscaAutos. IMPORTANTE: isso é
+       ASSÍNCRONO — quem responde de verdade é o agente instalado na
+       máquina do advogado, na próxima vez que ele verificar por
+       tarefas (não é uma resposta na hora desta requisição). Sem
+       duplicar pedido: se já existe uma solicitação aberta
+       (pendente/em_andamento) pro mesmo conector+processo, não cria de
+       novo. "Fallback gracioso" pra quem não quer esperar o piloto
+       (ainda não testado contra tribunal real): a mesma tela mostra
+       sempre um botão "buscar pelos sistemas públicos agora" que manda
+       `forcar_publico=1` pra esta mesma rota — e destaca esse botão
+       automaticamente quando as tentativas anteriores do agente já
+       terminaram todas em erro (ver app/templates/processos/detalhe.html).
+    2. Sem agente pareado (ou `forcar_publico`): caminho público, sempre
+       começando pelo DataJud (metadados, qualquer segmento) e depois
+       o(s) conector(s) público(s) que atendem o segmento do número CNJ
+       — e-SAJ e PJe pra estadual (segmento 8), PJe-JT pra trabalhista
+       (segmento 5) — ou só o que o usuário escolheu no campo `sistema`
+       (auto/esaj/pje/pje_jt), se preencheu. Roda tudo que se aplica no
+       mesmo clique: é seguro (aplicar_carga_inicial só preenche campo
+       vazio; movimentação é deduplicada por hash), então em vez de um
+       clique por fonte como antes, um clique só já traz o que der de
+       mais completo.
+    3. Segmento sem conector público automático (só haveria os links
+       soltos de eproc/Projudi/Creta/Tucujuris)? Só o DataJud mesmo é
+       tentado aqui — os botões de link solto, já mostrados na mesma
+       tela fora desta rota, continuam sendo a forma do usuário abrir o
+       portal oficial do tribunal pra uma busca mais completa manual
+       (exatamente o "escolher DataJud ou algo mais completo" pedido).
+
+    Resumo em PDF: não precisa de nenhum gatilho novo aqui — o botão
+    "PDF" no topo da tela (app/utils/pdf_processo.py) já monta o resumo
+    na hora a partir do banco, então qualquer dado novo capturado por
+    este botão já aparece nele da próxima vez que for baixado.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    if not processo.numero_processo:
+        flash("Este processo não tem número CNJ cadastrado — não dá pra buscar automaticamente.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    forcar_publico = bool(request.form.get("forcar_publico"))
+    sistema_escolhido = (request.form.get("sistema") or "auto").strip()
+
+    agente = AgenteLocalPareado.query.filter_by(usuario_id=current_user.id, ativo=True).first()
+    if agente and not forcar_publico:
+        criadas = []
+        for slug in sorted(tribunais_conectores.CONECTORES_IMPLEMENTADOS):
+            ja_aberta = SolicitacaoBuscaAutos.query.filter_by(
+                processo_id=processo.id, tribunal_conector=slug,
+            ).filter(SolicitacaoBuscaAutos.status.in_(SolicitacaoBuscaAutos.STATUS_ABERTOS)).first()
+            if ja_aberta:
+                continue
+            db.session.add(SolicitacaoBuscaAutos(
+                processo_id=processo.id, tribunal_conector=slug,
+                numero_processo_solicitado=processo.numero_processo,
+                solicitado_por_id=current_user.id,
+            ))
+            criadas.append(slug)
+
+        if criadas:
+            registrar_log(current_user, "solicitou_busca_autos_agente_local", "Processo", processo.id,
+                          f"busca unificada (piloto, {len(criadas)} conector(es)): {', '.join(criadas)}")
+            db.session.commit()
+            flash("Busca enviada para o seu Agente Local (ainda em piloto, não testado contra nenhum "
+                  f"tribunal real) nos {len(criadas)} conector(es) disponíveis — assim que o agente no "
+                  "seu computador verificar por tarefas novas, o processo completo aparece aqui. Isso "
+                  "pode levar alguns instantes, não é na hora. Se preferir não esperar, dá pra buscar "
+                  "pelos sistemas públicos agora mesmo, na tabela mais abaixo.", "success")
+        else:
+            flash("Já existe uma busca do Agente Local em aberto para este processo — aguarde a "
+                  "resposta ou cancele na tabela abaixo antes de pedir de novo.", "info")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+    # ---- Caminho público (sem agente pareado, ou o usuário optou por pular) ----
+    numero = processo.numero_processo
+    validado = validar_numero_cnj(numero, exigir_dv=False)
+    segmento = validado["partes"]["segmento_codigo"] if validado["valido"] else None
+    empresa = processo.unidade.empresa if processo.unidade else None
+    resultados = []  # [(fonte_rotulo, sucesso, mensagem)]
+
+    try:
+        conector = obter_conector("padrao", empresa=empresa)
+        dados_datajud = conector.consultar_processo(numero, tribunal_hint=processo.tribunal_datajud)
+    except ConectorNaoConfiguradoError as e:
+        dados_datajud = None
+        resultados.append(("DataJud", False, str(e)))
+    except TribunalNaoIdentificadoError as e:
+        dados_datajud = None
+        resultados.append(("DataJud", False, str(e)))
+    except ConexaoDataJudError as e:
+        dados_datajud = None
+        db.session.add(LogCaptura(fonte="datajud", processo_id=processo.id, tribunal=processo.tribunal_datajud,
+                                   status="falha", mensagem=str(e)[:500]))
+        resultados.append(("DataJud", False, str(e)))
+
+    if dados_datajud:
+        processo.tribunal_datajud = dados_datajud["tribunal_slug"]
+        aplicar_carga_inicial(processo, dados_datajud)
+        novas = registrar_movimentacoes_capturadas(processo, dados_datajud["movimentacoes"], captura_inicial=True)
+        processo.monitoravel = True
+        processo.forma_acompanhamento = "automatico"
+        processo.motivo_nao_monitoravel = None
+        db.session.add(LogCaptura(
+            fonte="datajud", processo_id=processo.id, tribunal=dados_datajud["tribunal_slug"], status="sucesso",
+            mensagem=f"{novas} movimentação(ões) capturada(s) (busca unificada).",
+        ))
+        resultados.append(("DataJud", True, f"{novas} movimentação(ões) nova(s)."))
+
+    def _tentar_esaj():
+        try:
+            dados = ConectorEsajPublico().consultar_processo(numero)
+        except ErroEsajPublico as e:
+            db.session.add(LogCaptura(fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp",
+                                       status="falha", mensagem=str(e)[:500]))
+            resultados.append(("e-SAJ", False, str(e)))
+            return
+        aplicar_carga_inicial(processo, dados, fonte_rotulo="e-SAJ")
+        novas = registrar_movimentacoes_capturadas(
+            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="esaj_publico",
+        )
+        qtd_partes = len(dados.get("partes") or [])
+        db.session.add(LogCaptura(
+            fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp", status="sucesso",
+            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
+        ))
+        resultados.append(("e-SAJ", True, f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s)."))
+
+    def _tentar_pje():
+        try:
+            dados = ConectorPjePublico().consultar_processo(numero)
+        except ErroPjePublico as e:
+            db.session.add(LogCaptura(fonte="pje_publico", processo_id=processo.id, tribunal=None,
+                                       status="falha", mensagem=str(e)[:500]))
+            resultados.append(("PJe", False, str(e)))
+            return
+        tribunal_slug = dados.get("tribunal_slug")
+        aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe")
+        novas = registrar_movimentacoes_capturadas(
+            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_publico",
+        )
+        qtd_partes = len(dados.get("partes") or [])
+        db.session.add(LogCaptura(
+            fonte="pje_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
+            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
+        ))
+        resultados.append(("PJe", True,
+                            f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."))
+
+    def _tentar_pje_jt():
+        try:
+            dados = ConectorPjeJtPublico().consultar_processo(numero)
+        except ErroPjeJtPublico as e:
+            db.session.add(LogCaptura(fonte="pje_jt_publico", processo_id=processo.id, tribunal=None,
+                                       status="falha", mensagem=str(e)[:500]))
+            resultados.append(("PJe-JT", False, str(e)))
+            return
+        tribunal_slug = dados.get("tribunal_slug")
+        aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe-JT")
+        novas = registrar_movimentacoes_capturadas(
+            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_jt_publico",
+        )
+        qtd_partes = len(dados.get("partes") or [])
+        db.session.add(LogCaptura(
+            fonte="pje_jt_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
+            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
+        ))
+        resultados.append(("PJe-JT", True,
+                            f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."))
+
+    if segmento == "8":
+        if sistema_escolhido in ("auto", "esaj"):
+            _tentar_esaj()
+        if sistema_escolhido in ("auto", "pje"):
+            _tentar_pje()
+    elif segmento == "5":
+        if sistema_escolhido in ("auto", "pje_jt"):
+            _tentar_pje_jt()
+
+    registrar_log(current_user, "buscou_processo_unificado", "Processo", processo.id,
+                  "; ".join(f"{f}:{'ok' if ok else 'falhou'}" for f, ok, _ in resultados) or "nenhuma fonte tentada")
+    db.session.commit()
+
+    sucessos = [r for r in resultados if r[1]]
+    if sucessos:
+        resumo = " ".join(f"{f}: {m}" for f, ok, m in resultados if ok)
+        flash(f"Processo encontrado — {resumo} O resumo em PDF (botão \"PDF\" no topo) já reflete os "
+              "dados novos.", "success")
+    elif resultados:
+        motivos = " ".join(f"{f}: {m}" for f, _, m in resultados)
+        extra = ""
+        if segmento not in ("8", "5"):
+            extra = (" Não há conector público automático pra este segmento — se houver um link de "
+                      "consulta pública mais abaixo, ele abre o portal oficial do tribunal pra uma busca "
+                      "manual mais completa.")
+        flash(f"Não encontrei o processo em nenhuma fonte automática agora. {motivos}{extra}", "warning")
+    else:
+        flash("Nenhuma fonte automática pública se aplica a este processo (número CNJ sem segmento "
+              "coberto) — se houver um link de consulta pública mais abaixo, ele abre o portal oficial "
+              "do tribunal pra uma busca manual.", "warning")
+
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
 

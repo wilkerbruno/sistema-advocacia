@@ -60,70 +60,69 @@
         <input type="text" name="motivo" class="form-control form-control-sm mb-1" placeholder="Atualizar motivo (opcional)">
         <button class="btn btn-outline-doc btn-sm w-100">Atualizar marcação</button>
       </form>
+      {% endif %}
       {% if processo.numero_processo %}
-      <form method="post" action="{{ url_for('governanca.tentar_captura', processo_id=processo.id) }}" class="mt-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="form-label small mb-1">Tribunal (DataJud)</label>
-        <select name="tribunal_datajud" class="form-select form-select-sm mb-1">
-          <option value="">— (não sei / é da Justiça do Trabalho)</option>
-          {% for slug, rotulo in tribunais_datajud %}
-          <option value="{{ slug }}" {{ "selected" if processo.tribunal_datajud == slug }}>{{ rotulo }}</option>
-          {% endfor %}
-        </select>
+      <div class="mt-2">
+        {% if tem_agente_local_pareado %}
+        {% set pilotos_abertas = solicitacoes_busca_autos|selectattr('status','in',['pendente','em_andamento'])|list %}
+        {% set pilotos_concluidas = solicitacoes_busca_autos|selectattr('status','equalto','concluida')|list %}
+        {% set pilotos_erro = solicitacoes_busca_autos|selectattr('status','equalto','erro')|list %}
         <div class="small text-muted-doc mb-1">
-          Opcional: deixando em branco, o sistema tenta descobrir o tribunal
-          sozinho (testa os tribunais possíveis até achar o processo — pode
-          demorar alguns segundos a mais). Escolher aqui deixa a busca mais
-          rápida.
+          Você tem um Agente Local pareado — a busca vai pedir pra ele trazer o processo COMPLETO
+          (PDF + histórico), inclusive sigiloso, com o seu certificado. Ainda em piloto (não testado
+          contra tribunal real): o resultado só aparece depois que o agente no seu computador verificar
+          a tarefa — acompanhe na tabela "Buscar autos completos" mais abaixo.
         </div>
-        <button class="btn btn-brass btn-sm w-100">Tentar captura automática</button>
-      </form>
-      {% endif %}
-      {% endif %}
-      {% if processo.numero_processo and processo.numero_processo|eh_cnj_esaj_candidato %}
-      <form method="post" action="{{ url_for('governanca.tentar_captura_esaj', processo_id=processo.id) }}" class="mt-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <form method="post" action="{{ url_for('governanca.buscar_processo', processo_id=processo.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn btn-brass btn-sm w-100">Buscar processo</button>
+        </form>
+        {% if pilotos_erro and not pilotos_abertas and not pilotos_concluidas %}
+        <div class="alert alert-warning small mt-2 mb-0">
+          As últimas tentativas pelo seu Agente Local não deram certo. Pode tentar de novo, ou buscar
+          pelos sistemas públicos agora:
+          <form method="post" action="{{ url_for('governanca.buscar_processo', processo_id=processo.id) }}" class="mt-1">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="forcar_publico" value="1">
+            <button class="btn btn-outline-doc btn-sm w-100">Buscar pelos sistemas públicos</button>
+          </form>
+        </div>
+        {% else %}
+        <form method="post" action="{{ url_for('governanca.buscar_processo', processo_id=processo.id) }}" class="mt-1">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="forcar_publico" value="1">
+          <button class="btn btn-link btn-sm w-100 p-0" style="font-size: 0.75rem;">
+            (ou) buscar pelos sistemas públicos agora, sem esperar o agente
+          </button>
+        </form>
+        {% endif %}
+        {% else %}
         <div class="small text-muted-doc mb-1">
-          Consulta pública do e-SAJ (TJSP, TJAC, TJAL, TJAM, TJCE, TJMS) —
-          sem certificado, sem token, sem login. Fonte complementar ao
-          DataJud: scraping de página pública, sem contrato oficial (pode
-          parar de funcionar se o tribunal mudar a página, ou não alcançar
-          processos com senha/sigilo; tribunais estaduais fora dessa lista
-          ainda não são cobertos por este conector).
+          Busca automática nas fontes públicas — DataJud sempre
+          {%- if processo.numero_processo|eh_cnj_esaj_candidato %}, e-SAJ e PJe{% endif -%}
+          {%- if processo.numero_processo|eh_cnj_pje_jt_candidato %}, PJe-JT{% endif -%}
+          , conforme o segmento do número — sem certificado, sem token, sem login. Pra trazer o
+          processo COMPLETO (inclusive sigiloso), com o seu certificado:
+          <a href="{{ url_for('agente_local.meu_agente') }}">configure o Agente Local »</a>
         </div>
-        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do e-SAJ</button>
-      </form>
-      {% endif %}
-      {% if processo.numero_processo and processo.numero_processo|eh_cnj_esaj_candidato %}
-      <form method="post" action="{{ url_for('governanca.tentar_captura_pje', processo_id=processo.id) }}" class="mt-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="small text-muted-doc mb-1">
-          Consulta pública do PJe (TJRJ, TJMG) — sem certificado, sem
-          token, sem login. Mesma ideia do e-SAJ acima, plataforma
-          diferente: scraping de página pública (pode parar de funcionar
-          se o tribunal mudar a página); TJMG está em migração para outro
-          sistema (eproc), então processos mais recentes podem não
-          aparecer; TJRS e TJPR ainda não são cobertos por este conector
-          (rodam sistemas próprios/diferentes — ver
-          app/utils/conector_pje_publico.py para o porquê).
-        </div>
-        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do PJe</button>
-      </form>
-      {% endif %}
-      {% if processo.numero_processo and processo.numero_processo|eh_cnj_pje_jt_candidato %}
-      <form method="post" action="{{ url_for('governanca.tentar_captura_pje_jt', processo_id=processo.id) }}" class="mt-2">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div class="small text-muted-doc mb-1">
-          Consulta pública do PJe-JT (Justiça do Trabalho, 22 TRTs) — sem
-          certificado, sem token, sem login. Tenta os 22 tribunais em
-          paralelo até achar (TRT-3 e TRT-23 não são cobertos — rodam
-          proteção anti-bot própria). Os campos de capa do processo ainda
-          não foram confirmados contra um processo real desta fonte —
-          movimentações e partes podem precisar de ajuste na primeira
-          tentativa (ver app/utils/conector_pje_jt_publico.py).
-        </div>
-        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do PJe-JT</button>
-      </form>
+        <form method="post" action="{{ url_for('governanca.buscar_processo', processo_id=processo.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if processo.numero_processo|eh_cnj_esaj_candidato or processo.numero_processo|eh_cnj_pje_jt_candidato %}
+          <select name="sistema" class="form-select form-select-sm mb-1">
+            <option value="auto">Detectar automaticamente (recomendado)</option>
+            {% if processo.numero_processo|eh_cnj_esaj_candidato %}
+            <option value="esaj">Só e-SAJ (TJSP, TJAC, TJAL, TJAM, TJCE, TJMS)</option>
+            <option value="pje">Só PJe (TJRJ, TJMG)</option>
+            {% endif %}
+            {% if processo.numero_processo|eh_cnj_pje_jt_candidato %}
+            <option value="pje_jt">Só PJe-JT (22 TRTs da Justiça do Trabalho)</option>
+            {% endif %}
+          </select>
+          {% endif %}
+          <button class="btn btn-brass btn-sm w-100">Buscar processo</button>
+        </form>
+        {% endif %}
+      </div>
       {% endif %}
       {% if eproc_links %}
       <div class="mt-2">
@@ -502,24 +501,13 @@
             <a href="{{ url_for('agente_local.meu_agente') }}">configure em "Meu agente local"</a>
             antes de pedir uma busca.
           </div>
+          {% else %}
+          <p class="small text-muted-doc mb-3">
+            Peça a busca pelo botão <strong>"Buscar processo"</strong>, no card à esquerda — com um
+            agente pareado, ele já tenta os 3 conectores piloto disponíveis (PJe, Projudi, e-SAJ) em
+            paralelo automaticamente. O andamento de cada tentativa aparece na tabela abaixo.
+          </p>
           {% endif %}
-
-          <form method="post" action="{{ url_for('processos.solicitar_busca_autos', processo_id=processo.id) }}" class="row g-2 mb-3">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-8">
-              <select name="tribunal_conector" class="form-select form-select-sm" required>
-                <option value="">Selecione o conector do tribunal...</option>
-                {% for slug, rotulo, implementado in opcoes_conectores_tribunal %}
-                <option value="{{ slug }}" {{ "disabled" if not implementado }}>{{ rotulo }}</option>
-                {% endfor %}
-              </select>
-            </div>
-            <div class="col-md-4">
-              <button type="submit" class="btn btn-brass btn-sm w-100" {{ "disabled" if not tem_agente_local_pareado }}>
-                Solicitar busca
-              </button>
-            </div>
-          </form>
 
           {% if solicitacoes_busca_autos %}
           <table class="table-doc mb-0">

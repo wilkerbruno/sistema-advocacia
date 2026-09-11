@@ -1,5 +1,73 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -93. Botão único "Buscar processo" — unifica DataJud/e-SAJ/PJe/PJe-JT/Agente Local
+
+**Pedido:** hoje pra buscar um processo é preciso primeiro clicar em "Tentar captura automática"
+(DataJud) e DEPOIS, separadamente, em "Buscar dados públicos do e-SAJ"/PJe/PJe-JT — um clique por
+fonte. Pedido: um fluxo só, que (1) primeiro veja se o advogado tem o Agente Local pareado (token) e,
+se tiver, já busque o processo COMPLETO por ele; (2) senão, deixe escolher o sistema do tribunal (ou
+descubra sozinho) e já traga tudo automaticamente; (3) pros sistemas "link solto" (fora do nosso
+alcance), busque no DataJud e dê um botão pra escolher entre o resultado do DataJud ou abrir o portal
+do tribunal pra algo mais completo; (4) inclua o resumo em PDF.
+
+**O que mudou:** um botão novo, **"Buscar processo"**, na tela do processo (card da esquerda),
+substituindo ali os 4 botões separados (DataJud/e-SAJ/PJe/PJe-JT) e o formulário manual de conector do
+Agente Local (que ficava na aba Documentos). Rota nova: `governanca.buscar_processo`
+(`POST /governanca/processos/<id>/buscar-processo`), com esta ordem de decisão:
+
+1. **Advogado tem Agente Local pareado?** Dispara os 3 conectores piloto (`pje_mni`, `projudi`,
+   `esaj_sp` — ver seção -56 e `app/utils/tribunais_conectores.py`) **em paralelo** — cada um vira sua
+   própria `SolicitacaoBuscaAutos`. Isso continua sendo **assíncrono**: quem responde de verdade é o
+   agente instalado no computador do próprio advogado, na próxima vez que ele verificar por tarefas —
+   não é uma resposta na hora do clique. Sem duplicar pedido (não cria de novo se já tem uma solicitação
+   aberta pro mesmo conector+processo). Rotulado como piloto na tela (ainda não testado contra nenhum
+   tribunal real — mesma ressalva de sempre).
+   - **Fallback pra quem não quer esperar:** a tela sempre mostra um botão extra "buscar pelos sistemas
+     públicos agora" (manda `forcar_publico=1` pra essa mesma rota), e esse botão fica destacado
+     automaticamente quando as tentativas anteriores do agente já terminaram todas em erro (calculado
+     direto do histórico de `SolicitacaoBuscaAutos` já carregado pra tela, sem precisar de fila/cron
+     nenhum — este sistema não tem worker assíncrono provisionado, então "fallback automático depois de
+     X minutos" não seria honesto de prometer; o botão manual sempre disponível é o que dá pra entregar
+     de verdade agora).
+2. **Sem agente pareado (ou `forcar_publico`):** caminho público — sempre tenta o DataJud primeiro
+   (qualquer segmento), e na sequência o(s) conector(s) público(s) que atendem o segmento do número CNJ:
+   e-SAJ e depois PJe pra estadual (segmento 8), PJe-JT pra trabalhista (segmento 5) — ou só o que o
+   usuário escolheu no seletor "sistema" (auto/e-SAJ/PJe/PJe-JT), se preencheu. Roda tudo que se aplica
+   NO MESMO clique — antes eram cliques separados; agora um só já traz o que der de mais completo, porque
+   é seguro rodar várias fontes em sequência (`aplicar_carga_inicial` só preenche campo vazio,
+   movimentação é deduplicada por hash).
+3. **Segmento sem nenhum conector público** (só haveria os links soltos de eproc/Projudi/
+   Creta/Tucujuris — seções -80/-81/-85/-87/-92): só o DataJud é tentado por esta rota; os botões de
+   link solto, que já ficam na mesma tela (fora desta rota, inalterados), continuam sendo a forma do
+   usuário escolher entre o que o DataJud achou ou abrir o portal oficial do tribunal pra uma busca
+   manual mais completa — exatamente o "escolher DataJud ou algo mais completo" pedido.
+
+**Resumo em PDF:** não precisou de nenhum código novo — o botão "PDF" que já existe no topo da tela
+(`app/utils/pdf_processo.py`) monta o resumo na hora, direto do banco, então qualquer dado novo
+capturado por "Buscar processo" já aparece nele automaticamente da próxima vez que for baixado (sem
+cache, sem gatilho separado pra manter sincronizado).
+
+**Decisão de risco (perguntei antes de programar, todas as 4 respostas vieram com a opção
+recomendada):**
+- Confirmado que "token do advogado" = o Agente Local já existente (certificado próprio, MNI/SOAP,
+  nunca sai da máquina do advogado) — não um novo mecanismo.
+- Construir já com os 3 conectores piloto, mesmo eles ainda não tendo sido testados contra nenhum
+  tribunal real (rotulado como piloto na tela, com fallback gracioso pro público).
+- Um botão só na tela, substituindo os outros — mas **as rotas antigas continuam existindo por baixo**
+  (`tentar_captura`, `tentar_captura_esaj`, `tentar_captura_pje`, `tentar_captura_pje_jt`,
+  `solicitar_busca_autos`), pra não quebrar nada que já dependa delas nem os testes que já cobriam cada
+  uma — a rota nova (`buscar_processo`) tem sua própria lógica, sem reaproveitar as antigas por baixo dos
+  panos, então dá pra aposentar as antigas mais tarde sem pressa, sem risco de regressão agora.
+- Auto-detecção do Agente Local tenta os 3 conectores piloto em paralelo (mesma disciplina de nunca
+  tentar adivinhar qual sistema o tribunal usa, já seguida pelos conectores públicos).
+
+**Testes:** `tests/test_busca_processo_unificada.py` (9 testes novos) — cobre os 3 caminhos de decisão
+(agente pareado cria as 3 solicitações; não duplica solicitação já aberta; `forcar_publico` pula pro
+público), o caminho público automático por segmento (8 tenta e-SAJ+PJe, 5 tenta PJe-JT, outro segmento
+só DataJud), o seletor manual de sistema restringindo a uma fonte só, processo sem número CNJ, e a
+renderização da tela quando todas as tentativas do agente já terminaram em erro (o bloco de fallback
+destacado). Suíte inteira: **256 testes passando** (era 247 antes desta seção).
+
 ## -92. Revisão dos "links soltos" — nenhum dá pra virar captura automática
 
 **Pergunta:** com os links soltos (eproc, Projudi, Creta/Tucujuris) que só abrem o site do tribunal numa
