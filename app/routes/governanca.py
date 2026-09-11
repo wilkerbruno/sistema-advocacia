@@ -694,6 +694,34 @@ def abrir_eproc_auto_envio(processo_id, slug):
     return render_template("processos/_eproc_auto_envio.html", formulario=formulario, numero=numero_formatado)
 
 
+@governanca_bp.route("/processos/<int:processo_id>/abrir-projudi/<slug>")
+@login_required
+def abrir_projudi_auto_envio(processo_id, slug):
+    """
+    Mesma ideia da rota acima (abrir_eproc_auto_envio), agora pro Projudi
+    (TJPR — PENDENCIAS.md, seção -85). NÃO é captura automática: renderiza
+    uma página com um <form> oculto que se auto-envia pro site OFICIAL do
+    tribunal, com os mesmos nomes de campo confirmados ao vivo (ver
+    app/utils/projudi_links.py). Quem resolve o captcha do outro lado é a
+    pessoa logada, numa aba nova; nada volta capturado pro JusControl.
+    """
+    from app.utils.projudi_links import formulario_projudi
+
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+    formulario = formulario_projudi(slug)
+    if not formulario or not processo.numero_processo:
+        abort(404)
+
+    validado = validar_numero_cnj(processo.numero_processo, exigir_dv=False)
+    numero_formatado = validado["partes"]["formatado"] if validado["valido"] else somente_digitos(processo.numero_processo)
+
+    registrar_log(current_user, "abriu_projudi_publico_externo", "Processo", processo.id,
+                  f"{slug}: {processo.numero_processo}")
+
+    return render_template("processos/_eproc_auto_envio.html", formulario=formulario, numero=numero_formatado)
+
+
 # ---------- Fila de intimações (seção 7.2) ----------
 
 @governanca_bp.route("/fila-intimacoes")

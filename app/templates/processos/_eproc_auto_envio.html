@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
   <meta charset="utf-8">
-  <title>Abrindo consulta pública no eproc — {{ formulario.nome }}</title>
+  <title>Abrindo consulta pública — {{ formulario.nome }}</title>
   <meta name="robots" content="noindex">
   <style>
     body { font-family: system-ui, sans-serif; padding: 2.5rem; color: #333; max-width: 32rem; margin: 0 auto; }
@@ -12,18 +12,18 @@
   </style>
 </head>
 <body>
-  <p>Abrindo a consulta pública do eproc do {{ formulario.nome }} com o número do processo já
+  <p>Abrindo a consulta pública do {{ formulario.nome }} com o número do processo já
      preenchido… Isso é o site oficial do tribunal, fora do JusControl — nada é capturado de volta
-     automaticamente. Se aparecer um desafio "confirme que é humano", é do próprio tribunal
-     (Cloudflare); resolva normalmente pra ver o resultado.</p>
+     automaticamente. Se aparecer um desafio "confirme que é humano" (captcha do próprio tribunal),
+     resolva normalmente pra ver o resultado.</p>
   <p>Se a página não abrir sozinha em um instante:</p>
-  <form id="formEprocAutoEnvio" method="post" action="{{ formulario.action }}">
+  <form id="formConsultaPublicaAutoEnvio" method="{{ formulario.metodo }}" action="{{ formulario.action_base }}">
     <input type="hidden" name="{{ formulario.campo_numero }}" value="{{ numero }}">
     {% for nome_campo, valor in formulario.campos_fixos.items() %}
     <input type="hidden" name="{{ nome_campo }}" value="{{ valor }}">
     {% endfor %}
     <button type="submit">Continuar pro site do tribunal</button>
   </form>
-  <script>document.getElementById('formEprocAutoEnvio').submit();</script>
+  <script>document.getElementById('formConsultaPublicaAutoEnvio').submit();</script>
 </body>
 </html>

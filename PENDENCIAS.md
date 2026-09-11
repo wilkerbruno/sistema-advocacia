@@ -1,5 +1,141 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -85. Links de conveniência pro Projudi — TJPR (auto-envio) e TJAM (link solto)
+
+**Pedido:** depois da pesquisa da seção -84, você confirmou que queria a mesma solução do eproc (seção
+-81) aplicada ao Projudi.
+
+**O que foi implementado:** `app/utils/projudi_links.py` — mesmo padrão de `app/utils/eproc_links.py`,
+mas com dois tribunais tratados de forma diferente por causa do que foi confirmado ao vivo na seção -84:
+
+- **TJPR** — vira uma ponte de auto-envio (`tipo: "bridge"`), igual ao TJSC/TJRJ no eproc: uma página nova
+  (`governanca.abrir_projudi_auto_envio`) renderiza um `<form>` oculto que se auto-envia por **POST** pro
+  formulário real (`consulta.tjpr.jus.br/projudi_consulta/processo/consultaPublica.do?actionType=pesquisar`),
+  com os mesmos nomes de campo confirmados ao vivo no HTML real (nunca inventados) e o número do processo já
+  preenchido. Como confirmei que Comarca/Juízo não são obrigatórios pra busca por número, não precisa
+  adivinhar nada disso. **Ressalva importante, diferente do eproc:** o captcha do TJPR é um reCAPTCHA do
+  Google que só aparece via JavaScript da própria página ao clicar "Pesquisar" — não confirmei se o
+  formulário aceita a busca vindo da nossa ponte (sem esse JavaScript carregado) ou se o servidor recusa por
+  faltar o token do captcha. É uma tentativa razoável e de baixo risco (mesmo espírito da seção -82): se
+  não funcionar, o pior caso é uma tela de erro, aí a pessoa refaz a busca direto no site — não fica pior
+  do que não ter o botão. Testa quando puder e me avisa se der problema.
+- **TJAM** — entra só como link solto (`tipo: "link"`) pra página de busca, sem tentar pré-preencher o
+  número. Motivo: numa tentativa de busca de teste ao vivo nesse tribunal, a requisição foi rejeitada na
+  hora por um firewall de aplicação — sinal de que ali vale mais cautela (mesmo tratamento dado ao TJRS no
+  eproc).
+- **TJGO não entra** — bloqueou já no carregamento simples da página nos testes da seção -84, não dá pra
+  confiar nem num link solto.
+
+Reaproveitei o template de auto-envio do eproc em vez de duplicar: `app/templates/processos/_eproc_auto_envio.html`
+foi generalizado (texto não fala mais só de "eproc"/"Cloudflare", e o `<form>` agora lê o método —
+GET ou POST — de `formulario.metodo`, já que o TJPR precisa de POST e o eproc de GET). Isso também mudou o
+`id` do formulário e do script de auto-envio (`formEprocAutoEnvio` → `formConsultaPublicaAutoEnvio`) — ajustei
+a asserção correspondente em `tests/test_eproc_links.py`.
+
+Na tela do processo, uma nova seção "Consulta pública do Projudi" aparece ao lado da do eproc (mesmo aviso
+de que abre o site oficial fora do JusControl e que é a pessoa quem resolve o captcha). 7 testes novos em
+`tests/test_projudi_links.py` (montagem dos links, conteúdo do formulário de auto-envio do TJPR, 404 pra
+slug desconhecido e pra processo sem número) — suíte inteira: **229 passando** (222 antes + 7 novos).
+
+## -84. Projudi — checado ao vivo (TJPR, TJAM, TJGO): mesma situação do eproc, proteção anti-bot em todos
+
+**Pedido:** depois de decidir deixar de lado as ferramentas de bypass de Cloudflare (seção -83), você pediu
+pra passar pro Projudi — a mesma pergunta de antes ("dá pra estender a busca pública pra esses tribunais
+também?"), agora pro sistema que TJPR/TJAM/TJGO/TJBA usam.
+
+**Mapeamento:** usei a tabela "Cobertura dos Tribunais" da JUDIT (ao vivo, no seu navegador, a mesma fonte
+usada na seção -80) pra levantar quais tribunais rodam Projudi como sistema — **TJAM, TJBA** (ao lado do
+PJe), **TJGO** e **TJPR**.
+
+**Testei ao vivo os 3 primeiros (achei bloqueio em todos, de tipos diferentes):**
+
+- **TJPR** (`projudi.tjpr.jus.br` → `consulta.tjpr.jus.br/projudi_consulta/`): o formulário público carrega
+  normal, sem CAPTCHA na tela inicial — mas ao clicar "Pesquisar" aparece um reCAPTCHA de imagem do Google
+  ("selecione todos os quadrados com bicicletas"). Só dispara na hora de pesquisar, igual ao padrão já visto
+  no TRF4/eproc (seção -80). Um detalhe bom: confirmei no HTML do formulário que **Comarca e Juízo não são
+  obrigatórios quando a busca é por número do processo, CPF ou CNPJ** (só são obrigatórios pra busca sem
+  esses dados) — então dá pra montar um link de conveniência só com o número, sem ter que adivinhar a
+  comarca.
+- **TJAM** (`projudi-consulta.tjam.jus.br/publica`): a página já carrega com o script do Google reCAPTCHA
+  embutido (campo oculto `g-recaptcha-response`). Ao tentar pesquisar com um número de teste, a requisição
+  foi rejeitada direto por um firewall de aplicação ("The requested URL was rejected") — nem chegou a
+  mostrar o desafio, foi barrada antes.
+- **TJGO** (`projudi.tjgo.jus.br/BuscaProcesso`): bloqueado já no **carregamento da página** — apareceu um
+  aviso "o sistema de proteção identificou um comportamento incomum e bloqueou a solicitação" com um desafio
+  Cloudflare "Verificando..." embaixo. (TJGO também tem um segundo sistema, `pjd.tjgo.jus.br`, que exige
+  login/certificado direto — sem consulta pública nenhuma.)
+
+Não testei o TJBA porque lá o Projudi é secundário (o principal é PJe, que já está coberto pelo
+`ConectorPjePublico`) — mas dado o padrão de 3 em 3 até aqui, não há razão pra esperar diferente.
+
+**Conclusão:** mesma situação nacional do eproc (seção -80) — todo Projudi testado tem alguma camada de
+proteção anti-bot (reCAPTCHA de imagem, reCAPTCHA + firewall de aplicação, ou Cloudflare), nenhum viável
+pra captura automática sem login. Parei de testar assim que confirmei o bloqueio em cada um — não tentei
+nenhum jeito de contornar (mesma disciplina das seções -80/-81/-83).
+
+**Fica pendente pra você decidir:** dá pra construir a mesma solução que já existe pro eproc (seção -81) —
+links de conveniência que abrem a página oficial do tribunal, com o número do processo já preenchido
+quando o formulário permitir, pra alguém do escritório resolver o captcha manualmente. Funcionaria bem pro
+**TJPR** (confirmei que não precisa de Comarca pra busca por número) e provavelmente pro **TJAM**; o
+**TJGO** é mais incerto, porque bloqueou até o carregamento simples da página nesse teste — um link de
+conveniência pode não carregar de forma confiável nesse caso. Me avisa se quer que eu construa isso.
+
+## -83. Ferramentas de "bypass" de Cloudflare (GitHub) — avaliadas, recusadas, fica como pendência
+
+**Pedido:** você mandou dois links do GitHub perguntando se resolviam o problema do Cloudflare no eproc —
+a página de topics `github.com/topics/cloudflare-bypass` e o projeto
+`github.com/sarperavci/CloudflareBypassForScraping` — e depois insistiu perguntando se pelo menos
+"ajudariam um pouco".
+
+**O que são, de fato:** ferramentas de automação com navegador "stealth" (Chromium com patch de
+fingerprint) que resolvem o desafio Cloudflare/Turnstile sozinhas — inclusive clicando no captcha via
+manipulação do shadow DOM — e devolvem um cookie de sessão (`cf_clearance`) pra reuso em requisições
+automatizadas depois. Tecnicamente, funcionariam pro problema do eproc (é exatamente pra isso que
+existem). A página de topics lista várias ferramentas do mesmo tipo (`undetected-chromedriver`,
+`cloudscraper`, `patchright`, `botasaurus` etc.) — todas na mesma linha: navegador automatizado disfarçado
+de humano ou manipulação de fingerprint TLS/JA3.
+
+**Por que não foram usadas:** é bypass automatizado de CAPTCHA/anti-bot por definição — a linha que eu não
+cruzo, sem exceção, independente da escala (testar com 1 processo ou automatizar tudo dá no mesmo: é o
+mesmo tipo de ação). Além do princípio, tem um risco prático real pro escritório: esse tipo de ferramenta
+é alvo constante de detecção, e tribunais que percebem o padrão de tráfego costumam banir o IP/rede de
+origem inteira — arriscando até o acesso normal do escritório aos sites dos tribunais pelo navegador comum,
+o que seria pior que a situação atual.
+
+**Decisão sua:** deixar de lado por enquanto, seguir com o eproc bloqueado (seções -80/-81/-82) e passar
+pro Projudi.
+
+## -82. Achado em uso real: o Cloudflare descartava o POST — trocado pra GET
+
+**O que aconteceu:** você testou o botão do TJSC (seção -81) e mandou um print: o Cloudflare passou
+sozinho (desafio "invisível" — "Sucesso!"), mas o número do processo não apareceu no formulário — voltou
+tudo em branco. Você perguntou se, já que o Cloudflare passou sozinho, dava pra fazer direto sem precisar
+abrir essa página.
+
+**Duas coisas separadas nessa pergunta:**
+
+1. **O Cloudflare passar "sozinho" não abre porta pra automação.** Ele passou porque era o SEU navegador
+   de verdade, no seu computador — com todos os sinais que convencem o Cloudflare de que é um humano
+   (JS rodando, fingerprint, histórico). Se essa mesma chamada viesse do nosso servidor (um robô Python,
+   sem navegador), o Cloudflare não deixaria passar do mesmo jeito — é literalmente pra isso que ele
+   existe. Não muda a resposta da seção -80.
+
+2. **O número sumir era um bug real, não intencional.** O formulário de verdade do TJSC/TJRJ é POST, e é
+   um problema conhecido do Cloudflare: quando ele intercepta um envio POST pra validar o desafio, não
+   consegue "repetir" esse POST depois — devolve a pessoa pra uma tela em branco, mesmo com o desafio
+   passando. Troquei o envio de POST pra GET (`app/utils/eproc_links.py` e
+   `app/templates/processos/_eproc_auto_envio.html`) — mesmos nomes de campo reais de sempre, só muda o
+   método. GET sobrevive ao redirecionamento do Cloudflare porque o estado todo já vai embutido na
+   própria URL (é por isso que o TRF4, que já era GET desde o início, tem mais chance de funcionar
+   direto). **Não tenho 100% de certeza que o backend do TJSC/TJRJ aceita a busca via GET** (só confirmei
+   que o formulário real declarado é POST) — é uma tentativa razoável e de baixo risco: se não funcionar,
+   o pior caso é cair na mesma tela em branco de antes, não piora nada. Se continuar em branco depois
+   desse ajuste, me avisa com um print que eu reviso a abordagem (aí sim precisaria aceitar que o número
+   pré-preenchido não é viável pro formato POST desses dois, e deixar só o link solto tipo o do TJRS).
+
+Ajustei os 9 testes de `tests/test_eproc_links.py` pra refletir GET em vez de POST — suíte inteira
+continua 222/222 passando.
+
 ## -81. Links de conveniência pro eproc — não é captura automática, é o humano resolvendo o CAPTCHA
 
 **Pedido:** depois da seção -80 (eproc inteiro bloqueado por CAPTCHA), você perguntou se dava pra

@@ -1,8 +1,10 @@
 """
 Testes dos links de conveniência pro eproc (PENDENCIAS.md, seção -81) —
 NÃO testam captura automática (não existe): só que os links/URLs são
-montados certo e que a rota de auto-envio (formulário POST) renderiza o
-<form> oculto com os campos esperados.
+montados certo e que a rota de auto-envio (formulário GET — trocado de
+POST porque o Cloudflare descartava o corpo do POST, ver nota em
+app/utils/eproc_links.py) renderiza o <form> oculto com os campos
+esperados.
 """
 import pytest
 
@@ -46,8 +48,8 @@ def test_links_estadual_traz_tjrs_tjsc_tjrj():
     # TJRS é link direto (SPA, sem prefill); TJSC/TJRJ passam pela rota de auto-envio
     tipos = {l["rotulo"]: l["tipo"] for l in links}
     assert [t for r, t in tipos.items() if "TJRS" in r][0] == "link"
-    slugs_post = {l["slug"] for l in links if l["tipo"] == "post"}
-    assert slugs_post == {"tjsc", "tjrj"}
+    slugs_bridge = {l["slug"] for l in links if l["tipo"] == "bridge"}
+    assert slugs_bridge == {"tjsc", "tjrj"}
 
 
 def test_formulario_post_slug_desconhecido_devolve_none():
@@ -57,8 +59,10 @@ def test_formulario_post_slug_desconhecido_devolve_none():
 def test_formulario_post_tjrj_tem_action_e_campo_numero():
     formulario = formulario_post("tjrj")
     assert formulario is not None
-    assert "eproc1g-cp.tjrj.jus.br" in formulario["action"]
+    assert "eproc1g-cp.tjrj.jus.br" in formulario["action_base"]
+    assert "?" not in formulario["action_base"]  # acao/acao_origem viram campo, não ficam fixos na URL
     assert formulario["campo_numero"] == "txtNumProcesso"
+    assert formulario["campos_fixos"]["acao"] == "processo_consulta_publica"
     assert "cf-turnstile-response" in formulario["campos_fixos"]
 
 
@@ -88,9 +92,11 @@ def test_rota_abrir_eproc_tjrj_renderiza_form_oculto(client, login, processo_epr
     r = client.get(f"/governanca/processos/{processo_eproc['processo_id']}/abrir-eproc/tjrj")
     assert r.status_code == 200
     html = r.get_data(as_text=True)
-    assert 'action="https://eproc1g-cp.tjrj.jus.br' in html
+    assert 'method="get"' in html
+    assert 'action="https://eproc1g-cp.tjrj.jus.br/eproc/externo_controlador.php"' in html
     assert 'name="txtNumProcesso" value="1234567-89.2023.8.21.0001"' in html
-    assert "document.getElementById('formEprocAutoEnvio').submit()" in html
+    assert 'name="acao" value="processo_consulta_publica"' in html
+    assert "document.getElementById('formConsultaPublicaAutoEnvio').submit()" in html
 
 
 def test_rota_abrir_eproc_slug_desconhecido_404(client, login, processo_eproc):

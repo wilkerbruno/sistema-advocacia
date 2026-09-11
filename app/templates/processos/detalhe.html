@@ -131,6 +131,26 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% if projudi_links %}
+      <div class="mt-2">
+        <div class="small text-muted-doc mb-1">
+          Consulta pública do Projudi (TJPR, TJAM) — <strong>estes abrem o
+          site oficial do tribunal numa aba nova, fora do JusControl</strong>.
+          Não é captura automática: o Projudi está protegido por captcha em
+          todo lugar que conseguimos testar (TJGO ficou de fora — bloqueou
+          até o carregamento simples da página), então quem resolve o
+          "confirme que é humano" é você mesmo, do outro lado. Nada volta
+          pro sistema sozinho.
+        </div>
+        {% for link in projudi_links %}
+          {% if link.tipo == 'link' %}
+          <a href="{{ link.url }}" target="_blank" rel="noopener" class="btn btn-outline-doc btn-sm w-100 mb-1">{{ link.rotulo }} ↗</a>
+          {% else %}
+          <a href="{{ url_for('governanca.abrir_projudi_auto_envio', processo_id=processo.id, slug=link.slug) }}" target="_blank" rel="noopener" class="btn btn-outline-doc btn-sm w-100 mb-1">{{ link.rotulo }} ↗</a>
+          {% endif %}
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 

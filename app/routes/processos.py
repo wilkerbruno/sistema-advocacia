@@ -32,6 +32,7 @@ from app.utils.paginacao import paginar
 from app.utils.rede import resumir_user_agent
 from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSuportadaError
 from app.utils.eproc_links import links_eproc_estadual, links_eproc_federal
+from app.utils.projudi_links import links_projudi_estadual
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -319,6 +320,13 @@ def detalhe(processo_id):
         eproc_links = (links_eproc_estadual(processo.numero_processo)
                        or links_eproc_federal(processo.numero_processo))
 
+    # Links de conveniência pro Projudi (PENDENCIAS.md, seção -85) — mesma
+    # ideia dos links do eproc acima, agora pro TJPR/TJAM (ver seção -84
+    # sobre por que TJGO ficou de fora).
+    projudi_links = []
+    if processo.numero_processo:
+        projudi_links = links_projudi_estadual(processo.numero_processo)
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
@@ -330,7 +338,8 @@ def detalhe(processo_id):
                             solicitacoes_busca_autos=solicitacoes_busca_autos,
                             opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
                             tem_agente_local_pareado=tem_agente_local_pareado,
-                            eproc_links=eproc_links)
+                            eproc_links=eproc_links,
+                            projudi_links=projudi_links)
 
 
 @processos_bp.route("/<int:processo_id>/pdf")

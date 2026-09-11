@@ -79,56 +79,58 @@ def links_eproc_federal(numero_cnj: str) -> list[dict]:
 # ficam de fora: TJTO desligou a consulta pública em 2020 (sobrecarga de
 # robôs) e nunca reativou; TJPR ainda não abriu consulta pública do eproc
 # (só Projudi) — ver seção -80. ----
-_FORMULARIOS_POST = {
+_CAMPOS_FIXOS_COMUNS = {
+    "acao": "processo_consulta_publica",
+    "acao_origem": "principal",
+    "acao_retorno": "processo_consulta_publica",
+    "hdnInfraTipoPagina": "1",
+    "sbmNovo": "Consultar",
+    "txtNumChave": "",
+    "txtNumChaveDocumento": "",
+    "txtStrParte": "",
+    "chkFonetica": "N",
+    "txtCpfCnpj": "",
+    "txtStrOAB": "",
+    "cf-turnstile-response": "",
+    "hdnInfraCaptcha": "0",
+    "hdnInfraSelecoes": "Infra",
+}
+
+# NOTA (achado em uso real, PENDENCIAS.md seção -81): a primeira versão
+# disto enviava por POST (é o método que o formulário real do tribunal
+# declara) — só que na prática o Cloudflare, ao interceptar um POST pra
+# mostrar/validar o desafio, não consegue "repetir" esse POST depois: o
+# usuário volta pra tela em branco, sem o número preenchido, mesmo o
+# desafio passando com sucesso. Troquei pra GET, usando os MESMOS nomes de
+# campo reais (nunca inventados) — GET sobrevive ao redirecionamento do
+# Cloudflare porque o estado inteiro já vai na própria URL. NÃO CONFIRMADO
+# 100% que o backend do tribunal aceita busca via GET (só confirmei que o
+# formulário real É POST) — é uma tentativa razoável e de baixo risco: se
+# não funcionar, o pior caso é o mesmo problema de antes (cai numa tela em
+# branco), não piora nada.
+_FORMULARIOS = {
     "tjrj": {
         "nome": "TJRJ — eproc (sistema secundário; o principal do TJRJ é o PJe, botão acima)",
-        "action": (
-            "https://eproc1g-cp.tjrj.jus.br/eproc/externo_controlador.php"
-            "?acao=processo_consulta_publica&acao_origem=principal&acao_retorno=processo_consulta_publica"
-        ),
+        "action_base": "https://eproc1g-cp.tjrj.jus.br/eproc/externo_controlador.php",
         "campo_numero": "txtNumProcesso",
-        "campos_fixos": {
-            "hdnInfraTipoPagina": "1",
-            "sbmNovo": "Consultar",
-            "txtNumChave": "",
-            "txtNumChaveDocumento": "",
-            "txtStrParte": "",
-            "chkFonetica": "N",
-            "txtCpfCnpj": "",
-            "txtStrOAB": "",
-            "cf-turnstile-response": "",
-            "hdnInfraCaptcha": "0",
-            "hdnInfraSelecoes": "Infra",
-        },
+        "metodo": "get",
+        "campos_fixos": _CAMPOS_FIXOS_COMUNS,
     },
     "tjsc": {
         "nome": "TJSC — eproc (sistema principal do tribunal)",
-        "action": (
-            "https://eprocwebcon.tjsc.jus.br/consulta1g/externo_controlador.php"
-            "?acao=processo_consulta_publica&acao_origem=principal&acao_retorno=processo_consulta_publica"
-        ),
+        "action_base": "https://eprocwebcon.tjsc.jus.br/consulta1g/externo_controlador.php",
         "campo_numero": "txtNumProcesso",
-        "campos_fixos": {
-            "hdnInfraTipoPagina": "1",
-            "sbmNovo": "Consultar",
-            "txtNumChave": "",
-            "txtNumChaveDocumento": "",
-            "txtStrParte": "",
-            "chkFonetica": "N",
-            "txtCpfCnpj": "",
-            "txtStrOAB": "",
-            "cf-turnstile-response": "",
-            "hdnInfraCaptcha": "0",
-            "hdnInfraSelecoes": "Infra",
-        },
+        "metodo": "get",
+        "campos_fixos": _CAMPOS_FIXOS_COMUNS,
     },
 }
 
 
 def formulario_post(slug: str) -> dict | None:
     """Usado pela rota de auto-envio (app/routes/governanca.py) — devolve
-    None pra slug desconhecido."""
-    return _FORMULARIOS_POST.get(slug)
+    None pra slug desconhecido. (Nome mantido por compatibilidade, mas o
+    envio agora é por GET — ver nota acima.)"""
+    return _FORMULARIOS.get(slug)
 
 
 def links_eproc_estadual(numero_cnj: str) -> list[dict]:
@@ -144,6 +146,6 @@ def links_eproc_estadual(numero_cnj: str) -> list[dict]:
             "url": "https://consulta.tjrs.jus.br/consulta-processual/",
         },
     ]
-    for slug, formulario in _FORMULARIOS_POST.items():
-        links.append({"rotulo": formulario["nome"], "tipo": "post", "slug": slug})
+    for slug, formulario in _FORMULARIOS.items():
+        links.append({"rotulo": formulario["nome"], "tipo": "bridge", "slug": slug})
     return links
