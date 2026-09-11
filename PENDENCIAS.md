@@ -1,5 +1,45 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -94. Cadastro de processo novo já busca tudo, não só o DataJud
+
+**Pedido:** "quero que busque todas as informações logo em adicionar um novo processo" — a seção -93
+tinha deixado o botão "Buscar processo" completo pra um processo JÁ cadastrado, mas o momento de
+CADASTRAR um processo novo (tela "Novo processo", "Editar processo" quando o número muda, e "Cadastrar
+por CNJ") continuava tentando só o DataJud, deixando e-SAJ/PJe/PJe-JT de fora — obrigando a entrar no
+processo depois e clicar em "Buscar processo" de novo pra completar.
+
+**O que mudou:** os três pontos de cadastro/edição agora tentam o mesmo trio de fontes públicas que o
+botão "Buscar processo" já usa — sempre DataJud primeiro e, na sequência, e-SAJ+PJe (número de segmento
+estadual) ou PJe-JT (segmento trabalhista), conforme o segmento do CNJ:
+
+- `processos.novo` ("Novo processo")
+- `processos.editar` ("Editar processo"), só quando o número do processo muda de verdade (mesma regra
+  de antes — editar outros campos não deve sair rebuscando um processo que o usuário já configurou)
+- `governanca.novo_por_cnj` ("Cadastrar por CNJ")
+
+**Como foi feito, sem duplicar código:** extraí as três funções que já existiam dentro de
+`governanca.buscar_processo` (`_tentar_esaj`/`_tentar_pje`/`_tentar_pje_jt`) pra
+`app/utils/captura_pipeline.py`, como `tentar_esaj_publico`/`tentar_pje_publico`/
+`tentar_pje_jt_publico` + o orquestrador `tentar_fontes_publicas_complementares(processo,
+segmento_codigo, sistema_escolhido="auto")` — agora é o mesmo código chamado tanto pelo botão "Buscar
+processo" (que só ficou mais curto) quanto pelos três pontos de cadastro/edição acima. Também extraí
+`mensagem_fontes_extra()` pra formatar o pedaço do flash que menciona o que essas fontes extras
+encontraram, reaproveitado nos 3 lugares.
+
+**Decisão importante — `monitoravel`/`forma_acompanhamento` continuam só do DataJud:** e-SAJ/PJe/PJe-JT
+NUNCA mexem nesses três campos (nem aqui, nem no botão "Buscar processo" da seção -93) — só o DataJud
+tem uma recaptura periódica de verdade (`capturar_movimentacoes.py`), então só ele pode honestamente
+prometer "este processo fica em monitoramento automático". Um processo que o DataJud não achou, mas que
+o e-SAJ encontrou e enriqueceu na hora do cadastro, continua marcado `nao_monitoravel` — os dados
+aparecem (classe, partes, movimentações daquele momento), mas o flash deixa claro que atualizações
+futuras não vêm sozinhas enquanto só essas fontes pontuais acharem o processo.
+
+**Testes:** `tests/test_captura_completa_no_cadastro.py` (5 testes novos) — cobre cadastro via "Novo
+processo" tentando DataJud+e-SAJ+PJe juntos (segmento estadual) e PJe-JT (segmento trabalhista), que
+que processo sem número não tenta nenhuma fonte pública, edição com número mudado também tentando as
+fontes extras, e "Cadastrar por CNJ" fazendo o mesmo. Suíte inteira: **261 testes passando** (era 256
+antes desta seção).
+
 ## -93. Botão único "Buscar processo" — unifica DataJud/e-SAJ/PJe/PJe-JT/Agente Local
 
 **Pedido:** hoje pra buscar um processo é preciso primeiro clicar em "Tentar captura automática"

@@ -36,7 +36,9 @@ from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoData
 from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico, EsajProtegidoPorSenhaError
 from app.utils.conector_pje_publico import ConectorPjePublico, ErroPjePublico
 from app.utils.conector_pje_jt_publico import ConectorPjeJtPublico, ErroPjeJtPublico
-from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas, montar_nota_datajud
+from app.utils.captura_pipeline import (aplicar_carga_inicial, registrar_movimentacoes_capturadas,
+                                         montar_nota_datajud, tentar_fontes_publicas_complementares,
+                                         mensagem_fontes_extra)
 from app.utils import tribunais_conectores
 from app.utils.estado_processual_engine import traduzir_movimentacao
 from app.utils.prazos_engine import aplicar_regra_proxima_acao
@@ -124,17 +126,25 @@ def novo_por_cnj():
                 status="falha", mensagem=motivo[:500],
             ))
 
+        # e-SAJ/PJe/PJe-JT também já na hora do cadastro (PENDENCIAS.md, seção
+        # -94) — mesmo trio que o botão "Buscar processo" usa pra um processo
+        # já existente; só enriquece dados, nunca mexe em
+        # monitoravel/forma_acompanhamento (isso continua só com o DataJud,
+        # a única fonte com recaptura periódica de verdade).
+        resultados_extra = tentar_fontes_publicas_complementares(processo, partes["segmento_codigo"])
+
         registrar_log(current_user, "cadastro_por_cnj", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
 
         aviso_dv = resultado.get("aviso_dv")
+        extra_txt = mensagem_fontes_extra(resultados_extra)
         if not monitoravel:
             flash(f"Processo {processo.numero_processo} cadastrado, mas marcado como NÃO monitorável "
-                  f"automaticamente: {motivo}", "warning")
+                  f"automaticamente: {motivo}{extra_txt}", "success" if extra_txt else "warning")
         else:
             flash(f"Processo {processo.numero_processo} cadastrado e em monitoramento automático "
                   f"({qtd_movimentacoes_novas} movimentação(ões) já capturada(s) do DataJud)."
-                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else "") + extra_txt, "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     return render_template("governanca/novo_por_cnj.html", clientes=clientes, unidades=unidades,
@@ -862,75 +872,11 @@ def buscar_processo(processo_id):
         ))
         resultados.append(("DataJud", True, f"{novas} movimentação(ões) nova(s)."))
 
-    def _tentar_esaj():
-        try:
-            dados = ConectorEsajPublico().consultar_processo(numero)
-        except ErroEsajPublico as e:
-            db.session.add(LogCaptura(fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp",
-                                       status="falha", mensagem=str(e)[:500]))
-            resultados.append(("e-SAJ", False, str(e)))
-            return
-        aplicar_carga_inicial(processo, dados, fonte_rotulo="e-SAJ")
-        novas = registrar_movimentacoes_capturadas(
-            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="esaj_publico",
-        )
-        qtd_partes = len(dados.get("partes") or [])
-        db.session.add(LogCaptura(
-            fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp", status="sucesso",
-            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
-        ))
-        resultados.append(("e-SAJ", True, f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s)."))
-
-    def _tentar_pje():
-        try:
-            dados = ConectorPjePublico().consultar_processo(numero)
-        except ErroPjePublico as e:
-            db.session.add(LogCaptura(fonte="pje_publico", processo_id=processo.id, tribunal=None,
-                                       status="falha", mensagem=str(e)[:500]))
-            resultados.append(("PJe", False, str(e)))
-            return
-        tribunal_slug = dados.get("tribunal_slug")
-        aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe")
-        novas = registrar_movimentacoes_capturadas(
-            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_publico",
-        )
-        qtd_partes = len(dados.get("partes") or [])
-        db.session.add(LogCaptura(
-            fonte="pje_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
-            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
-        ))
-        resultados.append(("PJe", True,
-                            f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."))
-
-    def _tentar_pje_jt():
-        try:
-            dados = ConectorPjeJtPublico().consultar_processo(numero)
-        except ErroPjeJtPublico as e:
-            db.session.add(LogCaptura(fonte="pje_jt_publico", processo_id=processo.id, tribunal=None,
-                                       status="falha", mensagem=str(e)[:500]))
-            resultados.append(("PJe-JT", False, str(e)))
-            return
-        tribunal_slug = dados.get("tribunal_slug")
-        aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe-JT")
-        novas = registrar_movimentacoes_capturadas(
-            processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_jt_publico",
-        )
-        qtd_partes = len(dados.get("partes") or [])
-        db.session.add(LogCaptura(
-            fonte="pje_jt_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
-            mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s) (busca unificada).",
-        ))
-        resultados.append(("PJe-JT", True,
-                            f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."))
-
-    if segmento == "8":
-        if sistema_escolhido in ("auto", "esaj"):
-            _tentar_esaj()
-        if sistema_escolhido in ("auto", "pje"):
-            _tentar_pje()
-    elif segmento == "5":
-        if sistema_escolhido in ("auto", "pje_jt"):
-            _tentar_pje_jt()
+    # e-SAJ/PJe/PJe-JT (seção -93/-94, ver app/utils/captura_pipeline.py) —
+    # extraídas pra lá porque a partir da seção -94 o mesmo trio também roda
+    # no cadastro de processo novo (app/routes/processos.py e
+    # governanca.novo_por_cnj), não só aqui.
+    resultados.extend(tentar_fontes_publicas_complementares(processo, segmento, sistema_escolhido))
 
     registrar_log(current_user, "buscou_processo_unificado", "Processo", processo.id,
                   "; ".join(f"{f}:{'ok' if ok else 'falhou'}" for f, ok, _ in resultados) or "nenhuma fonte tentada")

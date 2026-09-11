@@ -266,3 +266,135 @@ def registrar_movimentacoes_capturadas(processo, movimentacoes_capturadas, captu
             processo.ultima_movimentacao_em = mais_recente
 
     return novas
+
+
+# ---------- Fontes públicas complementares (PENDENCIAS.md, seção -93/-94) ----------
+# As três funções abaixo tentam UMA fonte pública específica (e-SAJ, PJe,
+# PJe-JT) e só ENRIQUECEM o processo (carga inicial + movimentações,
+# via as mesmas funções acima) — nunca mexem em
+# `monitoravel`/`forma_acompanhamento`/`motivo_nao_monitoravel`. Esses três
+# campos continuam decididos só pelo DataJud (ver `capturar_movimentacoes.py`):
+# é a única fonte com um cron que re-verifica o processo periodicamente, então
+# só ela pode honestamente prometer "monitoramento automático" — e-SAJ/PJe/
+# PJe-JT são um retrato pontual de agora, por melhor que seja, não uma
+# assinatura de atualização contínua.
+#
+# Extraídas pra cá (em vez de ficar só dentro de governanca.buscar_processo)
+# porque a partir da seção -94 também são chamadas no MOMENTO do cadastro de
+# processo novo (app/routes/processos.py e governanca.novo_por_cnj) — um
+# clique/salvamento só já tenta tudo que se aplica, em vez de precisar do
+# botão "Buscar processo" logo depois. Não fazem commit — quem chama decide.
+
+def tentar_esaj_publico(processo):
+    from app.extensions import db
+    from app.models import LogCaptura
+    from app.utils.conector_esaj_publico import ConectorEsajPublico, ErroEsajPublico
+
+    try:
+        dados = ConectorEsajPublico().consultar_processo(processo.numero_processo)
+    except ErroEsajPublico as e:
+        db.session.add(LogCaptura(fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp",
+                                   status="falha", mensagem=str(e)[:500]))
+        return False, str(e)
+
+    aplicar_carga_inicial(processo, dados, fonte_rotulo="e-SAJ")
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados["movimentacoes"], captura_inicial=True, origem_captura="esaj_publico",
+    )
+    qtd_partes = len(dados.get("partes") or [])
+    db.session.add(LogCaptura(
+        fonte="esaj_publico", processo_id=processo.id, tribunal="tjsp", status="sucesso",
+        mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s).",
+    ))
+    return True, f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s)."
+
+
+def tentar_pje_publico(processo):
+    from app.extensions import db
+    from app.models import LogCaptura
+    from app.utils.conector_pje_publico import ConectorPjePublico, ErroPjePublico
+
+    try:
+        dados = ConectorPjePublico().consultar_processo(processo.numero_processo)
+    except ErroPjePublico as e:
+        db.session.add(LogCaptura(fonte="pje_publico", processo_id=processo.id, tribunal=None,
+                                   status="falha", mensagem=str(e)[:500]))
+        return False, str(e)
+
+    tribunal_slug = dados.get("tribunal_slug")
+    aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe")
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_publico",
+    )
+    qtd_partes = len(dados.get("partes") or [])
+    db.session.add(LogCaptura(
+        fonte="pje_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
+        mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s).",
+    ))
+    return True, f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."
+
+
+def tentar_pje_jt_publico(processo):
+    from app.extensions import db
+    from app.models import LogCaptura
+    from app.utils.conector_pje_jt_publico import ConectorPjeJtPublico, ErroPjeJtPublico
+
+    try:
+        dados = ConectorPjeJtPublico().consultar_processo(processo.numero_processo)
+    except ErroPjeJtPublico as e:
+        db.session.add(LogCaptura(fonte="pje_jt_publico", processo_id=processo.id, tribunal=None,
+                                   status="falha", mensagem=str(e)[:500]))
+        return False, str(e)
+
+    tribunal_slug = dados.get("tribunal_slug")
+    aplicar_carga_inicial(processo, dados, fonte_rotulo="PJe-JT")
+    novas = registrar_movimentacoes_capturadas(
+        processo, dados["movimentacoes"], captura_inicial=True, origem_captura="pje_jt_publico",
+    )
+    qtd_partes = len(dados.get("partes") or [])
+    db.session.add(LogCaptura(
+        fonte="pje_jt_publico", processo_id=processo.id, tribunal=tribunal_slug, status="sucesso",
+        mensagem=f"{novas} movimentação(ões) e {qtd_partes} parte(s) capturada(s).",
+    ))
+    return True, f"{novas} movimentação(ões) e {qtd_partes} parte(s) nova(s) ({(tribunal_slug or '').upper()})."
+
+
+def tentar_fontes_publicas_complementares(processo, segmento_codigo, sistema_escolhido="auto"):
+    """
+    Orquestra as três funções acima conforme o segmento do número CNJ do
+    processo (mesma regra de app/routes/governanca.py::consultar_cnj_preview
+    e ::buscar_processo): segmento "8" (estadual) tenta e-SAJ e depois PJe;
+    segmento "5" (trabalhista) tenta PJe-JT; qualquer outro segmento não tem
+    conector público nenhum além do DataJud, devolve lista vazia.
+
+    `sistema_escolhido`: "auto" tenta tudo que o segmento permite; "esaj",
+    "pje" ou "pje_jt" restringe a só aquela fonte (mesmo contrato do campo
+    `sistema` em governanca.buscar_processo).
+
+    Devolve uma lista de tuplas (fonte_rotulo, sucesso, mensagem), na ordem
+    em que foram tentadas. Nunca faz commit.
+    """
+    resultados = []
+    if segmento_codigo == "8":
+        if sistema_escolhido in ("auto", "esaj"):
+            ok, msg = tentar_esaj_publico(processo)
+            resultados.append(("e-SAJ", ok, msg))
+        if sistema_escolhido in ("auto", "pje"):
+            ok, msg = tentar_pje_publico(processo)
+            resultados.append(("PJe", ok, msg))
+    elif segmento_codigo == "5":
+        if sistema_escolhido in ("auto", "pje_jt"):
+            ok, msg = tentar_pje_jt_publico(processo)
+            resultados.append(("PJe-JT", ok, msg))
+    return resultados
+
+
+def mensagem_fontes_extra(resultados_extra):
+    """Formata os sucessos de `tentar_fontes_publicas_complementares` pra
+    complementar um flash de cadastro/edição/busca — string vazia quando
+    nenhuma fonte extra achou nada (segmento sem conector público além do
+    DataJud, ou nenhuma delas encontrou o processo)."""
+    sucessos = [(fonte, msg) for fonte, ok, msg in resultados_extra if ok]
+    if not sucessos:
+        return ""
+    return " Também encontrado no " + "; ".join(f"{fonte} ({msg})" for fonte, msg in sucessos) + "."

@@ -25,7 +25,8 @@ from app.utils.fila import enfileirar
 from app.utils.cnj import validar_numero_cnj
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
 from app.utils.conector_datajud import TribunalNaoIdentificadoError, ConexaoDataJudError
-from app.utils.captura_pipeline import aplicar_carga_inicial, registrar_movimentacoes_capturadas
+from app.utils.captura_pipeline import (aplicar_carga_inicial, registrar_movimentacoes_capturadas,
+                                         tentar_fontes_publicas_complementares, mensagem_fontes_extra)
 from app.utils.pdf_processo import gerar_pdf_processo
 from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
@@ -52,14 +53,18 @@ def _parse_data(valor):
 
 def _tentar_captura_automatica_no_cadastro(processo, empresa):
     """
-    Tenta a captura automática via DataJud no MOMENTO do cadastro/edição
-    manual de um processo (telas "Novo processo"/"Editar processo") —
-    reaproveita exatamente o mesmo pipeline usado no cadastro por CNJ
-    (governanca.novo_por_cnj) e no botão "Tentar captura automática"
-    (governanca.tentar_captura), pra não importar qual tela o usuário usa
-    pra cadastrar: digitar o CNJ e salvar já busca os dados sozinho, sem
-    precisar ir na tela separada "Cadastrar por CNJ" nem clicar em mais
-    nada depois.
+    Busca automaticamente TODAS as fontes que se aplicam ao número CNJ no
+    MOMENTO do cadastro/edição manual de um processo (telas "Novo
+    processo"/"Editar processo" — PENDENCIAS.md, seção -94): DataJud
+    sempre primeiro (reaproveita exatamente o mesmo pipeline usado no
+    cadastro por CNJ, governanca.novo_por_cnj, e no botão "Tentar captura
+    automática", governanca.tentar_captura) e, na sequência, e-SAJ/PJe
+    (segmento estadual) ou PJe-JT (segmento trabalhista) — o mesmo trio
+    que o botão "Buscar processo" já usa pra um processo já cadastrado
+    (governanca.buscar_processo/app/utils/captura_pipeline.py). Antes,
+    só o DataJud era tentado aqui; agora digitar o CNJ e salvar já traz o
+    que der de mais completo, sem precisar ir clicar em "Buscar processo"
+    de novo logo depois.
 
     Só tenta quando `numero_processo` tem o FORMATO de um CNJ (20 dígitos,
     segmento de Justiça reconhecido) — número em branco ou com formato
@@ -73,29 +78,35 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
 
     Efeitos colaterais: ajusta processo.monitoravel,
     processo.forma_acompanhamento, processo.motivo_nao_monitoravel e
-    processo.tribunal_datajud; quando encontra o processo, também aplica a
-    carga inicial e registra as movimentações (idempotente — seguro
-    chamar de novo). NÃO faz commit — quem chama decide isso (precisa que
-    `processo.id` já exista, ou seja, chamar depois de um `db.session.flush()`
-    num cadastro novo).
+    processo.tribunal_datajud (só o DataJud mexe nesses 4 campos — é a
+    única fonte com um cron que reverifica o processo periodicamente, só
+    ela pode honestamente prometer "monitoramento automático"; e-SAJ/PJe/
+    PJe-JT só enriquecem os dados quando acham algo, sem prometer
+    atualização contínua); também aplica a carga inicial e registra as
+    movimentações de qualquer fonte que encontrar algo (idempotente —
+    seguro chamar de novo). NÃO faz commit — quem chama decide isso
+    (precisa que `processo.id` já exista, ou seja, chamar depois de um
+    `db.session.flush()` num cadastro novo).
 
-    Devolve o `aviso_dv` (string) quando encontrou o processo mas o dígito
-    verificador não batia — ou None quando não há aviso pra mostrar (não
-    achou nada, ou achou e o número era válido normalmente).
+    Devolve uma tupla `(aviso_dv, resultados_extra)`: `aviso_dv` é a
+    string de aviso (dígito verificador não batia) quando o DataJud achou
+    o processo mesmo assim, ou None; `resultados_extra` é a lista de
+    tuplas (fonte_rotulo, sucesso, mensagem) das tentativas de e-SAJ/PJe/
+    PJe-JT (vazia quando o segmento não tem nenhuma delas).
     """
     numero = processo.numero_processo
     if not numero:
         processo.forma_acompanhamento = "manual"
         processo.monitoravel = False
         processo.motivo_nao_monitoravel = None
-        return None
+        return None, []
 
     resultado = validar_numero_cnj(numero, exigir_dv=False)
     if not resultado["valido"]:
         processo.forma_acompanhamento = "manual"
         processo.monitoravel = False
         processo.motivo_nao_monitoravel = f"Número fora do padrão CNJ: {resultado['motivo']}"
-        return None
+        return None, []
 
     tribunal_hint = processo.tribunal_datajud or None
     dados_capturados, motivo = None, None
@@ -122,7 +133,7 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
             fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
             status="sucesso", mensagem=f"{novas} movimentação(ões) capturada(s).",
         ))
-        return dados_capturados.get("aviso_dv")
+        aviso_dv = dados_capturados.get("aviso_dv")
     else:
         processo.forma_acompanhamento = "nao_monitoravel"
         processo.monitoravel = False
@@ -131,7 +142,11 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
             fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
             status="falha", mensagem=(motivo or "")[:500],
         ))
-        return None
+        aviso_dv = None
+
+    segmento = resultado["partes"]["segmento_codigo"]
+    resultados_extra = tentar_fontes_publicas_complementares(processo, segmento)
+    return aviso_dv, resultados_extra
 
 
 @processos_bp.route("/")
@@ -206,11 +221,12 @@ def novo():
         db.session.add(processo)
         db.session.flush()
 
-        # Tenta buscar os dados automaticamente no DataJud já no cadastro —
-        # mesmo comportamento de "Cadastrar por CNJ", só que nesta tela com
-        # todos os campos (ver _tentar_captura_automatica_no_cadastro acima).
+        # Tenta buscar os dados automaticamente em TODAS as fontes que se
+        # aplicam já no cadastro (seção -94) — mesmo comportamento de
+        # "Cadastrar por CNJ", só que nesta tela com todos os campos (ver
+        # _tentar_captura_automatica_no_cadastro acima).
         empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
-        aviso_dv = _tentar_captura_automatica_no_cadastro(processo, empresa_do_cadastro)
+        aviso_dv, resultados_extra = _tentar_captura_automatica_no_cadastro(processo, empresa_do_cadastro)
 
         db.session.add(Andamento(
             processo_id=processo.id, tipo="movimentacao",
@@ -237,16 +253,21 @@ def novo():
                 flash(f"⚠️ Possível conflito de interesses: a parte contrária ({processo.parte_contraria}) "
                       f"já é cliente do escritório em outro caso ({nomes}). Revise antes de prosseguir.", "danger")
 
+        extra_txt = mensagem_fontes_extra(resultados_extra)
         if processo.forma_acompanhamento == "automatico" and processo.monitoravel:
             qtd = len(processo.movimentacoes)
             flash(f"Processo cadastrado e em monitoramento automático — dados encontrados no "
                   f"DataJud ({qtd} movimentação(ões))."
-                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else "")
+                  + extra_txt, "success")
         elif processo.motivo_nao_monitoravel:
             flash(f"Processo cadastrado, mas não foi possível buscar automaticamente no DataJud: "
-                  f"{processo.motivo_nao_monitoravel}", "warning")
+                  f"{processo.motivo_nao_monitoravel}{extra_txt}"
+                  + (" O monitoramento automático de atualizações futuras depende só do DataJud "
+                     "hoje, mesmo com esses dados encontrados agora." if extra_txt else ""),
+                  "success" if extra_txt else "warning")
         else:
-            flash("Processo cadastrado com sucesso.", "success")
+            flash("Processo cadastrado com sucesso." + extra_txt, "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
     responsaveis = Usuario.query.filter_by(
@@ -458,21 +479,24 @@ def editar(processo_id):
         # acompanhamento de um processo que o usuário já configurou.
         numero_mudou = processo.numero_processo != numero_anterior
         aviso_dv = None
+        resultados_extra = []
         if numero_mudou:
             empresa_da_edicao = processo.unidade.empresa if processo.unidade else None
-            aviso_dv = _tentar_captura_automatica_no_cadastro(processo, empresa_da_edicao)
+            aviso_dv, resultados_extra = _tentar_captura_automatica_no_cadastro(processo, empresa_da_edicao)
 
         registrar_log(current_user, "editou", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
 
+        extra_txt = mensagem_fontes_extra(resultados_extra)
         if numero_mudou and processo.forma_acompanhamento == "automatico" and processo.monitoravel:
             qtd = len(processo.movimentacoes)
             flash(f"Processo atualizado — número novo encontrado no DataJud e em monitoramento "
                   f"automático ({qtd} movimentação(ões))."
-                  + (f" Atenção: {aviso_dv}" if aviso_dv else ""), "success")
+                  + (f" Atenção: {aviso_dv}" if aviso_dv else "")
+                  + extra_txt, "success")
         elif numero_mudou and processo.motivo_nao_monitoravel:
             flash(f"Processo atualizado, mas não foi possível buscar automaticamente no DataJud com "
-                  f"o número novo: {processo.motivo_nao_monitoravel}", "warning")
+                  f"o número novo: {processo.motivo_nao_monitoravel}{extra_txt}", "success" if extra_txt else "warning")
         else:
             flash("Processo atualizado com sucesso.", "success")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
