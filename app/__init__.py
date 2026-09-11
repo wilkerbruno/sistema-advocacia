@@ -251,6 +251,17 @@ def create_app(config_class=Config):
         d = somente_digitos(numero_processo)
         return len(d) == 20 and d[13] == "8"
 
+    @app.template_filter("eh_cnj_pje_jt_candidato")
+    def eh_cnj_pje_jt_candidato(numero_processo):
+        """Mesma ideia de eh_cnj_esaj_candidato acima, só que pro botão
+        "Buscar dados públicos do PJe-JT" (PENDENCIAS.md, seção -90) —
+        aparece pra qualquer número da Justiça do Trabalho (segmento "5"),
+        mesmo pro TRT-3/TRT-23 (não cobertos pelo conector — o clique
+        resulta numa mensagem clara de "não encontrado", nunca um crash)."""
+        from app.utils.cnj import somente_digitos
+        d = somente_digitos(numero_processo)
+        return len(d) == 20 and d[13] == "5"
+
     @app.errorhandler(403)
     def erro_403(e):
         from flask import render_template

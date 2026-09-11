@@ -110,6 +110,21 @@
         <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do PJe</button>
       </form>
       {% endif %}
+      {% if processo.numero_processo and processo.numero_processo|eh_cnj_pje_jt_candidato %}
+      <form method="post" action="{{ url_for('governanca.tentar_captura_pje_jt', processo_id=processo.id) }}" class="mt-2">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="small text-muted-doc mb-1">
+          Consulta pública do PJe-JT (Justiça do Trabalho, 22 TRTs) — sem
+          certificado, sem token, sem login. Tenta os 22 tribunais em
+          paralelo até achar (TRT-3 e TRT-23 não são cobertos — rodam
+          proteção anti-bot própria). Os campos de capa do processo ainda
+          não foram confirmados contra um processo real desta fonte —
+          movimentações e partes podem precisar de ajuste na primeira
+          tentativa (ver app/utils/conector_pje_jt_publico.py).
+        </div>
+        <button class="btn btn-outline-doc btn-sm w-100">Buscar dados públicos do PJe-JT</button>
+      </form>
+      {% endif %}
       {% if eproc_links %}
       <div class="mt-2">
         <div class="small text-muted-doc mb-1">

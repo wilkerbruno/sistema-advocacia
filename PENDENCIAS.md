@@ -1,5 +1,232 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -91. Conector novo pros 22 TRTs — e correção importante sobre o TJMT
+
+**Pedido:** você aprovou os dois conectores da seção -90 ("sim, pode construir um conector para todos
+os 22 TRTs e pode criar um conector para o TJMT também").
+
+### Correção antes de tudo: o TJMT NÃO é livre, afinal
+
+Antes de escrever qualquer código pro TJMT, fui confirmar a API de verdade por trás da busca (a seção -90
+só tinha confirmado a AUSÊNCIA de script de captcha, não testei a chamada de rede real ainda). Achei: o
+site do TJMT (`consultaprocessual.tjmt.jus.br`) chama uma API num domínio separado
+(`hellsgate.tjmt.jus.br/consultaprocessual/ProcessosJudiciais/v2`) — e essa API **rejeita qualquer
+chamada que não venha acompanhada de um "fingerprint"** gerado no navegador (testei direto, de dentro do
+próprio site: `403 Fingerprint ausente`, mesmo mandando os headers certos de Referer/Origin).
+
+Ou seja: o TJMT não usa um captcha visível (reCAPTCHA, hCaptcha, Cloudflare) — usa uma proteção
+anti-bot silenciosa, baseada em "impressão digital" do navegador (esse tipo de token só um navegador de
+verdade consegue gerar; um programa rodando no servidor, sem navegador de verdade, não gera). Na prática
+é a mesma categoria de bloqueio que os outros ~30 tribunais com captcha visível — só que menos óbvio —, e
+tentar contornar isso (fabricar um fingerprint falso) seria a mesma linha que eu já recusei cruzar antes
+nesta conversa (seção -83, as ferramentas de bypass de Cloudflare do GitHub). **Não construí o conector do
+TJMT.** Peço desculpa pela informação errada na seção -90 — devia ter testado a chamada de API de verdade
+antes de dar o achado como confirmado, não só checado a ausência de script de captcha na página.
+
+### O que foi construído: `ConectorPjeJtPublico`, pros 22 TRTs
+
+Esse sim se confirmou de verdade: testei a API REST de trás do PJe-JT (`pje.trtN.jus.br/pje-consulta-api/
+api/processos/dadosbasicos/{número}`, com um header `X-Grau-Instancia`) chamando direto, sem passar pelo
+site — nenhuma exigência de fingerprint, token, cookie ou qualquer coisa parecida. Devolve JSON limpo
+tanto pra número com dígito inválido (400) quanto pra processo inexistente (204) — dá pra confiar que
+é mesmo uma API sem proteção, não só "não vi captcha na tela".
+
+**Arquivos entregues:**
+- `app/utils/conector_pje_jt_publico.py` (novo) — mesma arquitetura de tentar os 22 TRTs em paralelo
+  (nunca decodifica o "TR" do número pra adivinhar qual), tenta 1º grau e cai pro 2º se não achar.
+  Aviso importante no topo do arquivo: os nomes dos campos do retorno "encontrado" (`classe`,
+  `orgaoJulgador`, `poloAtivo`/`poloPassivo`, `movimentos`) vieram de ler o JS compilado do próprio app
+  do TRT-1 (fonte confiável — é o código-fonte de verdade do tribunal), mas **não foi confirmado contra
+  uma resposta real de um processo existente** (não achei processo de teste disponível) — é esperado
+  precisar de 1-2 ajustes na primeira captura real, mesma ressalva que já vale pro
+  `conector_pje_publico.py` do TJRJ/TJMG. Os campos "assunto", "data de ajuizamento" e "valor da causa"
+  não apareceram em lugar nenhum do código lido — ficam `None`/vazios até confirmar.
+- `app/routes/governanca.py` — nova rota `tentar-captura-pje-jt` (mesmo padrão de
+  `tentar-captura-pje`), e a pré-visualização por CNJ (`consultar_cnj_preview`) agora tenta o PJe-JT como
+  segunda chance pra números da Justiça do Trabalho (segmento "5"), depois do DataJud.
+- `app/__init__.py` — filtro de template novo `eh_cnj_pje_jt_candidato` (mesma ideia do
+  `eh_cnj_esaj_candidato` já existente, só que pro segmento "5").
+- `app/templates/processos/detalhe.html` — botão novo "Buscar dados públicos do PJe-JT" na tela do
+  processo, aparece pra qualquer número trabalhista.
+- `tests/test_conector_pje_jt_publico.py` (novo, 14 testes) — parsing, rejeição de segmento errado,
+  fallback pro 2º grau, tribunal indisponível, resposta não-JSON, e a rota completa.
+
+Suíte completa rodada: 247 testes passando (233 de antes + 14 novos).
+
+**Fica registrado:** se em algum teste real de verdade os nomes de campo do payload "encontrado" não
+baterem (bem possível, ver aviso acima), me manda a mensagem de erro exata que eu ajusto.
+
+## -90. TJPA/TJMT a fundo + os 24 TRTs — achado grande: 22 dos 24 tribunais trabalhistas SEM captcha
+
+**Pedido:** você pediu pra seguir os dois caminhos que ficaram em aberto na seção -89: investigar TJPA e
+TJMT a fundo (testando uma busca de verdade), e testar os TRTs (Justiça do Trabalho).
+
+### TJPA e TJMT — busca de verdade testada
+
+- **TJPA** — cliquei em "Consulta Unificada de Processos" pra abrir o formulário de verdade. Ele **tem,
+  sim, captcha** — uma imagem (`simpleCaptcha`) igual à do Creta, só que não apareceu na primeira olhada
+  porque só carrega depois de abrir a aba certa. Então **TJPA fica bloqueado** também, como a maioria —
+  minha suspeita inicial de que talvez fosse livre não se confirmou.
+- **TJMT** — testei uma busca de verdade (número de processo fictício) e **não apareceu captcha em momento
+  nenhum** — nem no carregamento da página, nem depois de clicar em "Buscar processo". A busca foi direto
+  pra uma página de resultado (`/consulta-retorno?numeroUnico=...`) e voltou "Nenhum processo encontrado"
+  (esperado, já que usei um número fictício só pra testar o fluxo — ainda não confirmei extração de dado
+  real de um processo existente, só que o caminho até a busca é limpo). **TJMT parece genuinamente livre de
+  captcha.**
+
+### Os 24 TRTs — resultado bem diferente do que vinha acontecendo com TJs/TRFs
+
+Achei a lista oficial de acesso no site do CSJT (Conselho Superior da Justiça do Trabalho) — todos os TRTs
+rodam a mesma plataforma nacional padronizada (`pje.trtN.jus.br/consultaprocessual/`, "PJe-JT"), diferente
+da bagunça de versões que vi nos TJs/TRFs. Testei os 24, um por um, ao vivo:
+
+**22 de 24 SEM nenhum script de captcha (Google reCAPTCHA, hCaptcha, Turnstile ou Cloudflare) carregado —
+nem no carregamento, nem depois de tentar uma busca:** TRT-1 (RJ), TRT-2 (SP), TRT-4 (RS), TRT-5 (BA),
+TRT-6 (PE), TRT-7 (CE), TRT-8 (PA/AP), TRT-9 (PR), TRT-10 (DF/TO), TRT-11 (AM/RR), TRT-12 (SC), TRT-13
+(PB), TRT-14 (RO/AC), TRT-15 (SP-Campinas), TRT-16 (MA — o link do CSJT tava quebrado, apontando pro TRT-15
+por engano, mas o endereço certo `pje.trt16.jus.br` funciona normal), TRT-17 (ES), TRT-18 (GO), TRT-19
+(AL), TRT-20 (SE), TRT-21 (RN), TRT-22 (PI) e TRT-24 (MS).
+
+No TRT-1 e no TRT-2 cheguei a testar o fluxo de busca completo (preencher número, clicar em buscar) e os
+dois voltaram erro de validação normal (número inválido/dígitos verificadores incorretos) sem nenhum
+captcha aparecer — nos outros 20 confirmei pelo menos a ausência do script de captcha no carregamento da
+página, que foi o sinal decisivo em todos os outros ~30 tribunais testados até agora nas seções -86 a -89
+(todo bloqueio até agora veio acompanhado do script já carregado de cara).
+
+**Só 2 de 24 bloqueados:**
+- **TRT-3 (MG)** — bloqueio "Human Verification" antes até de mostrar a página (mesmo padrão do SEEU, seção
+  -86).
+- **TRT-23 (MT)** — proteção diferente de tudo que já vi nesse projeto: **Anubis**, um desafio de
+  "prova de trabalho" (proof-of-work, tipo o que sites tipo Codeberg/kernel.org usam contra scraping em
+  massa) — a página mostra "Certificando que você não é um bot" e fica calculando um hash antes de liberar
+  o acesso.
+
+### Conclusão — isso muda o quadro
+
+Depois de ~30 tribunais testados nas últimas seções (quase todos bloqueados), a Justiça do Trabalho é
+completamente diferente: por rodar uma plataforma nacional única e padronizada, **22 dos 24 TRTs estão
+genuinamente abertos**, com a mesma estrutura de formulário em todos (campo `nrProcessoInput`, botão de
+busca, rota `/detalhe-processo/{número}`) — dá pra escrever um conector só que atende os 22 de uma vez,
+do jeito que o `ConectorPjePublico` já faz pro TJRJ/TJMG.
+
+**Isso não virou código ainda — fica como pendência, porque duas decisões são suas antes de eu construir
+algo:**
+
+1. **O escritório atende causas trabalhistas?** Só faz sentido investir num conector pra Justiça do
+   Trabalho se isso for relevante pro escritório — não presumi que sim.
+2. **Quer que eu também monte um conector separado só pro TJMT** (que também confirmou sem captcha, mas
+   roda numa plataforma própria — o portal unificado, diferente do PJe-JT dos TRTs — então não encaixa no
+   mesmo conector)?
+
+Se a resposta pras duas for sim, o próximo passo seria: construir um `ConectorPjeJtPublico` (ou estender o
+existente com uma segunda classe) cobrindo os 22 TRTs livres, mais um `ConectorTjmtPublico` separado pro
+TJMT — testar contra um número de processo real do escritório (se tiver algum na Justiça do Trabalho ou no
+TJMT) antes de considerar pronto, e não incluir TJPA, TRT-3 nem TRT-23 (todos com captcha confirmado).
+
+## -89. Continuação: os 8 tribunais do PJe que faltavam — checado ao vivo, mesmo padrão da seção -88
+
+**Pedido:** você confirmou que o DataJud já está configurado no ambiente real, mas que ele traz bem menos
+informação que o e-SAJ (por isso não é suficiente sozinho) — e pediu pra eu continuar testando os
+tribunais do PJe que tinham ficado de fora da seção -88, já que precisa cobrir o máximo de tribunais
+possível.
+
+**Resultado — testei os 8 que faltavam (TJBA, TJPA, TJMT, TJRO, TJRR, TJAP, TJES, TJPB), um por um:**
+
+- **TJBA** — hCaptcha carregado na página (`hcaptcha.com/1/api.js`). Bloqueado.
+- **TJRO** — reCAPTCHA do Google. Bloqueado.
+- **TJAP** — reCAPTCHA do Google, confirmado tanto no 1º grau (`/1g/`) quanto no 2º grau (`/2g/`).
+  Bloqueado.
+- **TJES** — a URL de consulta pública redireciona direto pro portal nacional **JUS.BR** (SSO do CNJ, o
+  mesmo `sso.cloud.pje.jus.br` que já tinha aparecido no TJPI) — precisa de CPF/CNPJ+senha ou certificado
+  digital. Não é mais pública.
+- **TJPB** — atrás de Cloudflare (página "Um momento… Executando verificação de segurança", nunca chega a
+  carregar o formulário).
+- **TJRR** — a página trava carregando e nunca termina (fiquei mais de 15s esperando, em duas tentativas
+  diferentes — o `<head>` carrega um único script e para aí, sem `<body>` nenhum). Não deu pra confirmar
+  se é bloqueio ativo (tipo o travamento que vi no TJRN, seção -88) ou outra coisa — mas na prática é
+  inutilizável do jeito que está.
+
+Esses 6 seguem exatamente o padrão da seção -88: a estrutura de campos do formulário (quando cheguei a ver
+o formulário) bate certinho com o que o `ConectorPjePublico` já sabe ler — o bloqueio nunca é a estrutura
+da página, é sempre captcha, login obrigatório ou um travamento que impede até de chegar no formulário.
+
+**Os outros 2 (TJPA e TJMT) foram diferentes — nem chegaram a carregar o PJe:**
+
+- **TJPA** — `pje.tjpa.jus.br` redireciona pra `consultas.tjpa.jus.br/consultaunificada`, um portal
+  próprio do tribunal ("Consulta Unificada de Processos") que parece juntar vários sistemas processuais
+  num site só (tem inclusive um link de lá pro Projudi do TJPA). Não é mais o PJe direto.
+- **TJMT** — `pje-intranet.tjmt.jus.br` (o nome "intranet" já era suspeito) redireciona pra
+  `consultaprocessual.tjmt.jus.br`, outro portal próprio ("Esta consulta processual engloba todos os
+  sistemas processuais judiciais do TJMT") — também não é mais o PJe direto.
+
+Nos dois casos o tribunal aparentemente descontinuou o acesso direto ao PJe público e substituiu por um
+portal unificado próprio. Olhei rapidinho a página inicial de cada um e **não vi script de captcha
+carregado de cara** — mas isso não quer dizer muita coisa ainda: não cheguei a testar uma busca de verdade
+(os dois parecem ser SPA, então o formulário de busca provavelmente só aparece depois de clicar em algo), não
+sei se o captcha aparece só no envio, e não confirmei se o resultado retorna dado de verdade. Não dá pra
+tratar isso como "achei dois tribunais livres" — é só uma pista de que existe um tipo de sistema diferente
+aí (nem PJe, nem eproc, nem Projudi — um portal de busca unificado próprio de cada tribunal) que merece uma
+investigação própria, separada do trabalho de estender o `ConectorPjePublico` (que é especificamente pro
+PJe).
+
+**Conclusão:** com essa rodada, já são 18 tribunais/varas testados ao vivo pro PJe entre as seções -88 e
+-89, e nenhum novo entrou pro `ConectorPjePublico` (continua só TJRJ e TJMG). A hipótese inicial (TJRJ sem
+captcha = provavelmente outros tribunais também) não se sustentou — parece que TJRJ e TJMG são raridade, não
+regra.
+
+**Fica como pendência, dois caminhos possíveis pra continuar buscando cobertura:**
+
+1. **Investigar TJPA e TJMT a fundo** — testar a busca de verdade nos dois portais unificados (clicar,
+   preencher um número de processo, ver se pede captcha só no envio, confirmar se retorna dado real). Se
+   algum dos dois se confirmar livre de captcha, dá pra pensar num conector novo pra esse tipo de portal
+   (não encaixa no `ConectorPjePublico` porque não é PJe) — mas só depois de confirmar ao vivo, não antes.
+2. **Testar os TRTs (Justiça do Trabalho)** — ainda não testei nenhum dos 24 TRTs. Só faz sentido se o
+   escritório atende causas trabalhistas — não vou testar 24 tribunais sem saber se isso é relevante pro
+   escritório primeiro.
+
+Qual desses (ou os dois) você quer que eu siga?
+
+## -88. Tentativa de estender o PJe público a mais tribunais — checado ao vivo, quase tudo bloqueado
+
+**Pedido:** você perguntou se tinha mais algum sistema de busca gratuito interessante pra incluir. Sugeri
+estender o `ConectorPjePublico` (hoje só TJRJ/TJMG) pra outros tribunais que também rodam PJe, já que é
+captura automática de verdade (não link) e o TJRJ não tinha CAPTCHA quando testado. Você topou.
+
+**Resultado, bem diferente do que eu esperava — testei 10 tribunais ao vivo, praticamente todos
+bloqueados ou indisponíveis:**
+
+- **TJMA** — reCAPTCHA do Google carregado na página.
+- **TJDFT** — inconclusivo: a URL de consulta redireciona pra uma página que carrega em branco (sem
+  formulário, sem erro visível) — pode ser SPA que não terminei de esperar carregar, não confirmei se é
+  bloqueio ou só um problema de timing.
+- **TJPI** — a consulta "pública" de verdade sumiu: agora redireciona pro portal nacional **JUS.BR**
+  (SSO do CNJ), que exige CPF/CNPJ+senha ou certificado digital pra entrar. Não é mais pública.
+- **TJRN** — atrás de Cloudflare (a página nem termina de carregar, fica no desafio).
+- **TJPE** — reCAPTCHA do Google.
+- **TJCE** — reCAPTCHA do Google.
+- **TRF1** — hCaptcha (um provedor de captcha diferente dos outros vistos até agora).
+- **TRF3** — hCaptcha.
+- **TRF5** — reCAPTCHA do Google.
+- **TRF6** — hCaptcha.
+
+A estrutura do formulário (os campos que o `ConectorPjePublico` já sabe ler) bateu certinho em quase
+todos — o problema nunca foi a estrutura da página, foi captcha (ou login obrigatório, no caso do TJPI).
+
+**Conclusão — corrigindo o que eu disse antes:** minha aposta inicial (de que o PJe do TJRJ não ter
+CAPTCHA era sinal de que outros tribunais também não teriam) não se confirmou. Pelo visto, cada tribunal
+decide isso por conta própria, e a maioria já colocou alguma proteção — TJRJ e TJMG parecem ser a exceção,
+não a regra. Não estendi o conector pra nenhum desses 10: um `ConectorPjePublico` apontado pra um
+formulário com captcha simplesmente nunca vai achar nada (erro silencioso ou falso "não encontrado"), o
+que seria pior do que não ter a integração. Não testei os outros tribunais que rodam PJe (TJBA, TJPA,
+TJMT, TJRO, TJRR, TJAP, TJES, TJPB — mais os TRTs, se o escritório atender trabalhista) — dado o padrão de
+10 em 10, a expectativa realista é a mesma coisa, mas não vou generalizar sem confirmar cada um.
+
+**Fica como pendência:** se quiser, posso testar os tribunais que faltam (ou algum específico que
+interesse mais pro escritório) antes de desistir de vez — mas não prometo achar nenhum sem captcha. Outra
+opção mais garantida: confirmar se o `DATAJUD_API_TOKEN` já está configurado no ambiente real — é de graça,
+cobre os 91 tribunais pra acompanhar processo pelo número, e não depende de nenhum tribunal individual não
+ter proteção.
+
 ## -87. Links soltos pro Creta (JFPE) e Tucujuris (TJAP)
 
 **Pedido:** depois da pesquisa da seção -86, você confirmou que queria os botões de link solto pro Creta e
