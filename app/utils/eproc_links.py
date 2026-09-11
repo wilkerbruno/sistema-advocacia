@@ -4,12 +4,16 @@ Links de conveniência pra consulta pública do eproc — PENDENCIAS.md, seção
 `ConectorEsajPublico`/`ConectorPjePublico` — não existe (e não vai
 existir) um `ConectorEprocPublico` que busca sozinho.
 
-Motivo (ver seção -80): todo sistema eproc que testei ao vivo está atrás
-de Cloudflare Turnstile ("confirme que é humano"), ou — caso do TJRS —
-de uma API própria protegida por uma credencial de sessão que eu
-deliberadamente não tentei replicar. Um robô nosso não passa por nenhum
+Motivo (ver seções -80 e -92): todo sistema eproc que testei ao vivo está
+atrás de Cloudflare Turnstile ("confirme que é humano"), ou — caso do
+TJRS — de uma API própria protegida por **Altcha** (confirmado ao vivo,
+seção -92: é um captcha "silencioso" de prova de trabalho — o app
+resolve um desafio criptográfico em `<serviço>/auth/token` +
+`/auth/submit` antes de poder chamar a API de consulta; mesma família de
+proteção do Anubis, visto no TRT-23). Um robô nosso não passa por nenhum
 dos dois, e eu não construo nada que tente passar (contornar CAPTCHA e
-anti-bot está fora de cogitação, sem exceção).
+anti-bot está fora de cogitação, sem exceção, seja o desafio visível ou
+silencioso).
 
 O que ISTO faz: abre a página OFICIAL do tribunal, já com o número do
 processo pronto, numa aba nova — pra um humano de verdade (o usuário

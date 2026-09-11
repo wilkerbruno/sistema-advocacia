@@ -1,5 +1,39 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -92. Revisão dos "links soltos" — nenhum dá pra virar captura automática
+
+**Pergunta:** com os links soltos (eproc, Projudi, Creta/Tucujuris) que só abrem o site do tribunal numa
+aba nova, tem algum que já esteja sem essa exigência e desse pra transformar em captura de verdade (tipo
+o que virou o PJe-JT)?
+
+**Resposta curta: não, nenhum.** Fui reconferir um por um, com o mesmo cuidado que a experiência do TJMT
+(seção -91) me ensinou — não basta ver se tem um script de captcha visível, tem que checar a chamada de
+rede de verdade por trás.
+
+- **eproc (TRF4/JFRS/JFSC/JFPR, TJSC, TJRJ)** — Cloudflare Turnstile confirmado ao vivo, com o desafio
+  "confirme que é humano" realmente aparecendo na tela ao tentar enviar o formulário. Sem mudança.
+- **eproc (TJRS)** — este era o único caso onde a documentação antiga só dizia "API própria protegida por
+  uma credencial que não tentei replicar", sem detalhar o quê. Fui atrás: a API
+  (`consulta-processual-service.tjrs.jus.br/api/consulta-service/v1/consultaProcesso`) exige um header
+  `Authorization: Basic` cujo valor só existe depois de resolver um desafio de **Altcha** — um captcha
+  "silencioso" de prova de trabalho (o navegador resolve um cálculo criptográfico contra
+  `/auth/token` + `/auth/submit` antes de poder chamar a API) — confirmado lendo o JS do próprio app do
+  TJRS. É a mesma família de proteção do Anubis (visto no TRT-23, seção -90): não tem tela vistosa de
+  "clique aqui", mas é a mesma linha de captcha/anti-bot que eu não contorno. Documentação do
+  `app/utils/eproc_links.py` atualizada com esse detalhe.
+- **Projudi (TJPR, TJAM)** — TJPR: reCAPTCHA confirmado (inclusive um desafio de imagem real chegou a
+  aparecer durante o teste ao vivo, seção -84). TJAM: reCAPTCHA + rejeição direta da requisição pelo WAF.
+  Sem mudança.
+- **Creta (JFPE) / Tucujuris (TJAP)** — Creta: captcha de imagem embutido direto no formulário, diferente
+  a cada carregamento de página (não tem chamada de API pra pular isso — o próprio HTML já vem com a
+  imagem). Tucujuris: Cloudflare Turnstile e reCAPTCHA do Google presentes ao mesmo tempo. Sem mudança.
+
+**Conclusão:** o PJe (TJRJ/TJMG), o PJe-JT (22 TRTs) e o DataJud continuam sendo os únicos com captura
+automática de verdade. Todo o resto que hoje é "link solto" tem uma camada de anti-bot confirmada e
+ativa — visível (captcha de imagem, Cloudflare) ou silenciosa (fingerprint do TJMT, Altcha do TJRS,
+Anubis do TRT-23) — e eu não construo nada que tente passar por nenhuma delas. Fica assim até algum
+desses tribunais mudar de sistema/proteção — se isso acontecer, vale reconferir.
+
 ## -91. Conector novo pros 22 TRTs — e correção importante sobre o TJMT
 
 **Pedido:** você aprovou os dois conectores da seção -90 ("sim, pode construir um conector para todos
