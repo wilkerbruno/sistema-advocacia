@@ -151,6 +151,19 @@
         {% endfor %}
       </div>
       {% endif %}
+      {% if outros_links %}
+      <div class="mt-2">
+        <div class="small text-muted-doc mb-1">
+          Outras consultas públicas (Creta — JEF em Pernambuco, Tucujuris — TJAP) —
+          mesma ideia: abre o site oficial do tribunal numa aba nova, sem o número
+          pré-preenchido (os dois pedem captcha em toda busca), você resolve do
+          outro lado.
+        </div>
+        {% for link in outros_links %}
+        <a href="{{ link.url }}" target="_blank" rel="noopener" class="btn btn-outline-doc btn-sm w-100 mb-1">{{ link.rotulo }} ↗</a>
+        {% endfor %}
+      </div>
+      {% endif %}
     </div>
   </div>
 

@@ -1,5 +1,72 @@
 # Status das pendências do briefing (atualizado em 11/09/2026)
 
+## -87. Links soltos pro Creta (JFPE) e Tucujuris (TJAP)
+
+**Pedido:** depois da pesquisa da seção -86, você confirmou que queria os botões de link solto pro Creta e
+pro Tucujuris (os dois únicos dos seis pesquisados que tinham alguma coisa pra construir).
+
+**O que foi implementado:** `app/utils/creta_tucujuris_links.py` — mais simples que os módulos anteriores
+(eproc_links.py, projudi_links.py): aqui só existe `tipo: "link"`, nunca `"bridge"` — nenhum dos dois tenta
+pré-preencher o número do processo, porque confirmei ao vivo que os dois pedem algum tipo de captcha em
+toda busca (imagem no Creta, Cloudflare+reCAPTCHA no Tucujuris) e não faria diferença tentar. Por isso não
+precisou de rota nova nem de template novo — é só mais um bloco de botões `<a href>` direto, igual ao
+padrão já usado pros links soltos (TJRS no eproc, TJAM no Projudi).
+
+Um recorte importante: do Creta, só entrou a seção da **Justiça Federal em Pernambuco (JFPE)** — a única
+que testei e confirmei ao vivo. O Creta também aparece em Sergipe, Ceará, Paraíba e Alagoas, mas cada seção
+parece ter endereço/estrutura próprios (a de Sergipe, por exemplo, nem parecia ser página de consulta
+pública — parecia tela de login) — não incluí nenhuma sem confirmar ao vivo primeiro. Se quiser cobertura
+das outras seções do Creta, me avisa que eu testo cada uma antes de adicionar.
+
+Na tela do processo, um bloco novo "Outras consultas públicas (Creta, Tucujuris)" aparece ao lado dos
+outros dois. 4 testes novos em `tests/test_creta_tucujuris_links.py` (URL certa pro segmento certo, lista
+vazia pro segmento errado) — suíte inteira: **233 passando** (229 antes + 4 novos).
+
+## -86. SEEU, Themis, Creta, Apolo, e-JUD, Tucujuris — checados ao vivo, um por um
+
+**Pedido:** você pediu pra dar sequência à mesma pesquisa (eproc, Projudi) pra mais seis sistemas: SEEU,
+Themis, Creta, Apolo, e-JUD e Tucujuris.
+
+**Testei ao vivo cada um — resultado bem misto, nenhum dá pra automatizar, e dois nem são sistema de busca
+de processo:**
+
+- **SEEU** (Sistema Eletrônico de Execução Unificado) — é um sistema NACIONAL do CNJ (mesma "família" de
+  software do Projudi/PJe — os endereços internos são idênticos, `consultaPublica.do`, etc.), mas só cobre
+  **execução penal** (cumprimento de pena, progressão de regime — não processo cível/geral comum). Achei
+  a consulta pública (`seeu.pje.jus.br/seeu/processo/consultaPublica.do`), mas ela é bloqueada ANTES de
+  mostrar qualquer formulário — aparece uma tela "Vamos confirmar que você é humano" (verificação de bot
+  mais agressiva que as outras, nem chega a mostrar os campos). Bloqueado, e de relevância baixa pro
+  escritório mesmo se não fosse (é só pra execução penal).
+- **Themis / E-Themis** (TJRS, também usado em variantes no TJMG e TJPE) — **não é um sistema de consulta
+  pública**. Testei o `e-themis1g` do TJRS e caí direto numa tela de login ("Autenticação") — não existe
+  busca pública por trás disso; é um sistema interno de tramitação.
+- **Creta** (usado por Justiça Federal em Sergipe, Pernambuco, Ceará, Paraíba, Alagoas — JEF, Juizados
+  Especiais Federais) — a página de busca carrega normal, mas tem um **captcha de imagem clássico**
+  ("Informe o que está escrito na imagem ao lado") **embutido direto no formulário**, obrigatório em toda
+  pesquisa, sem exceção — não é um desafio que aparece só às vezes, tem que ler e digitar sempre. Não dá
+  pra pré-preencher e mandar direto porque o campo do captcha muda a cada carregamento da página.
+- **Apolo** (usado no TRF2/JFRJ até 2021, e no TJMT até alguns anos atrás) — **está sendo desativado**: o
+  TRF2 aprovou em 2024 a substituição pelo eproc (o mesmo eproc do TRF4, já coberto — e já bloqueado, seção
+  -80), e a página de dúvidas frequentes do TRF2 confirma que não existe mais URL pública de consulta do
+  Apolo — só contato via Balcão Virtual pra processos antigos. Nada pra construir aqui.
+- **e-JUD** — esse nome não é um sistema único: no TJRJ é uma ferramenta INTERNA de acompanhamento de
+  processos de 2ª instância (as páginas encontradas são manuais de intranet, sem nada público); no TJAM e
+  no TJPI, "EJUD"/"e-Jud" é sigla da **Escola Judicial** (instituição de ensino/capacitação dos
+  tribunais) — não tem relação nenhuma com consulta de processo. Não existe nada pra construir aqui, em
+  nenhum dos dois sentidos.
+- **Tucujuris** (TJAP, sistema próprio) — a página de busca (`tucujuris.tjap.jus.br`) carrega normal, mas
+  tem **Cloudflare Turnstile E reCAPTCHA do Google ao mesmo tempo** (as duas proteções presentes no HTML)
+  — o mais protegido de todos que já vi até agora.
+
+**Conclusão:** nenhum desses seis dá pra automatizar (mesma resposta de sempre). De diferente dos casos
+anteriores: dois (Themis, e-JUD) simplesmente não são sistemas de busca pública — não tem "link de
+conveniência" possível porque não existe página de consulta por trás; Apolo está sendo desativado, então
+também não vale a pena; SEEU é bloqueado antes até de mostrar o formulário. Sobram só **Creta** e
+**Tucujuris** como candidatos a link de conveniência solto (sem pré-preencher, dado que os dois têm
+captcha obrigatório em toda busca e/ou token de sessão que eu não confiaria em prever antes da hora) — se
+quiser, dá pra adicionar os dois como botões desse tipo. Me avisa se quer que eu faça isso ou se prefere
+deixar tudo isso como pendência mesmo.
+
 ## -85. Links de conveniência pro Projudi — TJPR (auto-envio) e TJAM (link solto)
 
 **Pedido:** depois da pesquisa da seção -84, você confirmou que queria a mesma solução do eproc (seção

@@ -33,6 +33,7 @@ from app.utils.rede import resumir_user_agent
 from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSuportadaError
 from app.utils.eproc_links import links_eproc_estadual, links_eproc_federal
 from app.utils.projudi_links import links_projudi_estadual
+from app.utils.creta_tucujuris_links import links_outros_estadual, links_outros_federal
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -327,6 +328,14 @@ def detalhe(processo_id):
     if processo.numero_processo:
         projudi_links = links_projudi_estadual(processo.numero_processo)
 
+    # Links soltos pro Creta (JFPE) e Tucujuris (TJAP) — PENDENCIAS.md,
+    # seção -87. Só "link" (sem pré-preencher), ver aviso completo em
+    # app/utils/creta_tucujuris_links.py.
+    outros_links = []
+    if processo.numero_processo:
+        outros_links = (links_outros_estadual(processo.numero_processo)
+                         or links_outros_federal(processo.numero_processo))
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
@@ -339,7 +348,8 @@ def detalhe(processo_id):
                             opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
                             tem_agente_local_pareado=tem_agente_local_pareado,
                             eproc_links=eproc_links,
-                            projudi_links=projudi_links)
+                            projudi_links=projudi_links,
+                            outros_links=outros_links)
 
 
 @processos_bp.route("/<int:processo_id>/pdf")
