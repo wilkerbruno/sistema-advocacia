@@ -1,4 +1,51 @@
-# Status das pendências do briefing (atualizado em 11/09/2026)
+# Status das pendências do briefing (atualizado em 12/09/2026)
+
+## -95. Ordem invertida: e-SAJ/PJe/PJe-JT ANTES do DataJud, não depois
+
+**Pedido do usuário, junto com um print real:** um processo que ainda não está no DataJud (a busca deu
+"Falha de conexão com a API pública do DataJud: ... Read timed out (read timeout=20)" — 20 segundos de
+espera!) — e o usuário apontou o motivo certo: os outros sistemas (e-SAJ, PJe, PJe-JT) são mais
+completos E leem o tribunal em tempo real, então acham processo recém-distribuído que o DataJud ainda
+nem indexou. Pedido: buscar primeiro nesses outros sistemas, o DataJud depois.
+
+**O que mudou — ordem de tentativa invertida nos 4 pontos que buscam automaticamente:**
+
+- `governanca.consultar_cnj_preview` (a pré-visualização AJAX da tela "Novo processo" — é onde o print
+  do usuário aconteceu): agora tenta e-SAJ+PJe (segmento estadual) ou PJe-JT (segmento trabalhista)
+  PRIMEIRO; o DataJud só é chamado depois, e nem chega a ser chamado se uma dessas fontes já achar o
+  processo. Isso resolve os dois problemas de uma vez: prioridade de dado (explicado abaixo) E não
+  ficar mais esperando os 20s de timeout do DataJud à toa quando o e-SAJ já teria respondido na hora.
+- `governanca.buscar_processo` (botão "Buscar processo", seção -93): mesma inversão — e-SAJ/PJe/PJe-JT
+  chamados antes do DataJud.
+- `processos._tentar_captura_automatica_no_cadastro` (usada por "Novo processo" e "Editar processo",
+  seção -94): mesma inversão.
+- `governanca.novo_por_cnj` ("Cadastrar por CNJ", seção -94): mesma inversão — precisou de um ajuste a
+  mais porque aqui o registro do processo é criado com `forma_acompanhamento`/`monitoravel` decididos
+  a partir do resultado do DataJud; agora o processo é criado primeiro com um valor provisório
+  ("não monitorável"), e só depois de tentar e-SAJ/PJe/PJe-JT e o DataJud (nessa ordem) é que esses
+  campos são ajustados pro valor final — sem isso não dava pra inverter a ORDEM DE CHAMADA de verdade,
+  só a ordem de aplicação dos dados.
+
+**Por que isso resolve o problema, tecnicamente:** `aplicar_carga_inicial` (que copia os dados
+encontrados pros campos do processo) só preenche campo que ainda está VAZIO — nunca sobrescreve o que
+já tem valor. Antes, o DataJud rodava primeiro e "ganhava" qualquer campo que também aparecesse no
+e-SAJ/PJe/PJe-JT (mesmo sendo um dado mais velho/defasado); agora que essas fontes rodam primeiro, é o
+dado delas (mais completo, em tempo real) que fica, e o DataJud só complementa o que sobrar vazio.
+
+**O que NÃO mudou, de propósito:** quem decide `monitoravel`/`forma_acompanhamento` (o selo de
+"monitoramento automático") continua sendo só o resultado do próprio DataJud, independente da ordem —
+é a única fonte com recaptura periódica de verdade (`capturar_movimentacoes.py`), então só ela pode
+prometer isso honestamente. Um processo que o e-SAJ achou primeiro mas o DataJud também encontra depois
+continua entrando em monitoramento automático normalmente (o DataJud roda de qualquer jeito, só que
+depois); um processo que só o e-SAJ achou (DataJud não achou/não configurado) continua marcado como não
+monitorável — só que agora com os dados do e-SAJ já preenchidos, mesmo assim.
+
+**Testes:** `tests/test_ordem_fontes_publicas_antes_datajud.py` (5 testes novos) — confirma que a
+pré-visualização nem chama o DataJud quando o e-SAJ ou o PJe-JT já acharam o processo, e que nos 3
+pontos de cadastro/busca (botão "Buscar processo", "Novo processo", "Cadastrar por CNJ") o valor do
+e-SAJ vence quando ele e o DataJud discordam no mesmo campo — mas o DataJud ainda decide
+monitoravel/forma_acompanhamento do jeito de sempre. Suíte inteira: **266 testes passando** (era 261
+antes desta seção).
 
 ## -94. Cadastro de processo novo já busca tudo, não só o DataJud
 

@@ -74,26 +74,10 @@ def novo_por_cnj():
         partes = resultado["partes"]
         tribunal_hint = request.form.get("tribunal_datajud") or None
 
-        # Tenta a ingestão automática real via DataJud (gratuito, ver
-        # app/utils/conector_datajud.py) — cai para "não monitorável" de
-        # forma honesta se a chave não estiver configurada, se o tribunal
-        # não puder ser identificado, ou se o processo ainda não estiver
-        # indexado (segredo de justiça, ou defasagem do próprio DataJud).
-        # Respeita a chave própria do DataJud da empresa quando cadastrada
-        # (ver app/routes/integracoes.py).
-        empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
-        dados_capturados = None
-        try:
-            conector = obter_conector("padrao", empresa=empresa_do_cadastro)
-            dados_capturados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
-            forma_acompanhamento, monitoravel, motivo = "automatico", True, None
-        except ConectorNaoConfiguradoError as e:
-            forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
-        except TribunalNaoIdentificadoError as e:
-            forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
-        except ConexaoDataJudError as e:
-            forma_acompanhamento, monitoravel, motivo = "nao_monitoravel", False, str(e)
-
+        # Cadastra já (com forma_acompanhamento provisória — o DataJud
+        # decide o valor final mais abaixo) pra ter um `processo.id` antes
+        # de chamar qualquer conector: e-SAJ/PJe/PJe-JT e o LogCaptura do
+        # DataJud precisam da linha já existir no banco.
         processo = Processo(
             numero_processo=partes["formatado"],
             area_direito=request.form.get("area_direito") or "Não classificada",
@@ -101,44 +85,77 @@ def novo_por_cnj():
             unidade_id=unidade_id,
             criado_por_id=current_user.id,
             responsavel_id=current_user.id,
-            forma_acompanhamento=forma_acompanhamento,
-            monitoravel=monitoravel,
-            motivo_nao_monitoravel=motivo,
-            tribunal_datajud=(dados_capturados["tribunal_slug"] if dados_capturados else tribunal_hint),
+            forma_acompanhamento="nao_monitoravel",
+            monitoravel=False,
+            motivo_nao_monitoravel=None,
+            tribunal_datajud=tribunal_hint,
             segredo_justica=bool(request.form.get("segredo_justica")),
         )
         db.session.add(processo)
         db.session.flush()
 
+        # Ordem invertida (PENDENCIAS.md, seção -95): e-SAJ/PJe/PJe-JT ANTES
+        # do DataJud — leem o sistema do próprio tribunal em tempo real,
+        # então acham processo recém-distribuído que o DataJud (indexação
+        # do CNJ, com defasagem variável, às vezes de dias) ainda pode não
+        # ter, e costumam trazer mais campos. `aplicar_carga_inicial` só
+        # preenche campo vazio, então rodar estas primeiro — tentativa E
+        # aplicação dos dados — é o que faz elas priorizarem sobre o
+        # DataJud quando as duas acham a mesma informação. Mesmo trio que o
+        # botão "Buscar processo" usa pra um processo já existente; só
+        # enriquece dados, nunca mexe em monitoravel/forma_acompanhamento.
+        resultados_extra = tentar_fontes_publicas_complementares(processo, partes["segmento_codigo"])
+
+        # DataJud por último: continua sendo tentado sempre (é a única
+        # fonte que cobre QUALQUER segmento, e a única com recaptura
+        # periódica de verdade) — cai para "não monitorável" de forma
+        # honesta se a chave não estiver configurada, se o tribunal não
+        # puder ser identificado, ou se o processo ainda não estiver
+        # indexado (segredo de justiça, ou defasagem do próprio DataJud).
+        # Respeita a chave própria do DataJud da empresa quando cadastrada
+        # (ver app/routes/integracoes.py).
+        empresa_do_cadastro = db.session.get(Unidade, unidade_id).empresa
+        dados_capturados, motivo = None, None
+        try:
+            conector = obter_conector("padrao", empresa=empresa_do_cadastro)
+            dados_capturados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
+        except ConectorNaoConfiguradoError as e:
+            motivo = str(e)
+        except TribunalNaoIdentificadoError as e:
+            motivo = str(e)
+        except ConexaoDataJudError as e:
+            motivo = str(e)
+
         qtd_movimentacoes_novas = 0
         if dados_capturados:
+            processo.tribunal_datajud = dados_capturados["tribunal_slug"]
             aplicar_carga_inicial(processo, dados_capturados)
             qtd_movimentacoes_novas = registrar_movimentacoes_capturadas(
                 processo, dados_capturados["movimentacoes"], captura_inicial=True
             )
+            processo.monitoravel = True
+            processo.forma_acompanhamento = "automatico"
+            processo.motivo_nao_monitoravel = None
             db.session.add(LogCaptura(
                 fonte="datajud", processo_id=processo.id, tribunal=dados_capturados["tribunal_slug"],
                 status="sucesso", mensagem=f"{qtd_movimentacoes_novas} movimentação(ões) capturada(s).",
             ))
-        elif motivo:
-            db.session.add(LogCaptura(
-                fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
-                status="falha", mensagem=motivo[:500],
-            ))
-
-        # e-SAJ/PJe/PJe-JT também já na hora do cadastro (PENDENCIAS.md, seção
-        # -94) — mesmo trio que o botão "Buscar processo" usa pra um processo
-        # já existente; só enriquece dados, nunca mexe em
-        # monitoravel/forma_acompanhamento (isso continua só com o DataJud,
-        # a única fonte com recaptura periódica de verdade).
-        resultados_extra = tentar_fontes_publicas_complementares(processo, partes["segmento_codigo"])
+        else:
+            processo.forma_acompanhamento = "nao_monitoravel"
+            processo.monitoravel = False
+            processo.motivo_nao_monitoravel = motivo
+            if motivo:
+                db.session.add(LogCaptura(
+                    fonte="datajud", processo_id=processo.id, tribunal=tribunal_hint,
+                    status="falha", mensagem=motivo[:500],
+                ))
 
         registrar_log(current_user, "cadastro_por_cnj", "Processo", processo.id, processo.numero_processo)
         db.session.commit()
 
         aviso_dv = resultado.get("aviso_dv")
         extra_txt = mensagem_fontes_extra(resultados_extra)
-        if not monitoravel:
+        if not processo.monitoravel:
             flash(f"Processo {processo.numero_processo} cadastrado, mas marcado como NÃO monitorável "
                   f"automaticamente: {motivo}{extra_txt}", "success" if extra_txt else "warning")
         else:
@@ -219,22 +236,23 @@ def consultar_cnj_preview():
     da tela "Novo processo"/"Editar processo", que faz a mesma consulta de
     novo e persiste).
 
-    Ordem de tentativa (PENDENCIAS.md, seções -72, -78 e -90): primeiro o
-    DataJud (API oficial do CNJ, cobre qualquer segmento de Justiça); se
-    não achar (ou não estiver configurado), o que vem depois depende do
-    segmento do número:
-    - **Estadual (segmento "8")**: tenta o e-SAJ público (TJSP, TJAC,
-      TJAL, TJAM, TJCE, TJMS — ver app/utils/conector_esaj_publico.py)
-      e, se ainda não achar, o PJe público (TJRJ, TJMG — ver
-      app/utils/conector_pje_publico.py).
-    - **Trabalhista (segmento "5")**: tenta o PJe-JT público (22 TRTs —
-      ver app/utils/conector_pje_jt_publico.py, inclusive o aviso lá
-      sobre os 2 TRTs não cobertos).
-    - Qualquer outro segmento: só o DataJud mesmo — nenhum dos
-      conectores públicos atende, tentar só acrescentaria ruído na
-      mensagem de erro final.
+    Ordem de tentativa (PENDENCIAS.md, seções -72, -78, -90 e, a partir de
+    agora, -95 — ORDEM INVERTIDA): primeiro o(s) conector(s) público(s)
+    específico(s) do segmento do número — e-SAJ e depois PJe pra estadual
+    (segmento "8"), PJe-JT pra trabalhista (segmento "5") — e só DEPOIS o
+    DataJud, como último recurso. Antes o DataJud vinha primeiro; a ordem
+    inverteu porque esses conectores públicos leem o sistema do próprio
+    tribunal em tempo real, então acham processo recém-distribuído que o
+    DataJud ainda não indexou (a indexação do CNJ tem defasagem variável,
+    às vezes de dias) — e, quando o DataJud está indisponível ou lento
+    (timeout da API pública do CNJ, por exemplo), tentar essas fontes
+    primeiro evita que a pré-visualização inteira fique esperando o
+    DataJud responder (ou estourar o timeout) antes de sequer tentar uma
+    fonte que talvez já tivesse achado o processo na hora.
+    - Qualquer segmento sem conector público (nem "8" nem "5"): só o
+      DataJud mesmo — é a única fonte que cobre qualquer segmento.
     Nenhuma tentativa extra tem custo de espera perceptível a mais pro
-    usuário além da primeira (ele já ia esperar o DataJud responder de
+    usuário além da primeira (ele já ia esperar alguma fonte responder de
     qualquer jeito).
     """
     numero = request.args.get("numero_cnj", "")
@@ -246,31 +264,37 @@ def consultar_cnj_preview():
 
     partes = resultado["partes"]
     tribunal_hint = request.args.get("tribunal_datajud") or None
-    motivo_datajud = None
-    precisa_tribunal = False
-
-    try:
-        conector = obter_conector("padrao", empresa=current_user.empresa)
-        dados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
-        return _preview_json_encontrado(dados, "DataJud", aviso_dv=dados.get("aviso_dv"))
-    except ConectorNaoConfiguradoError as e:
-        motivo_datajud = str(e)
-    except TribunalNaoIdentificadoError as e:
-        motivo_datajud = str(e)
-        precisa_tribunal = True
-    except ConexaoDataJudError as e:
-        motivo_datajud = str(e)
+    segmento = partes["segmento_codigo"]
 
     motivo_esaj = None
     motivo_pje = None
     motivo_pje_jt = None
 
-    if partes["segmento_codigo"] == "8":
+    def _tentar_datajud():
+        """Só chamado quando nenhuma fonte específica do segmento achou
+        (ou quando o segmento não tem nenhuma) — devolve (motivo, precisa_tribunal)."""
+        try:
+            conector = obter_conector("padrao", empresa=current_user.empresa)
+            dados = conector.consultar_processo(partes["formatado"], tribunal_hint=tribunal_hint)
+            return dados, None, False
+        except ConectorNaoConfiguradoError as e:
+            return None, str(e), False
+        except TribunalNaoIdentificadoError as e:
+            return None, str(e), True
+        except ConexaoDataJudError as e:
+            return None, str(e), False
+
+    if segmento == "8":
         try:
             dados_esaj = ConectorEsajPublico().consultar_processo(partes["formatado"])
             return _preview_json_encontrado(dados_esaj, "e-SAJ público")
         except EsajProtegidoPorSenhaError as e:
-            motivo = f"{motivo_datajud} Também tentei o e-SAJ público: {e}" if motivo_datajud else str(e)
+            # Sinal definitivo (processo existe, só não dá pra ler sem
+            # senha) — tenta o DataJud só pra complementar a mensagem, mas
+            # a resposta já é "não encontrado" (protegido) de qualquer jeito.
+            motivo_protegido = str(e)
+            _, motivo_datajud, _ = _tentar_datajud()
+            motivo = f"{motivo_protegido} Também tentei o DataJud: {motivo_datajud}" if motivo_datajud else motivo_protegido
             return jsonify(valido=True, encontrado=False, motivo=motivo)
         except ErroEsajPublico as e:
             motivo_esaj = str(e)
@@ -285,7 +309,7 @@ def consultar_cnj_preview():
             return _preview_json_encontrado(dados_pje, "PJe público")
         except ErroPjePublico as e:
             motivo_pje = str(e)
-    elif partes["segmento_codigo"] == "5":
+    elif segmento == "5":
         # PENDENCIAS.md, seção -90: PJe-JT público (22 TRTs) — mesma ideia
         # do PJe estadual, ver aviso completo em
         # app/utils/conector_pje_jt_publico.py sobre os 2 TRTs não
@@ -295,25 +319,29 @@ def consultar_cnj_preview():
             return _preview_json_encontrado(dados_pje_jt, "PJe-JT público")
         except ErroPjeJtPublico as e:
             motivo_pje_jt = str(e)
-    else:
+
+    # DataJud por último — tentado sempre (cobre qualquer segmento), seja
+    # pra segmento sem conector público nenhum, seja como último recurso
+    # de quem já tentou acima e não achou.
+    dados_datajud, motivo_datajud, precisa_tribunal = _tentar_datajud()
+    if dados_datajud:
+        return _preview_json_encontrado(dados_datajud, "DataJud", aviso_dv=dados_datajud.get("aviso_dv"))
+
+    if segmento not in ("8", "5"):
         # Nenhum conector público além do DataJud atende esse segmento —
-        # tentar só acrescentaria uma mensagem de erro irrelevante.
+        # tentar os outros só acrescentaria ruído na mensagem de erro.
         return jsonify(valido=True, encontrado=False, motivo=motivo_datajud, precisa_tribunal=precisa_tribunal)
 
-    # Junta os motivos de quem foi tentado e não achou — o primeiro entra
-    # puro, os seguintes ganham o prefixo "Também tentei o <fonte>: "
-    # (generalizado pra qualquer subconjunto de fontes tentadas conforme o
-    # segmento do número).
+    # Junta os motivos de quem foi tentado e não achou, cada um já com o
+    # nome da fonte (generalizado pra qualquer subconjunto de fontes
+    # tentadas conforme o segmento do número).
     motivos_com_rotulo = [
         (rotulo, m) for rotulo, m in
-        (("DataJud", motivo_datajud), ("e-SAJ público", motivo_esaj), ("PJe público", motivo_pje),
-         ("PJe-JT público", motivo_pje_jt))
+        (("e-SAJ público", motivo_esaj), ("PJe público", motivo_pje), ("PJe-JT público", motivo_pje_jt),
+         ("DataJud", motivo_datajud))
         if m
     ]
-    motivo_final = None
-    for i, (rotulo, m) in enumerate(motivos_com_rotulo):
-        trecho = m if i == 0 else f"Também tentei o {rotulo}: {m}"
-        motivo_final = trecho if motivo_final is None else f"{motivo_final} {trecho}"
+    motivo_final = "; ".join(f"{rotulo}: {m}" for rotulo, m in motivos_com_rotulo)
     return jsonify(valido=True, encontrado=False, motivo=motivo_final, precisa_tribunal=precisa_tribunal)
 
 
@@ -842,22 +870,38 @@ def buscar_processo(processo_id):
     validado = validar_numero_cnj(numero, exigir_dv=False)
     segmento = validado["partes"]["segmento_codigo"] if validado["valido"] else None
     empresa = processo.unidade.empresa if processo.unidade else None
-    resultados = []  # [(fonte_rotulo, sucesso, mensagem)]
 
+    # Ordem invertida (PENDENCIAS.md, seção -95): e-SAJ/PJe/PJe-JT ANTES do
+    # DataJud — são conectores que leem o sistema do próprio tribunal em
+    # tempo real, então acham processo recém-distribuído que o DataJud
+    # (que depende da própria indexação do CNJ, com defasagem variável às
+    # vezes de dias) ainda pode não ter; e também costumam trazer mais
+    # campos (partes, por exemplo). `aplicar_carga_inicial` só preenche
+    # campo VAZIO, então quem roda primeiro "ganha" o campo quando as duas
+    # fontes têm o mesmo dado — rodar estas primeiro é o que faz elas
+    # priorizarem sobre o DataJud, não só serem tentadas.
+    #
+    # O DataJud continua sendo tentado sempre, só que depois, como
+    # confirmação/complemento: é a única fonte que cobre QUALQUER segmento,
+    # e a única com recaptura periódica de verdade — só ele decide
+    # `monitoravel`/`forma_acompanhamento` (ver app/utils/captura_pipeline.py).
+    resultados_extra = tentar_fontes_publicas_complementares(processo, segmento, sistema_escolhido)
+
+    resultado_datajud = None
     try:
         conector = obter_conector("padrao", empresa=empresa)
         dados_datajud = conector.consultar_processo(numero, tribunal_hint=processo.tribunal_datajud)
     except ConectorNaoConfiguradoError as e:
         dados_datajud = None
-        resultados.append(("DataJud", False, str(e)))
+        resultado_datajud = ("DataJud", False, str(e))
     except TribunalNaoIdentificadoError as e:
         dados_datajud = None
-        resultados.append(("DataJud", False, str(e)))
+        resultado_datajud = ("DataJud", False, str(e))
     except ConexaoDataJudError as e:
         dados_datajud = None
         db.session.add(LogCaptura(fonte="datajud", processo_id=processo.id, tribunal=processo.tribunal_datajud,
                                    status="falha", mensagem=str(e)[:500]))
-        resultados.append(("DataJud", False, str(e)))
+        resultado_datajud = ("DataJud", False, str(e))
 
     if dados_datajud:
         processo.tribunal_datajud = dados_datajud["tribunal_slug"]
@@ -870,13 +914,9 @@ def buscar_processo(processo_id):
             fonte="datajud", processo_id=processo.id, tribunal=dados_datajud["tribunal_slug"], status="sucesso",
             mensagem=f"{novas} movimentação(ões) capturada(s) (busca unificada).",
         ))
-        resultados.append(("DataJud", True, f"{novas} movimentação(ões) nova(s)."))
+        resultado_datajud = ("DataJud", True, f"{novas} movimentação(ões) nova(s).")
 
-    # e-SAJ/PJe/PJe-JT (seção -93/-94, ver app/utils/captura_pipeline.py) —
-    # extraídas pra lá porque a partir da seção -94 o mesmo trio também roda
-    # no cadastro de processo novo (app/routes/processos.py e
-    # governanca.novo_por_cnj), não só aqui.
-    resultados.extend(tentar_fontes_publicas_complementares(processo, segmento, sistema_escolhido))
+    resultados = resultados_extra + [resultado_datajud]
 
     registrar_log(current_user, "buscou_processo_unificado", "Processo", processo.id,
                   "; ".join(f"{f}:{'ok' if ok else 'falhou'}" for f, ok, _ in resultados) or "nenhuma fonte tentada")

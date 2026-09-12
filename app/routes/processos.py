@@ -108,6 +108,16 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
         processo.motivo_nao_monitoravel = f"Número fora do padrão CNJ: {resultado['motivo']}"
         return None, []
 
+    # Ordem invertida (PENDENCIAS.md, seção -95): e-SAJ/PJe/PJe-JT tentados
+    # ANTES do DataJud — leem o sistema do próprio tribunal em tempo real,
+    # então acham processo recém-distribuído que o DataJud (indexação do
+    # CNJ, com defasagem variável) ainda pode não ter, e costumam trazer
+    # mais campos. `aplicar_carga_inicial` só preenche campo vazio, então
+    # rodar estas primeiro é o que faz elas priorizarem sobre o DataJud
+    # quando as duas acham a mesma informação — não só serem tentadas.
+    segmento = resultado["partes"]["segmento_codigo"]
+    resultados_extra = tentar_fontes_publicas_complementares(processo, segmento)
+
     tribunal_hint = processo.tribunal_datajud or None
     dados_capturados, motivo = None, None
     try:
@@ -144,8 +154,6 @@ def _tentar_captura_automatica_no_cadastro(processo, empresa):
         ))
         aviso_dv = None
 
-    segmento = resultado["partes"]["segmento_codigo"]
-    resultados_extra = tentar_fontes_publicas_complementares(processo, segmento)
     return aviso_dv, resultados_extra
 
 
