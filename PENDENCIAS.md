@@ -1,4 +1,68 @@
-# Status das pendências do briefing (atualizado em 12/09/2026)
+# Status das pendências do briefing (atualizado em 14/09/2026)
+
+## -96. Gemini (Google) como terceiro provedor BYOK do Agente de IA
+
+**Pedido do usuário:** "para melhorar ainda mais o meu agente de IA local, eu conseguiria usar a api
+gratuita do gemini para ajudar a melhorar o agente local?" — seguido de uma pergunta sobre qual API
+(Gemini ou Claude) é mais barata/eficiente.
+
+**Investigação antes de implementar — por que NÃO ficou "gratuito" como pedido originalmente:** conferi
+os Termos Adicionais de Serviço atuais da API do Gemini
+(https://ai.google.dev/gemini-api/terms) antes de escrever qualquer código. O nível GRATUITO
+("Unpaid Services") diz textualmente que o Google usa o conteúdo enviado "para fornecer, melhorar e
+desenvolver produtos e serviços do Google", que "revisores humanos podem ler, anotar e processar" esse
+conteúdo (desvinculado da conta antes de mostrar ao revisor, mas ainda é leitura humana), e o próprio
+texto pede explicitamente "não envie informações sensíveis, confidenciais ou pessoais para os Serviços
+Não Pagos". Dado de processo (nome de cliente, teor de petição, número de processo) é exatamente esse
+tipo de informação — incompatível com sigilo profissional/LGPD. Já o nível PAGO (faturamento ativado na
+conta Google) tem a política oposta: "não usa seus prompts... ou respostas para melhorar nossos
+produtos". Apresentei essa diferença ao usuário (com as fontes) antes de implementar, junto com uma
+comparação de preço Gemini x Claude (Gemini Flash/Flash-Lite sai na faixa de $0,10–$1,50 por milhão de
+tokens de entrada, bem mais barato que qualquer modelo Claude atual) — ele escolheu **Gemini pago
+(BYOK), como opção ao lado do Claude BYOK que já existia**, valendo tanto para o chat do Agente de IA
+quanto para a Análise de processo.
+
+**O que foi implementado**, seguindo exatamente o padrão já usado pelo Claude BYOK (nada de arquitetura
+nova, só um terceiro provedor no mesmo esquema):
+- `app/utils/gemini_api.py` (novo) — chamada à API REST do Gemini (`generateContent`, v1beta),
+  mesmo formato de função que `claude_api.py` (`gerar_resposta`/`validar_chave`/exceção amigável),
+  convertendo o papel "assistant" do formato interno para "model" (nome que a API do Gemini usa).
+  Trata erro de chave inválida (400), falta de permissão/faturamento (403 — mensagem já aponta pro
+  motivo mais provável: nível gratuito sem faturamento), modelo inexistente (404), limite de taxa
+  (429), conteúdo bloqueado pelos filtros de segurança do Google (sem candidato na resposta +
+  `promptFeedback.blockReason`) e falha de rede.
+- `app/models/empresa.py` — nova constante `PROVEDOR_IA_GEMINI_BYOK` e colunas
+  `agente_ia_gemini_chave_cifrada`/`agente_ia_gemini_modelo` (mesmo mecanismo Fernet do Claude, nunca
+  texto puro no banco).
+- `app/utils/agente_ia_router.py` — passa a rotear entre três provedores (local/Claude BYOK/Gemini
+  BYOK) sem quem chama (`app/routes/agente_ia.py`, `app/utils/analise_processo_ia.py`) precisar saber
+  a diferença — mesmo contrato de sempre.
+- `app/routes/integracoes.py` + `app/templates/integracoes/minhas_integracoes.html` — "Minhas
+  Integrações" ganha a terceira opção de rádio "API do Gemini (chave própria)", com aviso explícito
+  sobre a exigência de faturamento ativo (motivo explicado na tela, não só no código) e novo botão
+  "Remover chave do Gemini" (`/minhas-integracoes/ia/remover-chave-gemini`) — independente do botão de
+  remover a chave do Claude, já que agora uma empresa pode ter as duas chaves cadastradas ao mesmo
+  tempo mesmo usando só uma por vez.
+- `MODELO_PADRAO = "gemini-2.5-flash"` em `gemini_api.py` — sugestão pré-preenchida no formulário, não
+  um valor travado (mesmo motivo do Claude: o Google lança/renomeia modelo com frequência; o admin
+  pode digitar o identificador exato que quiser). Documentado no próprio arquivo onde conferir o
+  identificador/preço atual antes de trocar.
+
+**Deliberadamente fora do escopo:** não construí nenhum "modo gratuito com aviso" — cheguei a
+considerar como terceira opção na pergunta ao usuário, mas ele escolheu direto o caminho pago, então
+não há em nenhum lugar do código um caminho que aceite a chave do nível gratuito da API do Gemini para
+uso com dado de processo real. Se um dia isso for pedido explicitamente, precisa de uma tela de aviso
+separada e provavelmente reservada a usos sem dado real (ver ponderação completa na conversa).
+
+**Suíte inteira: 285 testes passando (era 266 antes desta seção)** — `tests/test_gemini_byok.py` (novo,
+19 testes): `gemini_api.py` isolado (payload/resposta/mapeamento de papel/todos os erros, toda chamada
+de rede mockada), `agente_ia_router.py` roteando pra Gemini (chave ausente não chama rede; delega com
+chave decifrada e modelo certo; propaga erro do provedor; `provedor_disponivel`/`descricao_provedor`), e
+a tela de Integrações ponta a ponta (salvar chave válida cifra e ativa; chave inválida não salva nada;
+remover chave volta pro modelo local; a chave nunca aparece em texto puro no banco). Essa suíte também
+configura `COFRE_SENHA_PROCESSO_KEY` com uma chave Fernet gerada só para a duração do teste — nenhum
+teste anterior no projeto tinha configurado isso, então o fluxo de "salvar chave BYOK" (Claude ou
+Gemini) nunca tinha sido testado ponta a ponta até agora.
 
 ## -95. Ordem invertida: e-SAJ/PJe/PJe-JT ANTES do DataJud, não depois
 

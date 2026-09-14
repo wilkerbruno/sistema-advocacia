@@ -12,23 +12,35 @@ Cada empresa (tenant) escolhe, em "Minhas Integrações"
   - `Empresa.PROVEDOR_IA_CLAUDE_BYOK`: usa a API da Anthropic (Claude) com
     a CHAVE PRÓPRIA da empresa (app/utils/claude_api.py) — a empresa paga
     a Anthropic diretamente pelo uso.
+  - `Empresa.PROVEDOR_IA_GEMINI_BYOK`: usa a API do Gemini (Google) com a
+    CHAVE PRÓPRIA da empresa (app/utils/gemini_api.py) — a empresa paga o
+    Google diretamente pelo uso (modelos "Flash"/"Flash-Lite" custam
+    centavos de dólar por milhão de tokens). Exige faturamento ativo no
+    projeto do Google — ver docstring de gemini_api.py para o porquê do
+    nível gratuito da API do Gemini não ser aceito aqui (Termos do Google
+    permitem treinar/revisar humanamente o conteúdo do nível gratuito).
 
 A chave, quando cadastrada, fica cifrada no banco (app/utils/cofre.py,
 mesmo mecanismo Fernet já usado para SenhaProcesso) — nunca em texto puro,
 e nunca reexibida depois de salva (só "chave cadastrada: sim/não").
 """
 from app.models import Empresa
-from app.utils import ia_local, claude_api, cofre
+from app.utils import ia_local, claude_api, gemini_api, cofre
 
 
 class ProvedorIAIndisponivelError(Exception):
-    """Erro amigável — cobre tanto 'modelo local não baixado' quanto 'chave
-    Claude não cadastrada/inválida/recusada pela Anthropic'. Quem chama
-    nunca precisa diferenciar os dois casos."""
+    """Erro amigável — cobre 'modelo local não baixado', 'chave Claude não
+    cadastrada/inválida/recusada pela Anthropic' e 'chave Gemini não
+    cadastrada/inválida/recusada pelo Google'. Quem chama nunca precisa
+    diferenciar os três casos."""
 
 
 def _usa_claude_byok(empresa):
     return bool(empresa) and empresa.agente_ia_provedor_efetivo == Empresa.PROVEDOR_IA_CLAUDE_BYOK
+
+
+def _usa_gemini_byok(empresa):
+    return bool(empresa) and empresa.agente_ia_provedor_efetivo == Empresa.PROVEDOR_IA_GEMINI_BYOK
 
 
 def provedor_disponivel(empresa):
@@ -36,12 +48,14 @@ def provedor_disponivel(empresa):
     Checagem rápida (sem chamar rede) pra exibir aviso nas telas antes de
     deixar o usuário tentar enviar uma mensagem. Para o provedor local, só
     olha se o arquivo do modelo existe (ver ia_local.modelo_disponivel);
-    para Claude BYOK, só olha se existe uma chave cadastrada — não valida
-    se ela ainda é aceita pela Anthropic (isso só se sabe na hora de usar,
-    ou no botão "testar chave" da tela de Integrações).
+    para Claude/Gemini BYOK, só olha se existe uma chave cadastrada — não
+    valida se ela ainda é aceita pelo provedor (isso só se sabe na hora de
+    usar, ou no botão "testar chave" da tela de Integrações).
     """
     if _usa_claude_byok(empresa):
         return bool(empresa.agente_ia_claude_chave_cifrada)
+    if _usa_gemini_byok(empresa):
+        return bool(empresa.agente_ia_gemini_chave_cifrada)
     return ia_local.modelo_disponivel()
 
 
@@ -51,6 +65,9 @@ def descricao_provedor(empresa):
     if _usa_claude_byok(empresa):
         modelo = (empresa.agente_ia_claude_modelo or claude_api.MODELO_PADRAO)
         return f"API do Claude (chave própria da empresa) — modelo {modelo}"
+    if _usa_gemini_byok(empresa):
+        modelo = (empresa.agente_ia_gemini_modelo or gemini_api.MODELO_PADRAO)
+        return f"API do Gemini (chave própria da empresa) — modelo {modelo}"
     return "Modelo de IA local (grátis, roda no próprio servidor)"
 
 
@@ -58,8 +75,8 @@ def gerar_resposta(empresa, system, mensagens_api, max_tokens=None):
     """
     Gera a resposta usando o provedor configurado para `empresa`. Levanta
     ProvedorIAIndisponivelError com mensagem amigável em qualquer cenário
-    de falha (modelo local não baixado, chave Claude ausente/cofre não
-    configurado/chave inválida/recusada, erro de rede).
+    de falha (modelo local não baixado, chave Claude/Gemini ausente/cofre
+    não configurado/chave inválida/recusada, erro de rede).
     """
     if _usa_claude_byok(empresa):
         if not empresa.agente_ia_claude_chave_cifrada:
@@ -78,6 +95,25 @@ def gerar_resposta(empresa, system, mensagens_api, max_tokens=None):
                 modelo=empresa.agente_ia_claude_modelo, max_tokens=max_tokens,
             )
         except claude_api.ClaudeIndisponivelError as e:
+            raise ProvedorIAIndisponivelError(str(e)) from e
+
+    if _usa_gemini_byok(empresa):
+        if not empresa.agente_ia_gemini_chave_cifrada:
+            raise ProvedorIAIndisponivelError(
+                "Esta empresa está configurada para usar a API do Gemini com chave própria, mas "
+                "nenhuma chave foi cadastrada ainda. Cadastre em \"Minhas Integrações\" (menu do "
+                "administrador) ou volte a usar o modelo local gratuito."
+            )
+        try:
+            chave = cofre.decifrar_segredo(empresa.agente_ia_gemini_chave_cifrada)
+        except (cofre.CofreNaoConfiguradoError, ValueError) as e:
+            raise ProvedorIAIndisponivelError(str(e)) from e
+        try:
+            return gemini_api.gerar_resposta(
+                system, mensagens_api, api_key=chave,
+                modelo=empresa.agente_ia_gemini_modelo, max_tokens=max_tokens,
+            )
+        except gemini_api.GeminiIndisponivelError as e:
             raise ProvedorIAIndisponivelError(str(e)) from e
 
     try:

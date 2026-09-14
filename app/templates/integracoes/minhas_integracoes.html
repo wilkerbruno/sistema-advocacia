@@ -30,13 +30,25 @@
             mensagem, mas modelo menor (pode alucinar mais em casos complexos).
           </label>
         </div>
-        <div class="form-check mb-3">
+        <div class="form-check mb-2">
           <input class="form-check-input" type="radio" name="provedor" id="ia-claude" value="claude_byok"
                  {{ "checked" if ia_provedor == "claude_byok" }} onchange="atualizarCamposIA()">
           <label class="form-check-label small" for="ia-claude">
             <strong>API do Claude (chave própria)</strong> — modelo mais robusto; a Anthropic cobra a sua
             empresa DIRETAMENTE pelo uso, com a sua própria chave. A JusControl não vê nem intermedeia
             esse consumo/pagamento.
+          </label>
+        </div>
+        <div class="form-check mb-3">
+          <input class="form-check-input" type="radio" name="provedor" id="ia-gemini" value="gemini_byok"
+                 {{ "checked" if ia_provedor == "gemini_byok" }} onchange="atualizarCamposIA()">
+          <label class="form-check-label small" for="ia-gemini">
+            <strong>API do Gemini (chave própria)</strong> — modelo mais robusto e barato que o local; o
+            Google cobra a sua empresa DIRETAMENTE pelo uso, com a sua própria chave. Precisa ser uma
+            chave de um projeto do Google AI Studio/Cloud com <strong>faturamento ativo</strong> — o nível
+            gratuito da API do Gemini não é aceito aqui, porque os Termos do Google permitem usar o
+            conteúdo enviado nesse nível para treinar/melhorar produtos e ter revisão humana, incompatível
+            com dado de processo/cliente.
           </label>
         </div>
 
@@ -62,16 +74,48 @@
           </div>
         </div>
 
+        <div id="campos-ia-gemini" class="ps-3 mb-3" style="border-left: 2px solid var(--brass-200); display:none;">
+          <div class="mb-2">
+            <label class="form-label small mb-1">Chave de API do Gemini</label>
+            <input type="password" name="api_key" class="form-control form-control-sm"
+                   placeholder="{{ 'Chave cadastrada — deixe em branco para manter' if ia_gemini_tem_chave else 'AIza...' }}"
+                   autocomplete="off">
+            <div class="form-text small">
+              Gere em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>,
+              num projeto com faturamento ativo (Google Cloud → Billing).
+              {% if ia_gemini_tem_chave %}Já existe uma chave cadastrada — só preencha aqui se quiser trocá-la.{% endif %}
+            </div>
+          </div>
+          <div class="mb-1">
+            <label class="form-label small mb-1">Modelo</label>
+            <input type="text" name="modelo" class="form-control form-control-sm" value="{{ ia_gemini_modelo }}">
+            <div class="form-text small">
+              Identificador exato do modelo (ex.: <code>{{ modelo_gemini_padrao }}</code> — bom equilíbrio
+              custo/qualidade; troque por uma variante "flash-lite" se quiser o menor custo possível).
+              Confira o valor atual em <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener">ai.google.dev/gemini-api/docs/models</a>
+              antes de trocar.
+            </div>
+          </div>
+        </div>
+
         <button type="submit" class="btn btn-brass btn-sm">Salvar</button>
-        {% if ia_tem_chave %}
-        <span class="small text-muted-doc ms-2">✓ chave cadastrada</span>
+        {% if ia_tem_chave or ia_gemini_tem_chave %}
+        <span class="small text-muted-doc ms-2">
+          ✓ chave{{ "s" if ia_tem_chave and ia_gemini_tem_chave }} cadastrada{{ "s" if ia_tem_chave and ia_gemini_tem_chave }}
+        </span>
         {% endif %}
       </form>
 
       {% if ia_tem_chave %}
-      <form method="post" action="{{ url_for('integracoes.remover_chave_ia') }}" class="mt-2">
+      <form method="post" action="{{ url_for('integracoes.remover_chave_ia') }}" class="mt-2 d-inline-block me-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave e voltar ao modelo local</button>
+        <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave do Claude</button>
+      </form>
+      {% endif %}
+      {% if ia_gemini_tem_chave %}
+      <form method="post" action="{{ url_for('integracoes.remover_chave_gemini') }}" class="mt-2 d-inline-block">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave do Gemini</button>
       </form>
       {% endif %}
     </div>
@@ -185,7 +229,9 @@
 <script>
 function atualizarCamposIA() {
   var claude = document.getElementById('ia-claude').checked;
+  var gemini = document.getElementById('ia-gemini').checked;
   document.getElementById('campos-ia-claude').style.display = claude ? 'block' : 'none';
+  document.getElementById('campos-ia-gemini').style.display = gemini ? 'block' : 'none';
 }
 atualizarCamposIA();
 

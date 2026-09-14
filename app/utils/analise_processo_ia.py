@@ -5,10 +5,10 @@ e a rota app/routes/processos.py::analise_ia.
 
 Usa o mesmo roteador de provedor do Agente de IA de portfólio (ver
 app/utils/agente_ia_router.py — modelo local gratuito por padrão, ou a API
-do Claude com chave própria da empresa se ela tiver escolhido isso em
-"Minhas Integrações") — mesmas limitações e mesma regra de nunca inventar
-fato fora do que foi injetado no contexto. `montar_digest_processo` monta
-esse contexto real a partir dos dados do processo no banco (nunca do
+do Claude ou do Gemini com chave própria da empresa se ela tiver escolhido
+isso em "Minhas Integrações") — mesmas limitações e mesma regra de nunca
+inventar fato fora do que foi injetado no contexto. `montar_digest_processo`
+monta esse contexto real a partir dos dados do processo no banco (nunca do
 próprio modelo "lembrando" nada).
 
 ⚠️ Quando o provedor é o modelo local, ele roda numa janela de contexto
@@ -16,9 +16,9 @@ pequena (ver IA_LOCAL_CONTEXT_SIZE, padrão 4096 tokens) — por isso o
 digest é cortado a um orçamento de caracteres (`LIMITE_PADRAO_CHARS`);
 processos com histórico muito longo têm as movimentações/decisões mais
 antigas omitidas, e isso é sinalizado ao usuário (`digest_truncado`) em
-vez de escondido. Empresas usando a API do Claude (BYOK) têm uma janela de
-contexto bem maior — o mesmo corte se aplica hoje por simplicidade, mas dá
-pra revisitar se isso incomodar na prática.
+vez de escondido. Empresas usando a API do Claude ou do Gemini (BYOK) têm
+uma janela de contexto bem maior — o mesmo corte se aplica hoje por
+simplicidade, mas dá pra revisitar se isso incomodar na prática.
 """
 import re
 
@@ -354,8 +354,8 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
     Gera o resumo ou rascunho de petição para `processo`. Levanta ValueError
     para erro de uso (tipo inválido, instrução obrigatória faltando) e deixa
     propagar agente_ia_router.ProvedorIAIndisponivelError quando o provedor
-    de IA configurado para a empresa do processo (modelo local ou Claude
-    BYOK) não está pronto — quem chama decide como exibir isso.
+    de IA configurado para a empresa do processo (modelo local, Claude BYOK
+    ou Gemini BYOK) não está pronto — quem chama decide como exibir isso.
 
     `texto_referencia` (opcional, só usado em rascunho_peticao): trecho de
     texto de um documento já anexado a outro momento do processo (ou outro

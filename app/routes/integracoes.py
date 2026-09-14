@@ -11,7 +11,10 @@ responder dúvidas dos clientes").
 Três integrações independentes:
   - Agente de IA: modelo local gratuito (padrão) OU API do Claude com
     chave própria (a empresa paga a Anthropic diretamente — ver
-    app/utils/claude_api.py para o porquê de ser BYOK e não markup).
+    app/utils/claude_api.py para o porquê de ser BYOK e não markup) OU API
+    do Gemini com chave própria (a empresa paga o Google diretamente — ver
+    app/utils/gemini_api.py; exige faturamento ativo no projeto do Google,
+    o nível gratuito da API do Gemini não é aceito aqui).
   - Captura processual (DataJud): chave padrão da plataforma (padrão) OU
     chave própria da empresa no DataJud (também gratuita, cadastro
     individual em https://datajud-wiki.cnj.jus.br/).
@@ -46,7 +49,7 @@ from app.extensions import db
 from app.models import Empresa
 from app.utils.acesso import apenas_admin
 from app.utils.notificacoes import registrar_log
-from app.utils import cofre, claude_api, whatsapp, timbrado
+from app.utils import cofre, claude_api, gemini_api, whatsapp, timbrado
 
 integracoes_bp = Blueprint("integracoes", __name__)
 
@@ -86,6 +89,9 @@ def minhas_integracoes():
         ia_tem_chave=bool(empresa.agente_ia_claude_chave_cifrada),
         ia_modelo=empresa.agente_ia_claude_modelo or claude_api.MODELO_PADRAO,
         modelo_claude_padrao=claude_api.MODELO_PADRAO,
+        ia_gemini_tem_chave=bool(empresa.agente_ia_gemini_chave_cifrada),
+        ia_gemini_modelo=empresa.agente_ia_gemini_modelo or gemini_api.MODELO_PADRAO,
+        modelo_gemini_padrao=gemini_api.MODELO_PADRAO,
         datajud_provedor=empresa.datajud_provedor_efetivo,
         datajud_tem_chave=bool(empresa.datajud_chave_propria_cifrada),
         whatsapp_bridge_configurado=whatsapp.whatsapp_configurado(),
@@ -105,7 +111,7 @@ def salvar_ia():
         return redirect(url_for("dashboard.index"))
 
     provedor = request.form.get("provedor")
-    if provedor not in (Empresa.PROVEDOR_IA_LOCAL, Empresa.PROVEDOR_IA_CLAUDE_BYOK):
+    if provedor not in (Empresa.PROVEDOR_IA_LOCAL, Empresa.PROVEDOR_IA_CLAUDE_BYOK, Empresa.PROVEDOR_IA_GEMINI_BYOK):
         flash("Selecione um provedor de IA válido.", "danger")
         return redirect(url_for("integracoes.minhas_integracoes"))
 
@@ -130,6 +136,24 @@ def salvar_ia():
             return redirect(url_for("integracoes.minhas_integracoes"))
         empresa.agente_ia_claude_modelo = modelo or None
 
+    if provedor == Empresa.PROVEDOR_IA_GEMINI_BYOK:
+        if nova_chave:
+            try:
+                gemini_api.validar_chave(nova_chave, modelo or None)
+            except gemini_api.GeminiIndisponivelError as e:
+                flash(f"Não foi possível validar a chave informada — nada foi salvo: {e}", "danger")
+                return redirect(url_for("integracoes.minhas_integracoes"))
+            try:
+                empresa.agente_ia_gemini_chave_cifrada = cofre.cifrar_segredo(nova_chave)
+            except cofre.CofreNaoConfiguradoError as e:
+                flash(str(e), "danger")
+                return redirect(url_for("integracoes.minhas_integracoes"))
+        elif not empresa.agente_ia_gemini_chave_cifrada:
+            flash("Cadastre uma chave de API do Gemini (de um projeto com faturamento ativo) antes de "
+                  "ativar este provedor — gere uma em https://aistudio.google.com/apikey.", "danger")
+            return redirect(url_for("integracoes.minhas_integracoes"))
+        empresa.agente_ia_gemini_modelo = modelo or None
+
     empresa.agente_ia_provedor = provedor
     registrar_log(current_user, "configurou_agente_ia", "Empresa", empresa.id, provedor)
     db.session.commit()
@@ -149,6 +173,21 @@ def remover_chave_ia():
     registrar_log(current_user, "removeu_chave_claude", "Empresa", empresa.id)
     db.session.commit()
     flash("Chave da API do Claude removida — o Agente de IA voltou a usar o modelo local gratuito.", "info")
+    return redirect(url_for("integracoes.minhas_integracoes"))
+
+
+@integracoes_bp.route("/minhas-integracoes/ia/remover-chave-gemini", methods=["POST"])
+@login_required
+@apenas_admin
+def remover_chave_gemini():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    empresa.agente_ia_gemini_chave_cifrada = None
+    empresa.agente_ia_provedor = Empresa.PROVEDOR_IA_LOCAL
+    registrar_log(current_user, "removeu_chave_gemini", "Empresa", empresa.id)
+    db.session.commit()
+    flash("Chave da API do Gemini removida — o Agente de IA voltou a usar o modelo local gratuito.", "info")
     return redirect(url_for("integracoes.minhas_integracoes"))
 
 

@@ -9,17 +9,18 @@ Isso é o que separa isso de um chatbot genérico: as respostas são
 embasadas em números reais do momento da pergunta (prazos vencendo,
 processos parados, receita pendente etc.), não em nada inventado.
 
-Motor: por padrão, modelo de IA local (até 2B parâmetros, ver
+Motor: por padrão, modelo de IA local (até 4B parâmetros, ver
 app/utils/ia_local.py), rodando dentro do próprio servidor — sem chave de
 API, sem custo por mensagem, sem dado saindo do servidor. Desde a rodada
 BYOK, cada empresa pode escolher em "Minhas Integrações"
 (app/routes/integracoes.py) usar a API do Claude com a PRÓPRIA chave da
-Anthropic no lugar do modelo local — ver app/utils/agente_ia_router.py,
-que decide qual dos dois usar sem este arquivo precisar saber a
-diferença. Em qualquer um dos dois casos, sem o provedor pronto (modelo
-não baixado, ou chave Claude não cadastrada/inválida), o agente responde
-de forma honesta que está indisponível — nunca finge uma resposta nem
-trava a tela.
+Anthropic, ou a API do Gemini com a PRÓPRIA chave do Google (projeto com
+faturamento ativo — ver app/utils/gemini_api.py), no lugar do modelo
+local — ver app/utils/agente_ia_router.py, que decide qual dos três usar
+sem este arquivo precisar saber a diferença. Em qualquer um dos três
+casos, sem o provedor pronto (modelo não baixado, ou chave Claude/Gemini
+não cadastrada/inválida), o agente responde de forma honesta que está
+indisponível — nunca finge uma resposta nem trava a tela.
 """
 from datetime import datetime, date, timedelta
 

@@ -36,12 +36,20 @@ class Empresa(db.Model):
     # Trate None como o valor padrão (ver as properties *_efetivo abaixo).
     PROVEDOR_IA_LOCAL = "local"
     PROVEDOR_IA_CLAUDE_BYOK = "claude_byok"
+    PROVEDOR_IA_GEMINI_BYOK = "gemini_byok"
     PROVEDOR_DATAJUD_PADRAO = "padrao"
     PROVEDOR_DATAJUD_CHAVE_PROPRIA = "chave_propria"
 
-    agente_ia_provedor = db.Column(db.String(20))  # None/"local" ou "claude_byok"
+    agente_ia_provedor = db.Column(db.String(20))  # None/"local", "claude_byok" ou "gemini_byok"
     agente_ia_claude_chave_cifrada = db.Column(db.LargeBinary)  # Fernet, ver app/utils/cofre.py
     agente_ia_claude_modelo = db.Column(db.String(60))  # None usa o padrão de app/utils/claude_api.py
+    # Gemini (Google) BYOK — mesmo mecanismo do Claude acima, ver
+    # app/utils/gemini_api.py para o porquê de exigir faturamento ativo
+    # (nível gratuito da API do Gemini não é aceito: os Termos do Google
+    # permitem usar o conteúdo do nível gratuito para treinar/melhorar
+    # produtos e ter revisão humana — incompatível com dado de processo).
+    agente_ia_gemini_chave_cifrada = db.Column(db.LargeBinary)  # Fernet, ver app/utils/cofre.py
+    agente_ia_gemini_modelo = db.Column(db.String(60))  # None usa o padrão de app/utils/gemini_api.py
 
     datajud_provedor = db.Column(db.String(20))  # None/"padrao" ou "chave_propria"
     datajud_chave_propria_cifrada = db.Column(db.LargeBinary)  # Fernet, ver app/utils/cofre.py
