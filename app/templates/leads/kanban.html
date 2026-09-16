@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block titulo %}Captação de clientes — JusControl{% endblock %}
+{% block eyebrow %}Captação{% endblock %}
+{% block cabecalho %}Captação de clientes{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 720px;">
+  Contatos interessados que ainda não viraram cliente. Cadastre aqui, acompanhe pelo funil e use
+  "Converter em cliente" quando o escritório decidir seguir com o caso — os dados já preenchidos aqui
+  vão junto pro cadastro de cliente, sem precisar digitar de novo.
+</p>
+
+<div class="d-flex justify-content-end mb-3">
+  <a href="{{ url_for('leads.novo') }}" class="btn btn-brass btn-sm">+ Novo contato</a>
+</div>
+
+<div class="kanban-board">
+  {% for etapa in etapas %}
+  <div class="kanban-coluna {{ 'kanban-coluna-encerrada' if etapa in ('convertido', 'perdido') }}">
+    <div class="kanban-coluna-titulo">
+      <span>{{ nomes_etapas[etapa] }}</span>
+      <span class="kanban-contador">{{ colunas[etapa]|length }}</span>
+    </div>
+    {% for lead in colunas[etapa] %}
+    <a href="{{ url_for('leads.detalhe', lead_id=lead.id) }}" class="kanban-card">
+      <div class="kanban-card-nome">{{ lead.nome }}</div>
+      {% if lead.area_interesse %}<div class="kanban-card-meta">{{ lead.area_interesse }}</div>{% endif %}
+      {% if lead.responsavel %}<div class="kanban-card-meta">Responsável: {{ lead.responsavel.nome }}</div>{% endif %}
+      {% if lead.valor_estimado_causa %}<div class="kanban-card-meta">{{ lead.valor_estimado_causa|moeda }}</div>{% endif %}
+    </a>
+    {% else %}
+    <p class="small text-muted-doc mb-0" style="font-size:.75rem;">Nenhum contato nesta etapa.</p>
+    {% endfor %}
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}

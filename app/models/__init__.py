@@ -2,6 +2,7 @@ from .empresa import Empresa
 from .unidade import Unidade
 from .usuario import Usuario
 from .cliente import Cliente
+from .lead import Lead
 from .processo import Processo, Andamento, Prazo, Audiencia, Documento, ProcessoAcessoRestrito
 from .financeiro import Lancamento, AprovacaoLancamento
 from .tarefa import Tarefa
@@ -25,6 +26,7 @@ __all__ = [
     "Unidade",
     "Usuario",
     "Cliente",
+    "Lead",
     "Processo",
     "Andamento",
     "Prazo",

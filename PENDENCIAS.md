@@ -1,5 +1,61 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -99. CRM de captação de clientes (pipeline de leads) — inspirado no concorrente DeskcommCRM
+
+**Pedido:** "acha que ficaria legal colocar um crm nesse sistema? se sim segue um link de um github
+com um crm, olha o que que ficaria legal de implementar nesse sistema
+'https://github.com/melgarafael/DeskcommCRM'".
+
+**Análise do concorrente:** o DeskcommCRM é um "CRM de vendas" auto-hospedado, focado em atendimento
+via WhatsApp com agentes de IA nativos — pipeline de negócios em kanban, qualificação automática por
+IA, RAG por empresa, multi-tenant com RLS, LGPD (exportação/anonimização/consentimento). Stack bem
+diferente da nossa (Next.js/Supabase/Postgres vs. Flask/Jinja/MySQL) — não fazia sentido "importar"
+código de lá, só a IDEIA de valor por trás: um funil visual pra não perder contato de quem ainda não é
+cliente.
+
+**O que foi implementado nesta rodada** (escolhido pelo usuário entre 3 opções — "só o pipeline
+manual" foi a recomendada e a aprovada, sem automação de WhatsApp/IA):
+- **Novo módulo "Captação"** (`app/models/lead.py`, `app/routes/leads.py`, `app/templates/leads/`),
+  dentro do grupo "Operação" do menu — um `Lead` é um contato ainda não cliente (nome, telefone,
+  WhatsApp, e-mail, área de interesse, origem, valor estimado da causa, responsável, observações).
+- **Quadro kanban** (`/leads/`) com 5 colunas: Novo contato → Qualificando → Proposta enviada →
+  Convertido em cliente / Perdido (essas duas últimas aparecem "apagadas" visualmente — já é
+  histórico, não ação pendente).
+- **Mover de etapa** por um seletor simples (não drag-and-drop — mantém a tela acessível por teclado
+  sem depender de JS complexo; dá pra adicionar arrastar-e-soltar depois por cima, sem mudar a rota).
+  Mover pra "Perdido" aceita um motivo opcional. Mover direto pra "Convertido" pelo seletor é
+  BLOQUEADO de propósito (com aviso) — só o botão de conversão de verdade pode chegar lá, senão o
+  lead ficaria marcado como convertido sem nenhum Cliente vinculado.
+- **"Converter em cliente"**: cria o `Cliente` de verdade a partir dos dados já coletados no lead
+  (nome, telefone, WhatsApp, e-mail), mantém o vínculo `lead.cliente_id` (rastro de origem) e manda
+  direto pra tela de edição do cliente novo, pra completar CPF/CNPJ, endereço etc. Convertido duas
+  vezes não duplica o cliente.
+- Mesmo isolamento multi-tenant de sempre (`aplicar_escopo_unidade`/`checar_acesso_unidade_ou_403`,
+  igual `app/routes/clientes.py`) — testado com duas empresas reais, mesmo padrão de
+  `test_isolamento_multi_tenant_prazos.py`.
+
+**Suíte inteira: 305 testes passando (era 296 antes desta seção).** `tests/test_leads.py` (novo, 9
+testes): cadastro grava na unidade certa; nome vazio é recusado; admin de uma empresa não vê nem abre
+lead de outra (403); mover etapa funciona; mover pra "perdido" salva o motivo; mover direto pra
+"convertido" é bloqueado sem tocar no lead; converter cria o cliente com os dados certos; converter
+duas vezes não duplica; e o item "Captação" aparece no menu dentro de "Operação".
+
+**Banco de dados:** tabela nova (`leads`) — rode `python sincronizar_schema.py` de novo depois do
+deploy.
+
+**Deliberadamente fora do escopo desta rodada** (registrado aqui como ideia futura, não implementado):
+- **Entrada automática de leads via WhatsApp**: o sistema já tem integração com WAHA por empresa
+  (`app/utils/whatsapp.py`, `app/routes/integracoes.py`) — hoje só ENVIA lembretes, nunca recebe. Pra
+  criar um Lead sozinho quando um número novo manda mensagem, precisaria de um webhook novo de
+  mensagens RECEBIDAS (o WAHA suporta, o projeto ainda não usa esse lado).
+- **Triagem automática por Agente de IA** (o "agente de vendas" que é o carro-chefe do DeskcommCRM):
+  o Agente de IA BYOK que já existe (`app/utils/agente_ia_router.py`) faria a primeira conversa de
+  qualificação com o lead antes de um humano assumir — reaproveitaria a infra de IA já paga/cadastrada
+  por empresa, mas é bem mais engenharia nova (fila de mensagens, limite de gasto por IA, handoff
+  IA→humano) e pede testes cuidadosos antes de ir pro ar; não fez parte do escopo aprovado aqui.
+- Ambas as ideias dependem uma da outra fazer sentido primeiro (não adianta triagem por IA sem entrada
+  automática) — ficam registradas juntas pra uma rodada futura, se o usuário quiser.
+
 ## -98. "Operação" também virou grupo recolhível + favorito de menu por usuário
 
 **Correção antes desta seção:** logo depois da seção -97 ir pro ar, veio um retorno com print

@@ -217,6 +217,56 @@ a:hover { color: var(--brass-600); }
   border-radius: 0 0 3px 3px;
 }
 
+/* ---------- Kanban (captação de clientes — app/routes/leads.py) ---------- */
+.kanban-board {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  padding-bottom: 12px;
+  align-items: flex-start;
+}
+.kanban-coluna {
+  flex: 0 0 260px;
+  background: var(--paper-200);
+  border-radius: var(--radius);
+  padding: 12px;
+  min-height: 120px;
+}
+.kanban-coluna-encerrada { opacity: 0.75; }
+.kanban-coluna-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-weight: 600;
+  color: var(--ink-600);
+  margin-bottom: 10px;
+  padding: 0 2px;
+}
+.kanban-contador {
+  background: var(--paper-0);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.7rem;
+}
+.kanban-card {
+  display: block;
+  background: var(--paper-0);
+  border: 1px solid var(--paper-200);
+  border-left: 3px solid var(--brass-500);
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--shadow-card);
+}
+.kanban-card:hover { border-left-color: var(--brass-600); color: inherit; }
+.kanban-card-nome { font-weight: 600; font-size: 0.85rem; margin-bottom: 2px; }
+.kanban-card-meta { font-size: 0.72rem; color: var(--ink-500); }
+
 /* ---------- KPI ---------- */
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 .kpi-card {

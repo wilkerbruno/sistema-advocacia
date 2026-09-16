@@ -23,6 +23,7 @@ class Unidade(db.Model):
     usuarios = db.relationship("Usuario", back_populates="unidade", lazy="dynamic")
     clientes = db.relationship("Cliente", back_populates="unidade", lazy="dynamic")
     processos = db.relationship("Processo", back_populates="unidade", lazy="dynamic")
+    leads = db.relationship("Lead", back_populates="unidade", lazy="dynamic")
 
     def __repr__(self):
         return f"<Unidade {self.codigo} - {self.nome}>"

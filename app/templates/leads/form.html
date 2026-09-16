@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar contato" if lead else "Novo contato" }} — JusControl{% endblock %}
+{% block eyebrow %}Captação{% endblock %}
+{% block cabecalho %}{{ "Editar contato" if lead else "Novo contato" }}{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 760px;">
+  <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-8">
+        <label class="form-label">Nome / Razão social *</label>
+        <input type="text" name="nome" class="form-control" required value="{{ lead.nome if lead else '' }}">
+      </div>
+      {% if unidades %}
+      <div class="col-md-4">
+        <label class="form-label">Unidade</label>
+        <select name="unidade_id" class="form-select">
+          {% for u in unidades %}
+          <option value="{{ u.id }}" {{ "selected" if lead and lead.unidade_id == u.id }}>{{ u.codigo }} — {{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="col-md-4">
+        <label class="form-label">Telefone</label>
+        <input type="text" name="telefone" class="form-control" value="{{ lead.telefone if lead else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">WhatsApp</label>
+        <input type="text" name="whatsapp" class="form-control" value="{{ lead.whatsapp if lead else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">E-mail</label>
+        <input type="email" name="email" class="form-control" value="{{ lead.email if lead else '' }}">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Área de interesse</label>
+        <input type="text" name="area_interesse" class="form-control" placeholder="Ex.: Trabalhista, Cível..."
+               value="{{ lead.area_interesse if lead else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Origem</label>
+        <select name="origem" class="form-select">
+          <option value="">— não informada —</option>
+          {% for o in origens %}
+          <option value="{{ o }}" {{ "selected" if lead and lead.origem == o }}>{{ nomes_origens[o] }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Valor estimado da causa (R$)</label>
+        <input type="text" name="valor_estimado_causa" class="form-control" placeholder="0,00"
+               value="{{ lead.valor_estimado_causa if lead else '' }}">
+      </div>
+
+      {% if responsaveis %}
+      <div class="col-md-6">
+        <label class="form-label">Responsável</label>
+        <select name="responsavel_id" class="form-select">
+          <option value="">— sem responsável definido —</option>
+          {% for u in responsaveis %}
+          <option value="{{ u.id }}" {{ "selected" if lead and lead.responsavel_id == u.id }}>{{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      {% endif %}
+
+      <div class="col-12">
+        <label class="form-label">Observações</label>
+        <textarea name="observacoes" class="form-control" rows="3">{{ lead.observacoes if lead else '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="mt-4 d-flex gap-2">
+      <button type="submit" class="btn btn-brass">Salvar</button>
+      <a href="{{ url_for('leads.detalhe', lead_id=lead.id) if lead else url_for('leads.kanban') }}"
+         class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

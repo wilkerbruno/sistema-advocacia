@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block titulo %}{{ lead.nome }} — JusControl{% endblock %}
+{% block eyebrow %}Captação{% endblock %}
+{% block cabecalho %}{{ lead.nome }}{% endblock %}
+
+{% block conteudo %}
+{% if lead.cliente_id %}
+<div class="alert alert-success small mb-3">
+  Este contato já foi convertido em cliente —
+  <a href="{{ url_for('clientes.detalhe', cliente_id=lead.cliente_id) }}">ver cadastro do cliente</a>.
+</div>
+{% endif %}
+
+<div class="d-flex justify-content-end gap-2 mb-3">
+  <a href="{{ url_for('leads.editar', lead_id=lead.id) }}" class="btn btn-outline-doc">Editar</a>
+  <a href="{{ url_for('leads.kanban') }}" class="btn btn-outline-doc">Voltar ao quadro</a>
+</div>
+
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card-doc tab p-3">
+      <h4 style="font-size:1rem;" class="mb-3">Dados do contato</h4>
+      <p class="small mb-1"><strong>Telefone:</strong> {{ lead.telefone or "—" }}</p>
+      <p class="small mb-1"><strong>WhatsApp:</strong> {{ lead.whatsapp or "—" }}</p>
+      <p class="small mb-1"><strong>E-mail:</strong> {{ lead.email or "—" }}</p>
+      <p class="small mb-1"><strong>Área de interesse:</strong> {{ lead.area_interesse or "—" }}</p>
+      <p class="small mb-1"><strong>Origem:</strong> {{ lead.nome_origem or "—" }}</p>
+      <p class="small mb-1"><strong>Valor estimado da causa:</strong> {{ lead.valor_estimado_causa|moeda if lead.valor_estimado_causa else "—" }}</p>
+      <p class="small mb-1"><strong>Responsável:</strong> {{ lead.responsavel.nome if lead.responsavel else "—" }}</p>
+      <p class="small mb-1"><strong>Cadastrado em:</strong> {{ lead.criado_em|data_hora_br }}{% if lead.criado_por %} por {{ lead.criado_por.nome }}{% endif %}</p>
+      {% if lead.observacoes %}
+      <hr>
+      <p class="small mb-1"><strong>Observações:</strong></p>
+      <p class="small" style="white-space: pre-wrap;">{{ lead.observacoes }}</p>
+      {% endif %}
+      {% if lead.etapa == "perdido" and lead.motivo_perda %}
+      <hr>
+      <p class="small mb-1"><strong>Motivo da perda:</strong></p>
+      <p class="small" style="white-space: pre-wrap;">{{ lead.motivo_perda }}</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card-doc tab p-3 mb-3">
+      <h4 style="font-size:1rem;" class="mb-3">Etapa do funil</h4>
+      <p class="small text-muted-doc mb-3">Etapa atual: <strong>{{ lead.nome_etapa }}</strong></p>
+
+      {% if not lead.cliente_id %}
+      <form method="post" action="{{ url_for('leads.mover', lead_id=lead.id) }}" class="mb-3" id="form-mover-etapa">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-2 align-items-end">
+          <div class="col-md-6">
+            <label class="form-label small mb-1">Mover para</label>
+            <select name="etapa" class="form-select form-select-sm" id="select-etapa">
+              {% for etapa in etapas %}
+              {% if etapa != "convertido" %}
+              <option value="{{ etapa }}" {{ "selected" if lead.etapa == etapa }}>{{ nomes_etapas[etapa] }}</option>
+              {% endif %}
+              {% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6" id="campo-motivo-perda" style="display:none;">
+            <label class="form-label small mb-1">Motivo da perda (opcional)</label>
+            <input type="text" name="motivo_perda" class="form-control form-control-sm" value="{{ lead.motivo_perda or '' }}">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-outline-doc btn-sm mt-2">Mover</button>
+      </form>
+
+      <hr>
+      <h5 style="font-size:.85rem;" class="mb-2">Converter em cliente</h5>
+      <p class="small text-muted-doc mb-2">
+        Cria o cadastro de cliente a partir destes dados (nome, telefone, WhatsApp, e-mail) — depois é
+        só completar CPF/CNPJ, endereço etc. no cadastro do cliente.
+      </p>
+      <form method="post" action="{{ url_for('leads.converter', lead_id=lead.id) }}" class="d-flex gap-2 align-items-end">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div>
+          <label class="form-label small mb-1">Tipo de pessoa</label>
+          <select name="tipo_pessoa" class="form-select form-select-sm">
+            <option value="PF">Física</option>
+            <option value="PJ">Jurídica</option>
+          </select>
+        </div>
+        <button type="submit" class="btn btn-brass btn-sm">Converter em cliente</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Só mostra o campo "motivo da perda" quando a etapa escolhida é
+// "perdido" — evita poluir o formulário nos outros casos.
+(function () {
+  const select = document.getElementById("select-etapa");
+  const campo = document.getElementById("campo-motivo-perda");
+  if (!select || !campo) return;
+  function atualizar() {
+    campo.style.display = select.value === "perdido" ? "" : "none";
+  }
+  select.addEventListener("change", atualizar);
+  atualizar();
+})();
+</script>
+{% endblock %}
