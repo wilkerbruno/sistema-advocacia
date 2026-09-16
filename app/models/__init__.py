@@ -20,6 +20,7 @@ from .modulo import Modulo, EmpresaModulo
 from .configuracao import ConfiguracaoPlataforma
 from .token_integracao import TokenIntegracao
 from .agente_local import AgenteLocalPareado, SolicitacaoBuscaAutos
+from .captacao_oab import OabMonitorada, IntimacaoCapturada
 
 __all__ = [
     "Empresa",
@@ -61,4 +62,6 @@ __all__ = [
     "TokenIntegracao",
     "AgenteLocalPareado",
     "SolicitacaoBuscaAutos",
+    "OabMonitorada",
+    "IntimacaoCapturada",
 ]

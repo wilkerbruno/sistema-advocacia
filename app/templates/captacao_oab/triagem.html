@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block titulo %}Triagem de intimações — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Triagem de intimações capturadas por OAB{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 720px;">
+  Intimações capturadas via DJEN/API Comunica cujo número de processo não
+  bateu com exatamente um processo já cadastrado nesta empresa (nenhuma
+  correspondência, ou mais de uma). Escolha uma para decidir: vincular a um
+  processo existente, cadastrar um processo novo a partir do número da
+  intimação, ou ignorar.
+</p>
+
+{% if itens %}
+<div class="card-doc tab p-0">
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Capturada em</th><th>OAB</th><th>Nº processo (fonte)</th><th>Tribunal</th><th>Tipo</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for i in itens %}
+      <tr>
+        <td>{{ i.criado_em|data_hora_br }}</td>
+        <td>{{ i.oab_monitorada.numero }}/{{ i.oab_monitorada.uf }}</td>
+        <td>{{ i.numero_processo_mascara or i.numero_processo or "— (não veio na comunicação)" }}</td>
+        <td>{{ i.tribunal or "—" }}</td>
+        <td>{{ i.tipo_comunicacao or "—" }}</td>
+        <td><a href="{{ url_for('captacao_oab.triagem_detalhe', intimacao_id=i.id) }}" class="btn btn-outline-doc btn-sm">Triar</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card-doc tab p-0">
+  <div class="empty-state">
+    <div class="font-display">Nenhuma intimação aguardando triagem</div>
+    <p class="mb-0">Toda intimação capturada até agora foi vinculada automaticamente a um processo já cadastrado.</p>
+  </div>
+</div>
+{% endif %}
+
+<div class="mt-3">
+  <a href="{{ url_for('captacao_oab.index') }}" class="linha-link small">← Ver OABs monitoradas</a>
+</div>
+{% endblock %}

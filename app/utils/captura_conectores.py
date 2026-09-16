@@ -54,6 +54,27 @@ class PublicacaoCapturada:
     teor: str
     oab_destinataria: str | None
     hash_dedup: str
+    # Campos extras (todos opcionais, default None) usados pela captura por
+    # OAB (item 1 da lista de pipeline de IA jurídica — PENDENCIAS.md,
+    # seção -102): diferente da captura por CNJ (onde o Processo já existe
+    # e a publicação só se anexa a ele), a captura por OAB PRECISA do
+    # número do processo pra decidir se é uma publicação de um processo já
+    # cadastrado (vínculo automático) ou de um processo novo (vai pra
+    # triagem humana) — ver app/utils/captura_djen_pipeline.py. Nenhum
+    # conector antigo (DataJud, PJe/eSAJ públicos) preenche estes campos —
+    # eles continuam levantando FuncionalidadeNaoDisponivelError em
+    # `monitorar_publicacoes_por_oab`, então isso nunca quebra nada
+    # existente.
+    numero_processo: str | None = None
+    numero_processo_mascara: str | None = None
+    tribunal: str | None = None
+    orgao: str | None = None
+    tipo_comunicacao: str | None = None
+    tipo_documento: str | None = None
+    meio: str | None = None
+    destinatarios_texto: str | None = None
+    link_certidao: str | None = None
+    id_comunicacao_fonte: str | None = None
 
 
 @dataclass
@@ -161,6 +182,15 @@ def obter_conector(nome_fonte: str, empresa=None) -> ConectorCaptura:
             "um provedor pago (Judit, Escavador, Digesto, Codilo ou Jusbrasil Soluções) — não "
             "implementado."
         )
+
+    if nome_fonte == "djen":
+        # Captura por OAB (item 1 — PENDENCIAS.md, seção -102): a API
+        # Comunica do CNJ é PÚBLICA e não exige chave/cadastro nenhum (ver
+        # app/utils/conector_djen.py) — diferente do DataJud ("padrao"
+        # acima), que exige DATAJUD_API_KEY. Por isso não há verificação de
+        # configuração aqui: sempre disponível.
+        from app.utils.conector_djen import ConectorDJEN
+        return ConectorDJEN()
 
     if nome_fonte == "due_diligence":
         # Ponto de extensão pronto (PENDENCIAS.md, seção -53), mas SEM

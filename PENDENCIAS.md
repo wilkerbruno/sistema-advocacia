@@ -1,5 +1,85 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -102. Item 1 da lista de pipeline de IA jurídica: captura por OAB (DJEN/API Comunica) + push do tribunal
+
+**Pedido:** "Captura da intimação DJEN e API Comunica do CNJ por OAB do escritório, mais push do
+tribunal onde houver. O input humano do onboarding é a OAB, não o processo." — implementar de forma
+completa, mas **mantendo funcionando** o onboarding por número CNJ que já existia
+(`governanca.novo_por_cnj`) e o cadastro manual completo (`processos.novo`). Ver seção -101, item 1,
+onde este item tinha sido diagnosticado como "NÃO implementado" — agora está.
+
+**O que foi implementado:**
+
+- **Novo conector `ConectorDJEN`** (`app/utils/conector_djen.py`), plugado no contrato já existente
+  `ConectorCaptura`/`monitorar_publicacoes_por_oab` (`app/utils/captura_conectores.py` — o método já
+  existia como stub, levantando `FuncionalidadeNaoDisponivelError` em todos os outros conectores).
+  Consulta a API Comunica do CNJ (`https://comunicaapi.pje.jus.br/api/v1/comunicacao`) — a fonte real
+  do DJEN, pública, gratuita, sem chave de API — por `numeroOab`+`ufOab`, paginando. **Limitações
+  reais documentadas no próprio módulo (não escondidas):** (1) a API só responde a IP do Brasil —
+  geobloqueio confirmado durante o desenvolvimento (403 a partir do ambiente de geração), então o
+  servidor de produção precisa estar hospedado no Brasil; (2) os nomes exatos dos campos JSON de
+  resposta foram levantados por pesquisa de terceiros (a própria documentação encontrada é
+  inconsistente entre snake_case e camelCase) — `_extrair_campo` tenta várias grafias por campo, mas
+  isso não foi validado contra uma chamada real; testar com uma OAB de verdade após o deploy e ajustar
+  o mapeamento se algum campo vier sistematicamente vazio.
+- **"Push do tribunal onde houver":** pesquisado e confirmado que **nenhum tribunal brasileiro
+  oferece hoje um padrão de push registrável** para comunicações processuais — a própria API Comunica
+  é documentadamente "query-based, not event-driven". Em vez de fingir essa parte, foi criado um
+  endpoint de RECEBIMENTO pronto (`POST /captacao-oab/webhook/<token>`, autenticado por um token
+  secreto por OAB — `OabMonitorada.token_webhook`, nunca por sessão/CSRF, mesmo raciocínio de
+  `api_integracao_bp`/`agente_local_api_bp`), claramente documentado como **não validado contra
+  nenhum tribunal real** — existe para o dia em que algum tribunal específico oferecer isso.
+- **Onboarding por OAB, não por processo** (o pedido central do item): nova tela
+  `/captacao-oab/` — cadastra-se só a OAB do escritório (número + UF), nada de número de processo. A
+  captura periódica (`capturar_intimacoes_oab.py`, precisa de CRON — não roda sozinha, mesmo padrão de
+  `capturar_movimentacoes.py`) traz as publicações e decide sozinha
+  (`app/utils/captura_djen_pipeline.py::processar_publicacao_capturada`): se o número de processo da
+  publicação bate com **exatamente um** processo já cadastrado nesta empresa, vincula automaticamente
+  (cria `Publicacao`, roda o motor de próxima ação, gera `Prazo`, notifica o responsável) — nenhuma
+  ação humana. Se não bate com nenhum ou bate com mais de um, cai na fila de triagem
+  (`/captacao-oab/triagem`), onde um humano decide: vincular a um processo existente, cadastrar
+  processo novo a partir do número da própria intimação (link direto para
+  `governanca.novo_por_cnj?numero_cnj=...`, já preenchido), ou ignorar (motivo obrigatório, fica no
+  histórico).
+- **Onboarding por CNJ mantido 100% funcional, sem alteração de comportamento** — única mudança em
+  `governanca/novo_por_cnj.html` foi aditiva (`value="{{ request.args.get('numero_cnj', '') }}"` no
+  campo do número, para permitir o link de "cadastrar processo novo" vindo da triagem chegar com o
+  número já preenchido); nenhuma rota, lógica de validação ou consulta ao DataJud foi tocada. Os três
+  caminhos de entrada (manual completo, por CNJ, por OAB) convivem.
+- **Motor de próxima ação reaproveitado, não duplicado:** `app/utils/prazos_engine.py` foi refatorado
+  para extrair `_encontrar_regra`/`_montar_prazo` como internos compartilhados entre
+  `aplicar_regra_proxima_acao` (já existia, baseada em `Movimentacao`) e a nova
+  `aplicar_regra_a_publicacao` (baseada em `Publicacao`, já que a API Comunica devolve publicações do
+  Diário, não andamento do tribunal) — preserva a regra da seção 7.1 ("ato sem regra cadastrada gera
+  tarefa genérica de análise, nunca é ignorado") nos dois caminhos igualmente. Nova
+  `proxima_data_util()` calcula a data de publicação como o 1º dia útil seguinte à disponibilização
+  (Lei 11.419/2006, art. 4º, §3º), reaproveitando o mesmo calendário de feriados/recesso do resto do
+  motor de prazos.
+- **Duas tabelas novas** (`app/models/captacao_oab.py`): `OabMonitorada` (OAB + UF + unidade +
+  usuário responsável opcional + token de webhook) e `IntimacaoCapturada` (cada comunicação recebida,
+  com dedup por `id_comunicacao_fonte`, status `pendente_triagem`/`vinculada`/`ignorada`). Isolamento
+  multi-tenant coberto pelo mesmo `aplicar_escopo_unidade` de sempre.
+
+**Pendências para o deploy (documentar/avisar o cliente):**
+
+1. Rodar `python sincronizar_schema.py` no servidor (duas tabelas novas:
+   `oabs_monitoradas`, `intimacoes_capturadas`).
+2. Cadastrar um NOVO cron job para `python capturar_intimacoes_oab.py` (além do já existente
+   `capturar_movimentacoes.py`), sugerido 1x/dia.
+3. Confirmar que o servidor de produção está hospedado no Brasil (ou atrás de egress brasileiro) —
+   a API Comunica bloqueia IP de fora.
+4. Validar o mapeamento de campos do conector com uma OAB real assim que possível — está
+   best-effort/pesquisado, não confirmado contra uma resposta real da API.
+
+**Testes:** `tests/test_captacao_oab.py` (25 casos) — conector (validação de parâmetro, mapeamento de
+campos snake/camelCase, 403/erro HTTP/JSON inválido/falha de rede), pipeline (auto-vínculo com 1
+candidato, triagem com 0 ou 2+ candidatos, dedup por `id_comunicacao_fonte`, idempotência de
+`vincular_intimacao_a_processo`), rotas (cadastro de OAB, alternar ativo, triagem, vincular, ignorar,
+webhook com token válido/inválido/payload sem id/duplicata), isolamento multi-tenant (OAB e triagem de
+uma empresa nunca visíveis/acionáveis por outra) e regressão do refatoramento de `prazos_engine.py`
+(`aplicar_regra_proxima_acao` continua se comportando exatamente como antes). Suíte completa
+(353 testes) rodada e passando sem regressão.
+
 ## -101. Análise da lista de pipeline de IA jurídica de ponta a ponta (10 itens) + 3 implementados
 
 **Pedido:** o usuário trouxe uma lista de 10 itens descrevendo um pipeline ideal, da captura da

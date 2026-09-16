@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block titulo %}Captação por OAB — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Captação de intimações por OAB{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 720px;">
+  Cadastre aqui as OABs do escritório (cada advogado que atua nos processos) —
+  esse é o único dado que o sistema precisa para começar a monitorar
+  intimações automaticamente. Uma captura periódica consulta a
+  <strong>API Comunica do CNJ / DJEN</strong> por essas OABs e traz as
+  intimações sozinha; <strong>não é preciso informar o número do processo
+  antes</strong> — o cadastro por número CNJ continua funcionando do jeito
+  que sempre funcionou, em paralelo (<a href="{{ url_for('governanca.novo_por_cnj') }}">Cadastro por CNJ</a>),
+  para quem já sabe o número do processo e quer cadastrá-lo direto.
+</p>
+
+{% if total_pendente_triagem %}
+<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+  <p class="small mb-2">
+    <strong class="text-danger">{{ total_pendente_triagem }} intimação(ões) capturada(s) aguardando triagem</strong> —
+    o número de processo não bateu (ainda) com nenhum processo já cadastrado
+    nesta empresa. Um humano decide: vincular a um processo existente,
+    cadastrar um processo novo a partir do número da intimação, ou ignorar.
+  </p>
+  <a href="{{ url_for('captacao_oab.triagem') }}" class="btn btn-brass btn-sm">Ir para a triagem</a>
+</div>
+{% endif %}
+
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card-doc tab p-4">
+      <p class="small mb-3"><strong>Nova OAB monitorada</strong></p>
+      <form method="post" action="{{ url_for('captacao_oab.nova') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Número da OAB</label>
+          <input type="text" name="numero" class="form-control" placeholder="123456" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">UF da OAB</label>
+          <input type="text" name="uf" class="form-control" placeholder="SP" maxlength="2" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Nome do advogado (opcional)</label>
+          <input type="text" name="nome_advogado" class="form-control" placeholder="Para identificar na lista">
+        </div>
+        {% if usuarios %}
+        <div class="mb-3">
+          <label class="form-label">Usuário responsável (opcional)</label>
+          <select name="usuario_id" class="form-select">
+            <option value="">— (nenhum em especial)</option>
+            {% for u in usuarios %}
+            <option value="{{ u.id }}">{{ u.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        {% if unidades %}
+        <div class="mb-3">
+          <label class="form-label">Unidade</label>
+          <select name="unidade_id" class="form-select" required>
+            {% for u in unidades %}
+            <option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <button class="btn btn-brass">Cadastrar OAB</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card-doc tab p-0">
+      {% if oabs %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>OAB</th><th>Advogado</th><th>Última captura</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for oab in oabs %}
+          <tr class="{{ '' if oab.ativo else 'text-muted-doc' }}">
+            <td>{{ oab.numero }}/{{ oab.uf }}</td>
+            <td>{{ oab.nome_advogado or "—" }}</td>
+            <td>
+              {{ oab.ultima_captura_em|data_hora_br if oab.ultima_captura_em else "nunca capturada ainda" }}
+              {% if oab.ultimo_erro_captura %}
+              <br><span class="small text-danger">último erro: {{ oab.ultimo_erro_captura }}</span>
+              {% endif %}
+            </td>
+            <td><span class="badge-status {{ 'badge-concluida' if oab.ativo else 'badge-cancelada' }}">{{ "ativa" if oab.ativo else "inativa" }}</span></td>
+            <td>
+              <form method="post" action="{{ url_for('captacao_oab.alternar_ativo', oab_id=oab.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if oab.ativo else "Ativar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma OAB monitorada ainda</div>
+        <p class="mb-0">Cadastre a primeira OAB do escritório ao lado — a próxima captura periódica já vai incluí-la, sem precisar informar nenhum número de processo.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="card-doc tab p-3 mt-3">
+      <p class="small text-muted-doc mb-0">
+        A captura roda periodicamente no servidor (<code>python capturar_intimacoes_oab.py</code>,
+        agendado via cron). O texto das publicações vem direto do Diário de
+        Justiça Eletrônico Nacional (DJEN) — mapeamento de campos best-effort,
+        validado com dados públicos disponíveis no momento da implementação.
+      </p>
+    </div>
+  </div>
+</div>
+{% endblock %}

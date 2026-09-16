@@ -22,7 +22,8 @@
         <div class="mb-3">
           <label class="form-label">Número CNJ</label>
           <input type="text" name="numero_cnj" id="numero_cnj" class="form-control"
-                 placeholder="0000000-00.0000.0.00.0000" required>
+                 placeholder="0000000-00.0000.0.00.0000" required
+                 value="{{ request.args.get('numero_cnj', '') }}">
           <div class="small text-muted-doc mt-1">
             Digite o número e aperte <strong>Enter</strong> (sem precisar clicar em
             "Validar e cadastrar") para já buscar e conferir os dados do processo no

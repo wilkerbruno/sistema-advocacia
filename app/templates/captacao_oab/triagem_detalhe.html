@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block titulo %}Triar intimação — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Triar intimação capturada{% endblock %}
+
+{% block conteudo %}
+<div class="row">
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 mb-3">
+      <p class="small mb-1"><strong>Dados da comunicação (fonte: {{ intimacao.origem }})</strong></p>
+      <table class="table-doc mb-0">
+        <tbody>
+          <tr><td>OAB monitorada</td><td>{{ intimacao.oab_monitorada.numero }}/{{ intimacao.oab_monitorada.uf }}</td></tr>
+          <tr><td>Nº processo (como veio da fonte)</td><td>{{ intimacao.numero_processo_mascara or intimacao.numero_processo or "— (não informado)" }}</td></tr>
+          <tr><td>Tribunal</td><td>{{ intimacao.tribunal or "—" }}</td></tr>
+          <tr><td>Órgão</td><td>{{ intimacao.orgao or "—" }}</td></tr>
+          <tr><td>Tipo de comunicação</td><td>{{ intimacao.tipo_comunicacao or "—" }}</td></tr>
+          <tr><td>Tipo de documento</td><td>{{ intimacao.tipo_documento or "—" }}</td></tr>
+          <tr><td>Disponibilização</td><td>{{ intimacao.data_disponibilizacao|data_br if intimacao.data_disponibilizacao else "—" }}</td></tr>
+          <tr><td>Publicação (1º dia útil seguinte)</td><td>{{ intimacao.data_publicacao|data_br if intimacao.data_publicacao else "—" }}</td></tr>
+          <tr><td>Destinatários</td><td>{{ intimacao.destinatarios_texto or "—" }}</td></tr>
+        </tbody>
+      </table>
+      {% if intimacao.link_certidao %}
+      <p class="small mt-2 mb-0"><a href="{{ intimacao.link_certidao }}" target="_blank" rel="noopener">Ver certidão original ↗</a></p>
+      {% endif %}
+    </div>
+    <div class="card-doc tab p-3">
+      <p class="small mb-1"><strong>Texto da comunicação</strong></p>
+      <p class="small text-muted-doc mb-0" style="white-space: pre-wrap;">{{ intimacao.texto or "— (sem texto)" }}</p>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 mb-3">
+      <p class="small mb-2"><strong>Vincular a um processo já cadastrado</strong></p>
+      {% if processos_candidatos %}
+      <p class="small text-muted-doc">Encontramos {{ processos_candidatos|length }} processo(s) com número parecido nesta empresa:</p>
+      <form method="post" action="{{ url_for('captacao_oab.vincular', intimacao_id=intimacao.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <select name="processo_id" class="form-select" required>
+            <option value="">Selecione...</option>
+            {% for p in processos_candidatos %}
+            <option value="{{ p.id }}">{{ p.numero_processo or p.numero_interno }} — {{ p.cliente.nome if p.cliente else "" }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button class="btn btn-brass">Vincular a este processo</button>
+      </form>
+      {% else %}
+      <p class="small text-muted-doc mb-3">Nenhum processo com número parecido foi encontrado automaticamente. Se souber o processo certo, informe o ID interno dele abaixo (veja a URL da tela do processo).</p>
+      <form method="post" action="{{ url_for('captacao_oab.vincular', intimacao_id=intimacao.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">ID interno do processo</label>
+          <input type="number" name="processo_id" class="form-control" required>
+        </div>
+        <button class="btn btn-brass">Vincular a este processo</button>
+      </form>
+      {% endif %}
+    </div>
+
+    <div class="card-doc tab p-3 mb-3">
+      <p class="small mb-2"><strong>Ou cadastrar como processo novo</strong></p>
+      <p class="small text-muted-doc mb-2">Se este processo ainda não existe no sistema, cadastre-o pelo número CNJ da própria intimação — o número já vem preenchido.</p>
+      <a class="btn btn-outline-doc btn-sm"
+         href="{{ url_for('governanca.novo_por_cnj', numero_cnj=intimacao.numero_processo_mascara or intimacao.numero_processo or '') }}">
+        Cadastrar processo novo com este número
+      </a>
+    </div>
+
+    <div class="card-doc tab p-3" style="border-left: 3px solid var(--status-danger);">
+      <p class="small mb-2"><strong>Ignorar esta intimação</strong></p>
+      <form method="post" action="{{ url_for('captacao_oab.ignorar', intimacao_id=intimacao.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-2">
+          <label class="form-label">Motivo (obrigatório, fica no histórico)</label>
+          <input type="text" name="motivo" class="form-control" placeholder="Ex: duplicidade, cliente não é mais desta banca..." required>
+        </div>
+        <button class="btn btn-outline-doc btn-sm">Ignorar</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<div class="mt-3">
+  <a href="{{ url_for('captacao_oab.triagem') }}" class="linha-link small">← Voltar para a fila de triagem</a>
+</div>
+{% endblock %}

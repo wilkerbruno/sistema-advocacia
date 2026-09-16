@@ -95,6 +95,7 @@ def create_app(config_class=Config):
     from app.routes.agente_local_api import agente_local_api_bp
     from app.routes.conta import conta_bp
     from app.routes.leads import leads_bp
+    from app.routes.captacao_oab import captacao_oab_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -116,6 +117,7 @@ def create_app(config_class=Config):
     app.register_blueprint(agente_local_api_bp, url_prefix="/api/agente-local")
     app.register_blueprint(conta_bp)
     app.register_blueprint(leads_bp, url_prefix="/leads")
+    app.register_blueprint(captacao_oab_bp)
 
     # A API de integração (/api/v1/*) é autenticada por token Bearer, não
     # por cookie de sessão — CSRF protege contra um navegador enviar um
@@ -215,10 +217,17 @@ def create_app(config_class=Config):
     def injetar_globais():
         from flask_login import current_user
         qtd_notif = contar_notificacoes_nao_lidas(current_user) if current_user.is_authenticated else 0
+        qtd_triagem_oab = 0
+        if current_user.is_authenticated:
+            from app.models import IntimacaoCapturada
+            from app.utils.acesso import aplicar_escopo_unidade
+            qtd_triagem_oab = aplicar_escopo_unidade(
+                IntimacaoCapturada.query, IntimacaoCapturada
+            ).filter_by(status="pendente_triagem").count()
         # url_pagina: usado pelo partial templates/_paginacao.html (ver
         # app/utils/paginacao.py, PENDENCIAS.md seção -47) pra montar o
         # link de cada página mantendo os filtros da URL atual.
-        return dict(qtd_notificacoes=qtd_notif, url_pagina=url_pagina)
+        return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, url_pagina=url_pagina)
 
     @app.template_filter("moeda")
     def formatar_moeda(valor):
