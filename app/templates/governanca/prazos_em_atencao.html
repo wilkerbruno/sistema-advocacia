@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block titulo %}Prazos em atenção — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Prazos em atenção{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Prazos pendentes com vencimento entre hoje ({{ hoje|data_br }}) e {{ limite_alerta|data_br }} — os
+  próximos 5 dias. Prazo já vencido aparece em <a href="{{ url_for('governanca.prazos_perdidos') }}">Prazos perdidos</a>, não aqui.
+</p>
+{% if prazos %}
+<table class="table-doc">
+  <thead>
+    <tr>
+      <th>Processo</th><th>Cliente</th><th>Ato / ação exigida</th><th>Responsável</th>
+      {% if current_user.is_admin %}<th>Unidade</th>{% endif %}
+      <th>Data fatal</th><th>Dias restantes</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in prazos %}
+    {% set dias_restantes = (p.data_vencimento - hoje).days %}
+    <tr>
+      <td><a href="{{ url_for('processos.detalhe', processo_id=p.processo_id) }}">{{ p.processo.numero_processo or p.processo.numero_interno }}</a></td>
+      <td>{{ p.processo.cliente.nome }}</td>
+      <td>{{ p.descricao }}</td>
+      <td>{{ p.responsavel.nome if p.responsavel else "—" }}</td>
+      {% if current_user.is_admin %}<td><span class="pill-unidade">{{ p.processo.unidade.codigo }}</span></td>{% endif %}
+      <td>{{ p.data_vencimento|data_br }}</td>
+      <td>
+        {% if dias_restantes == 0 %}<span class="badge-status badge-urgente">vence hoje</span>
+        {% else %}{{ dias_restantes }} dia(s){% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% include "_paginacao.html" %}
+{% else %}
+<p class="text-muted-doc small">Nenhum prazo em atenção no momento.</p>
+{% endif %}
+{% endblock %}

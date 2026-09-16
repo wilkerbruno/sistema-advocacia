@@ -1,5 +1,51 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -100. Cards do painel viraram links + valor total dos processos ativos
+
+**Pedido:** "quero que ao clicar em 'Processos ativos' vai para a pagina de processos, clicando em
+clientes ativos vai para a pagina de clientes, em prazos em atenção deve direcionar para uma pagina com
+todos os prazos em atenção, prazos perdidos deve direcionar para uma pagina de prazos perdidos aonde
+vao ter todos os prazos perdidos separados por processos e unidades e unidades ativas vão para a
+paginas de unidades [...] alem disso no carde processos ativos deve aparecer tambem o valor total dos
+processos em R$".
+
+**O que mudou:**
+- Os 5 cards do painel (`app/templates/dashboard/index.html`) agora são links: "Processos ativos" →
+  `/processos/?status=ativo` (usa o filtro que a tela já tinha); "Clientes ativos" →
+  `/clientes/?ativo=1` (filtro novo, ver abaixo); "Unidades ativas" → `/admin/unidades`.
+- **Duas páginas novas** em `app/routes/governanca.py`, porque "Prazos em atenção" e "Prazos
+  perdidos" nunca tiveram uma tela própria (só apareciam capados em 8 itens no próprio painel):
+  - `/governanca/prazos-em-atencao`: tabela paginada com TODOS os prazos pendentes vencendo nos
+    próximos 5 dias (mesmo formato de `fila_intimacoes`, que já existia).
+  - `/governanca/prazos-perdidos`: pedido explícito de vir "separados por processos e unidades" —
+    agrupada em duas camadas (Unidade → Processo → lista de prazos vencidos daquele processo), não
+    uma tabela plana.
+- **Card "Processos ativos" ganhou uma segunda linha** com a soma do `valor_causa` de todos os
+  processos ativos do escopo (ex.: "R$ 230.000,00 em causas").
+- **Duas correções encontradas ao implementar isso** (números que já apareciam errados antes desta
+  seção, não é regressão nova):
+  1. O card "Prazos em atenção" mostrava `len()` de uma lista com `.limit(8)` — com mais de 8 prazos
+     em atenção, o card sempre travava em "8" em vez do total real. Agora usa uma contagem própria,
+     sem limite, e a lista de prévia do painel continua limitada a 8 (só pra não virar uma lista
+     infinita ali dentro).
+  2. "Prazos em atenção" e "Prazos perdidos" podiam se sobrepor: a consulta de "em atenção" usava só
+     `data_vencimento <= limite` sem exigir `>= hoje`, então um prazo já vencido contava nos DOIS
+     cards ao mesmo tempo. Agora as duas janelas são mutuamente exclusivas. Também faltava
+     `filtrar_processos_visiveis` (processo sigiloso não devia contar) e o filtro de
+     `Prazo.deletado_em.is_(None)` nessas contagens do painel — os dois já existiam em
+     `governanca.fila_intimacoes`/`governanca.painel`, só não tinham chegado ao painel principal.
+- `app/routes/clientes.py::listar` ganhou suporte a `?ativo=1` (mostra só cliente ativo; sem o
+  parâmetro continua mostrando todo mundo, como sempre foi).
+
+**Suíte inteira: 314 testes passando (era 305 antes desta seção).** `tests/test_dashboard_kpis.py`
+(novo, 5 testes) cobre: os 5 cards apontam pro `href` certo; o valor total em R$ aparece certo (soma só
+processo ativo, ignora encerrado); o card "Prazos em atenção" não trava mais em 8 com 11 prazos
+cadastrados; "em atenção" e "perdidos" não se sobrepõem mais (prazo vencido ontem conta só uma vez, no
+card certo); e `?ativo=1` filtra clientes de verdade. `tests/test_isolamento_multi_tenant_prazos.py`
+ganhou 4 testes novos pras duas páginas novas, seguindo o mesmo cenário de duas empresas já usado nos
+outros testes deste arquivo (admin de uma empresa nunca vê prazo da outra; admin desenvolvedor vê as
+duas; a página de perdidos agrupa certo pelas duas unidades).
+
 ## -99. CRM de captação de clientes (pipeline de leads) — inspirado no concorrente DeskcommCRM
 
 **Pedido:** "acha que ficaria legal colocar um crm nesse sistema? se sim segue um link de um github

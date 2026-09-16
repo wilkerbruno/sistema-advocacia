@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block titulo %}Prazos perdidos — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Prazos perdidos{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  Prazos pendentes com vencimento antes de hoje ({{ hoje|data_br }}), agrupados por unidade e processo
+  — {{ total }} no total.
+</p>
+
+{% if grupos %}
+{% for grupo in grupos %}
+<div class="card-doc tab p-3 mb-3">
+  <div class="d-flex justify-content-between align-items-center mb-2">
+    <h4 style="font-size:0.95rem;" class="mb-0">
+      {% if current_user.is_admin %}<span class="pill-unidade">{{ grupo.unidade.codigo }}</span> {{ grupo.unidade.nome }}{% else %}{{ grupo.unidade.nome }}{% endif %}
+    </h4>
+    <span class="badge-status badge-perdido">{{ grupo.total }} prazo(s)</span>
+  </div>
+
+  {% for item in grupo.processos %}
+  <div class="mb-2 {% if not loop.last %}border-bottom pb-2{% endif %}" style="border-color: var(--paper-200) !important;">
+    <div class="small">
+      <a href="{{ url_for('processos.detalhe', processo_id=item.processo.id) }}" class="fw-semibold">
+        {{ item.processo.numero_processo or item.processo.numero_interno or ("#" ~ item.processo.id) }}
+      </a>
+      — {{ item.processo.cliente.nome }}
+    </div>
+    <ul class="small mb-0 mt-1" style="padding-left: 18px;">
+      {% for p in item.prazos %}
+      <li>
+        {{ p.descricao }} —
+        <span class="badge-status badge-perdido">{{ p.data_vencimento|data_br }}</span>
+        ({{ (hoje - p.data_vencimento).days }} dia(s) atrasado)
+        {% if p.responsavel %} · {{ p.responsavel.nome }}{% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+{% else %}
+<p class="text-muted-doc small">Nenhum prazo perdido no momento — parabéns.</p>
+{% endif %}
+{% endblock %}

@@ -1033,6 +1033,79 @@ def fila_intimacoes():
                             paginacao=paginacao, hoje=hoje)
 
 
+# ---------- Prazos em atenção / Prazos perdidos (cards do painel — PENDENCIAS.md, seção -100) ----------
+# Antes, os cards "Prazos em atenção" e "Prazos perdidos" do painel
+# (app/routes/dashboard.py) só mostravam um NÚMERO, sem nenhum jeito de
+# clicar e ver a lista de verdade — pedido explícito do usuário pra
+# corrigir isso. As duas rotas abaixo usam a MESMA definição de janela que
+# o painel usa (`hoje` / `hoje + 5 dias` pra "em atenção"; `< hoje` pra
+# "perdidos"), então o número do card e o que aparece aqui sempre batem.
+
+@governanca_bp.route("/prazos-em-atencao")
+@login_required
+def prazos_em_atencao():
+    hoje = date.today()
+    limite_alerta = hoje + timedelta(days=5)
+    query = filtrar_processos_visiveis(
+        aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
+    ).filter(
+        Prazo.deletado_em.is_(None),
+        Prazo.status == "pendente",
+        Prazo.data_vencimento >= hoje,
+        Prazo.data_vencimento <= limite_alerta,
+    )
+    paginacao = paginar(query.order_by(Prazo.data_vencimento))
+    return render_template("governanca/prazos_em_atencao.html", prazos=paginacao.items,
+                            paginacao=paginacao, hoje=hoje, limite_alerta=limite_alerta)
+
+
+@governanca_bp.route("/prazos-perdidos")
+@login_required
+def prazos_perdidos():
+    """Pedido explícito: "prazos perdidos deve direcionar para uma pagina
+    de prazos perdidos aonde vao ter todos os prazos perdidos separados
+    por processos e unidades" — em vez de uma lista só (como a fila de
+    intimações), agrupa em duas camadas: Unidade -> Processo -> prazos
+    perdidos daquele processo. Pra usuário comum (uma unidade só) o
+    primeiro nível vira só um grupo; pra admin com várias unidades, dá
+    pra ver de cara onde a perda está concentrada."""
+    hoje = date.today()
+    query = filtrar_processos_visiveis(
+        aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
+    ).filter(
+        Prazo.deletado_em.is_(None),
+        Prazo.status == "pendente",
+        Prazo.data_vencimento < hoje,
+    )
+    prazos = query.order_by(Prazo.data_vencimento).all()
+
+    grupos_por_unidade = {}
+    ordem_unidades = []
+    for p in prazos:
+        unidade = p.processo.unidade
+        if unidade.id not in grupos_por_unidade:
+            grupos_por_unidade[unidade.id] = {"unidade": unidade, "processos": {}, "ordem_processos": []}
+            ordem_unidades.append(unidade.id)
+        grupo_unidade = grupos_por_unidade[unidade.id]
+        processo = p.processo
+        if processo.id not in grupo_unidade["processos"]:
+            grupo_unidade["processos"][processo.id] = {"processo": processo, "prazos": []}
+            grupo_unidade["ordem_processos"].append(processo.id)
+        grupo_unidade["processos"][processo.id]["prazos"].append(p)
+
+    grupos = []
+    for unidade_id in ordem_unidades:
+        grupo_unidade = grupos_por_unidade[unidade_id]
+        processos = [grupo_unidade["processos"][pid] for pid in grupo_unidade["ordem_processos"]]
+        grupos.append({
+            "unidade": grupo_unidade["unidade"],
+            "processos": processos,
+            "total": sum(len(pr["prazos"]) for pr in processos),
+        })
+
+    return render_template("governanca/prazos_perdidos.html", grupos=grupos, total=len(prazos), hoje=hoje)
+
+
 # ---------- Painel de governança (seção 8) ----------
 
 @governanca_bp.route("/painel")

@@ -289,6 +289,29 @@ a:hover { color: var(--brass-600); }
   margin-top: 4px;
 }
 .kpi-card .kpi-sub { font-size: 0.76rem; color: var(--ink-500); margin-top: 2px; }
+.kpi-card .kpi-extra {
+  font-size: 0.76rem;
+  color: var(--brass-600);
+  font-weight: 600;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--paper-200);
+}
+/* Cards do painel agora são links (PENDENCIAS.md, seção -100) — herda a
+   cor do texto normal (não fica azul/sublinhado como link comum) e ganha
+   um leve destaque no hover/foco, pra dar a entender que é clicável sem
+   mudar a aparência do card em repouso. */
+.kpi-card-link {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.1s ease;
+}
+.kpi-card-link:hover, .kpi-card-link:focus-visible {
+  color: inherit;
+  border-color: var(--brass-500);
+  transform: translateY(-1px);
+}
 
 /* ---------- Badges / status ---------- */
 .badge-status {

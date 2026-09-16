@@ -12,6 +12,12 @@
   <a href="{{ url_for('clientes.novo') }}" class="btn btn-brass">+ Novo cliente</a>
 </div>
 
+{% if apenas_ativos %}
+<p class="small text-muted-doc mb-2">
+  Mostrando só clientes ativos — <a href="{{ url_for('clientes.listar', q=termo) }}">ver todos</a>.
+</p>
+{% endif %}
+
 <div class="card-doc tab p-0">
   {% if clientes %}
   <div class="table-responsive">

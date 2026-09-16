@@ -42,14 +42,21 @@ def _parse_data_consentimento(valor):
 @login_required
 def listar():
     termo = request.args.get("q", "").strip()
+    # "?ativo=1" (usado pelo card "Clientes ativos" do painel — PENDENCIAS.md,
+    # seção -100): sem o parâmetro, continua mostrando todo mundo, ativo ou
+    # não, como sempre foi. Nunca aceita "ativo=0" pra filtrar só inativo —
+    # não tinha essa necessidade pedida, só a de bater com o número do card.
+    apenas_ativos = request.args.get("ativo") == "1"
     query = aplicar_escopo_unidade(Cliente.query, Cliente)
+    if apenas_ativos:
+        query = query.filter(Cliente.ativo == True)  # noqa: E712
     if termo:
         like = f"%{termo}%"
         query = query.filter(db.or_(Cliente.nome.ilike(like), Cliente.cpf_cnpj.ilike(like)))
     # Paginação (PENDENCIAS.md, seção -47) — mesmo motivo de Processos.
     paginacao = paginar(query.order_by(Cliente.nome))
     return render_template("clientes/listar.html", clientes=paginacao.items,
-                            paginacao=paginacao, termo=termo)
+                            paginacao=paginacao, termo=termo, apenas_ativos=apenas_ativos)
 
 
 @clientes_bp.route("/novo", methods=["GET", "POST"])

@@ -8,32 +8,33 @@
 {% block conteudo %}
 
 <div class="kpi-grid mb-4">
-  <div class="kpi-card">
+  <a href="{{ url_for('processos.listar', status='ativo') }}" class="kpi-card kpi-card-link">
     <div class="kpi-label">Processos ativos</div>
     <div class="kpi-value">{{ total_processos_ativos }}</div>
     <div class="kpi-sub">{% if current_user.is_admin %}em todas as unidades{% else %}na sua unidade{% endif %}</div>
-  </div>
-  <div class="kpi-card">
+    <div class="kpi-extra">{{ valor_total_processos_ativos|moeda }} em causas</div>
+  </a>
+  <a href="{{ url_for('clientes.listar', ativo=1) }}" class="kpi-card kpi-card-link">
     <div class="kpi-label">Clientes ativos</div>
     <div class="kpi-value">{{ total_clientes }}</div>
     <div class="kpi-sub">cadastrados</div>
-  </div>
-  <div class="kpi-card">
+  </a>
+  <a href="{{ url_for('governanca.prazos_em_atencao') }}" class="kpi-card kpi-card-link">
     <div class="kpi-label">Prazos em atenção</div>
-    <div class="kpi-value">{{ prazos_vencendo|length }}</div>
+    <div class="kpi-value">{{ prazos_em_atencao_count }}</div>
     <div class="kpi-sub">vencendo nos próximos 5 dias</div>
-  </div>
-  <div class="kpi-card">
+  </a>
+  <a href="{{ url_for('governanca.prazos_perdidos') }}" class="kpi-card kpi-card-link">
     <div class="kpi-label">Prazos perdidos</div>
     <div class="kpi-value" style="color: var(--status-danger);">{{ prazos_perdidos_count }}</div>
     <div class="kpi-sub">pendentes e já vencidos</div>
-  </div>
+  </a>
   {% if current_user.is_admin %}
-  <div class="kpi-card">
+  <a href="{{ url_for('admin.unidades') }}" class="kpi-card kpi-card-link">
     <div class="kpi-label">Unidades ativas</div>
     <div class="kpi-value">{{ total_unidades }}</div>
     <div class="kpi-sub">em operação</div>
-  </div>
+  </a>
   {% endif %}
 </div>
 

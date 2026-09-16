@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 from sqlalchemy import func
 from app.extensions import db
 from app.models import Processo, Prazo, Audiencia, Tarefa, Cliente, Unidade, Lancamento
-from app.utils.acesso import aplicar_escopo_unidade, unidades_do_escopo
+from app.utils.acesso import aplicar_escopo_unidade, unidades_do_escopo, filtrar_processos_visiveis
 
 dashboard_bp = Blueprint("dashboard", __name__)
 
@@ -26,18 +26,46 @@ def index():
     # 3 camadas (admin desenvolvedor vê tudo, admin de empresa vê só a
     # própria empresa, demais só a própria unidade) — passar `Processo`
     # como `modelo` funciona porque a query já está com JOIN nele.
-    prazos_q = aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
+    # `filtrar_processos_visiveis` e o filtro de `deletado_em` faltavam
+    # aqui (PENDENCIAS.md, seção -100) — sem eles, um processo sigiloso
+    # (segredo_justica) ou um prazo já soft-deletado ainda contavam nos
+    # KPIs/páginas de "Prazos em atenção"/"Prazos perdidos", inconsistente
+    # com `governanca.fila_intimacoes` e `governanca.painel`, que já
+    # aplicam os dois.
+    prazos_q = filtrar_processos_visiveis(
+        aplicar_escopo_unidade(Prazo.query.join(Processo), Processo)
+    ).filter(Prazo.deletado_em.is_(None))
 
     tarefas_q = aplicar_escopo_unidade(Tarefa.query, Tarefa)
-    audiencias_q = aplicar_escopo_unidade(Audiencia.query.join(Processo), Processo)
+    audiencias_q = filtrar_processos_visiveis(
+        aplicar_escopo_unidade(Audiencia.query.join(Processo), Processo)
+    )
 
     # KPIs principais
-    total_processos_ativos = processos_q.filter(Processo.status == "ativo").count()
+    processos_ativos_q = processos_q.filter(Processo.status == "ativo")
+    total_processos_ativos = processos_ativos_q.count()
+    # Soma do valor da causa dos processos ativos do escopo (pedido
+    # explícito: "no card processos ativos deve aparecer também o valor
+    # total dos processos em R$") — `coalesce` pra não virar `None` quando
+    # nenhum processo ativo tem `valor_causa` preenchido (campo opcional).
+    valor_total_processos_ativos = processos_ativos_q.with_entities(
+        func.coalesce(func.sum(Processo.valor_causa), 0)
+    ).scalar()
     total_clientes = clientes_q.filter(Cliente.ativo == True).count()  # noqa: E712
-    prazos_vencendo = prazos_q.filter(
+    # "Em atenção" e "perdidos" agora são janelas SEM sobreposição (antes,
+    # `prazos_vencendo` usava `<= limite_alerta` sem piso em `hoje`, o que
+    # incluía prazo já vencido também — o mesmo prazo podia contar nos
+    # dois KPIs ao mesmo tempo). E a contagem do card não fica mais presa
+    # ao `.limit(8)` da lista de prévia — antes, com mais de 8 prazos em
+    # atenção, o número mostrado no card ficava sempre travado em "8",
+    # escondendo quantos realmente havia (só aparecia certo por coincidência).
+    prazos_em_atencao_q = prazos_q.filter(
         Prazo.status == "pendente",
+        Prazo.data_vencimento >= hoje,
         Prazo.data_vencimento <= limite_alerta,
-    ).order_by(Prazo.data_vencimento).limit(8).all()
+    )
+    prazos_em_atencao_count = prazos_em_atencao_q.count()
+    prazos_vencendo = prazos_em_atencao_q.order_by(Prazo.data_vencimento).limit(8).all()
     prazos_perdidos_count = prazos_q.filter(
         Prazo.status == "pendente", Prazo.data_vencimento < hoje
     ).count()
@@ -59,8 +87,10 @@ def index():
 
     contexto = dict(
         total_processos_ativos=total_processos_ativos,
+        valor_total_processos_ativos=valor_total_processos_ativos,
         total_clientes=total_clientes,
         prazos_vencendo=prazos_vencendo,
+        prazos_em_atencao_count=prazos_em_atencao_count,
         prazos_perdidos_count=prazos_perdidos_count,
         proximas_audiencias=proximas_audiencias,
         tarefas_pendentes=tarefas_pendentes,

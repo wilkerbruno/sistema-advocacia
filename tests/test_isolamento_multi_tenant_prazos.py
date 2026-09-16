@@ -221,6 +221,58 @@ def test_fila_intimacoes_admin_desenvolvedor_ve_ambas_empresas(client, login, ce
     assert "PRAZOSEGREDO Atenção EmpresaB" in corpo
 
 
+# ---------- Prazos em atenção (`/governanca/prazos-em-atencao`) ----------
+# Página nova (PENDENCIAS.md, seção -100) atrás do card "Prazos em
+# atenção" do painel — mesma regra de isolamento de sempre, testada com o
+# mesmo cenário de duas empresas usado no resto deste arquivo.
+
+def test_prazos_em_atencao_admin_empresa_a_nao_ve_dados_da_empresa_b(client, login, cenario):
+    login("admina@teste.com")
+    r = client.get("/governanca/prazos-em-atencao")
+    assert r.status_code == 200
+    corpo = r.data.decode("utf-8")
+    assert "PRAZOSEGREDO Atenção EmpresaA" in corpo
+    assert "PRAZOSEGREDO Atenção EmpresaB" not in corpo
+    # "Perdido" tem vencimento no passado — nunca deveria aparecer nesta
+    # página, nem o da própria empresa (janelas sem sobreposição).
+    assert "PRAZOSEGREDO Perdido EmpresaA" not in corpo
+
+
+def test_prazos_em_atencao_admin_desenvolvedor_ve_ambas_empresas(client, login, cenario):
+    login("admindev@teste.com")
+    r = client.get("/governanca/prazos-em-atencao")
+    assert r.status_code == 200
+    corpo = r.data.decode("utf-8")
+    assert "PRAZOSEGREDO Atenção EmpresaA" in corpo
+    assert "PRAZOSEGREDO Atenção EmpresaB" in corpo
+
+
+# ---------- Prazos perdidos (`/governanca/prazos-perdidos`) ----------
+
+def test_prazos_perdidos_admin_empresa_a_nao_ve_dados_da_empresa_b(client, login, cenario):
+    login("admina@teste.com")
+    r = client.get("/governanca/prazos-perdidos")
+    assert r.status_code == 200
+    corpo = r.data.decode("utf-8")
+    assert "PRAZOSEGREDO Perdido EmpresaA" in corpo
+    assert "PRAZOSEGREDO Perdido EmpresaB" not in corpo
+    assert "PRAZOSEGREDO Atenção EmpresaA" not in corpo
+
+
+def test_prazos_perdidos_admin_desenvolvedor_ve_ambas_empresas_agrupado_por_unidade(client, login, cenario):
+    login("admindev@teste.com")
+    r = client.get("/governanca/prazos-perdidos")
+    assert r.status_code == 200
+    corpo = r.data.decode("utf-8")
+    assert "PRAZOSEGREDO Perdido EmpresaA" in corpo
+    assert "PRAZOSEGREDO Perdido EmpresaB" in corpo
+    # Agrupado por unidade — o código de cada unidade aparece como
+    # cabeçalho do próprio grupo (pedido explícito: "separados [...] por
+    # unidades").
+    assert "UNA" in corpo
+    assert "UNB" in corpo
+
+
 # ---------- Métricas de governança (`/governanca/metricas`) ----------
 
 def test_metricas_admin_empresa_a_conta_so_a_propria_empresa(client, login, cenario):
