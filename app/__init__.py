@@ -131,14 +131,62 @@ def create_app(config_class=Config):
     # sessão envolvido.
     csrf.exempt(agente_local_api_bp)
 
+    # ---------------------- Autenticador obrigatório (2FA) ----------------------
+    # PENDENCIAS.md, seção -104 — "toda vez que o cliente for logar deve
+    # pedir o autenticador". Roda ANTES do bloqueio de licença/módulo de
+    # propósito: identidade vem antes de cobrança. Bloqueia QUALQUER tela
+    # (inclusive do admin desenvolvedor — este gate não tem exceção de
+    # papel, ao contrário dos dois de baixo) até o usuário confirmar o
+    # autenticador pelo menos uma vez; a partir daí nunca mais bloqueia (a
+    # exigência do CÓDIGO a cada login já acontece antes, em
+    # app/routes/auth.py::login/verificar_totp — isto aqui só cobre quem
+    # ainda não tem NADA configurado).
+    #
+    # Só entra em ação se `totp_disponivel()` (TOTP_CIFRA_KEY configurada,
+    # ver config.py) — sem isso, a funcionalidade inteira fica desligada e
+    # este gate nunca bloqueia nada (ver docstring de app/utils/totp.py:
+    # nunca travar o sistema inteiro por uma variável de ambiente que
+    # porventura não foi configurada no deploy).
+    ENDPOINTS_LIBERADOS_SEM_2FA = {
+        "static", "auth.logout",
+        "conta.configurar_totp", "conta.confirmar_totp", "conta.reconfigurar_totp",
+    }
+
+    @app.before_request
+    def exigir_autenticador_configurado():
+        from flask import request as req, redirect as redir, url_for as urlf, flash as fl
+        from flask_login import current_user as cu
+        from app.utils.totp import totp_disponivel
+
+        if req.endpoint in ENDPOINTS_LIBERADOS_SEM_2FA or req.endpoint is None:
+            return None
+        if not cu.is_authenticated or not totp_disponivel():
+            return None
+        if cu.totp_configurado:
+            return None
+
+        fl("Por segurança, configure o autenticador (2FA) da sua conta antes de continuar — "
+           "escaneie o QR code abaixo com um app como Google Authenticator ou Microsoft Authenticator.",
+           "warning")
+        return redir(urlf("conta.configurar_totp"))
+
     # ---------------------- Bloqueio por licença vencida ----------------------
     # Admin desenvolvedor e a empresa dona da plataforma nunca são bloqueados.
     # Demais empresas: se a licença não está ativa, só conseguem acessar
     # login/logout e a própria área de licenciamento (pra poder pagar).
+    #
+    # As três rotas de autenticador (`conta.configurar_totp`/`confirmar_totp`/
+    # `reconfigurar_totp`) também ficam sempre liberadas aqui — sem isso, um
+    # admin recém-cadastrado (licença "pendente_pagamento" por padrão) cairia
+    # num vaivém infinito entre "configure o autenticador" (gate de 2FA,
+    # acima) e "regularize sua licença" (este gate logo abaixo), porque cada
+    # um mandaria de volta pra tela que o outro acabou de bloquear. Identidade
+    # (2FA) sempre vem antes de cobrança (licença) — nunca o contrário.
     ENDPOINTS_SEMPRE_LIBERADOS = {
         "auth.login", "auth.logout", "static",
         "licenciamento.minha_licenca", "licenciamento.pagar_licenca",
         "licenciamento.pagamento_retorno", "licenciamento.webhook_mercadopago",
+        "conta.configurar_totp", "conta.confirmar_totp", "conta.reconfigurar_totp",
     }
 
     @app.before_request
@@ -227,7 +275,9 @@ def create_app(config_class=Config):
         # url_pagina: usado pelo partial templates/_paginacao.html (ver
         # app/utils/paginacao.py, PENDENCIAS.md seção -47) pra montar o
         # link de cada página mantendo os filtros da URL atual.
-        return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, url_pagina=url_pagina)
+        from app.utils.totp import totp_disponivel
+        return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, url_pagina=url_pagina,
+                    totp_disponivel=totp_disponivel())
 
     @app.template_filter("moeda")
     def formatar_moeda(valor):

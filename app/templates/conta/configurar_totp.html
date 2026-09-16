@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block titulo %}Autenticador (2FA) — JusControl{% endblock %}
+{% block eyebrow %}Minha conta{% endblock %}
+{% block cabecalho %}Autenticador (2FA){% endblock %}
+
+{% block conteudo %}
+<div class="row g-4">
+  <div class="col-lg-7">
+    <div class="card-doc tab p-4">
+
+      {% if ja_configurado %}
+        <h4 class="mb-1" style="font-size:1rem;">
+          <span class="badge text-bg-success">Configurado</span> Autenticador ativo nesta conta
+        </h4>
+        <p class="small text-muted-doc mb-4">
+          Todo login nesta conta agora exige, além da senha, o código de 6 dígitos gerado pelo seu
+          app autenticador. Se você trocou de celular ou perdeu o acesso ao app, reconfigure abaixo —
+          isso invalida o autenticador atual e mostra um QR code novo para escanear.
+        </p>
+
+        <form method="post" action="{{ url_for('conta.reconfigurar_totp') }}"
+              onsubmit="return confirm('Isso invalida o autenticador atual configurado nesta conta. Continuar?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="mb-3" style="max-width:320px;">
+            <label class="form-label">Confirme sua senha atual para reconfigurar</label>
+            <input type="password" name="senha_atual" class="form-control" required placeholder="••••••••">
+          </div>
+          <button type="submit" class="btn btn-outline-doc btn-sm">Reconfigurar autenticador</button>
+        </form>
+
+      {% else %}
+        <h4 class="mb-1" style="font-size:1rem;">
+          <span class="badge text-bg-warning text-dark">Pendente</span> Configure seu autenticador para continuar
+        </h4>
+        <p class="small text-muted-doc mb-3">
+          Por segurança, toda conta precisa de um autenticador (2FA) configurado. Abra um app como
+          <strong>Google Authenticator</strong>, <strong>Microsoft Authenticator</strong> ou
+          <strong>Authy</strong> no seu celular e escaneie o QR code abaixo.
+        </p>
+
+        <div class="text-center my-4">
+          <img src="{{ qrcode_data_uri }}" alt="QR code do autenticador" style="max-width:220px; border:1px solid var(--ink-100); border-radius:8px;">
+        </div>
+
+        <p class="small text-muted-doc mb-1">Não consegue escanear? Digite este código manualmente no app:</p>
+        <p class="mb-4"><code style="font-size:1.05rem; letter-spacing:0.08rem;">{{ secret_formatado }}</code></p>
+
+        <form method="post" action="{{ url_for('conta.confirmar_totp') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="proximo" value="{{ request.args.get('next', '') }}">
+          <div class="mb-3" style="max-width:280px;">
+            <label class="form-label">Digite o código de 6 dígitos exibido no app</label>
+            <input type="text" name="codigo" class="form-control text-center" style="font-size:1.5rem; letter-spacing:0.4rem;"
+                   inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus placeholder="000000">
+          </div>
+          <button type="submit" class="btn btn-brass">Confirmar e ativar</button>
+        </form>
+      {% endif %}
+
+    </div>
+  </div>
+</div>
+{% endblock %}

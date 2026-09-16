@@ -1,5 +1,104 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -104. Autenticador obrigatório (2FA/TOTP) em todo login + "esqueci minha senha" por código de e-mail
+
+**Pedido:** "toda vez que o cliente for logar deve pedir o autenticador, para maior segurança" — conta
+NOVA já sai configurando o QR code na criação; conta EXISTENTE sem autenticador ainda loga normal e é
+direcionada pra tela de configuração. Mais: "esqueceu a senha" no login envia um código por e-mail, o
+sistema valida o código, e só então libera uma tela de nova senha (+ confirmação), com senha
+obrigatoriamente de no mínimo 8 caracteres, 1 maiúscula, 1 minúscula, 1 número e 1 caractere especial.
+
+### Autenticador em duas etapas (TOTP — RFC 6238)
+
+Padrão compatível com qualquer app autenticador comum (Google Authenticator, Microsoft Authenticator,
+Authy, 1Password etc.) via `pyotp`, com QR code gerado na hora (`qrcode` + Pillow, já presente) como
+imagem embutida (`data:` URI — nunca uma rota separada que vazaria o segredo por URL). Três estados
+por usuário (`Usuario.totp_secret_cifrado`/`totp_confirmado_em`, `app/models/usuario.py`):
+
+1. **Nunca gerou nada** — usuário criado antes desta funcionalidade, ou conta nova ainda no primeiro
+   passo.
+2. **Segredo pendente** — QR já mostrado, ainda não confirmado (`totp_secret_cifrado` preenchido,
+   `totp_confirmado_em` nulo). Reaproveitado entre visitas (nunca troca o QR sozinho a cada
+   recarregamento — o usuário nunca conseguiria escanear a tempo).
+3. **Confirmado** (`totp_confirmado_em` preenchido) — só a partir daqui o login passa a EXIGIR o
+   código a cada vez.
+
+Fluxo de login (`app/routes/auth.py`): a senha continua sendo checada primeiro; se o usuário já tem
+autenticador confirmado, a sessão fica "pendente" (guardada só na `session` do Flask, nunca chama
+`login_user` ainda) e é redirecionada para `/verificar-autenticador`, que só autentica de verdade
+depois de um código válido (tolerância de 1 passo de 30s pra dessincronia de relógio; 5 tentativas
+erradas cancelam a pendência e exigem logar de novo). Quem ainda não tem NADA configurado loga normal
+(só e-mail+senha) e cai num **gate obrigatório** (`app/__init__.py::exigir_autenticador_configurado`)
+que bloqueia QUALQUER outra tela (menos logout) até confirmar o autenticador pelo menos uma vez —
+inclusive o admin desenvolvedor, sem exceção de papel nenhuma, ao contrário dos gates de
+licença/módulo que já existiam. Conta nova (`auth.cadastrar_empresa`) já sai direto pra essa tela,
+antes até da tela de pagamento da licença (identidade vem antes de cobrança — as duas rotinas foram
+ajustadas pra não entrarem num vaivém de redirecionamento uma cancelando a outra).
+
+Duas rotinas de recuperação, pra nunca deixar ninguém irremediavelmente trancado para fora:
+- **O próprio usuário** pode reconfigurar (`conta.reconfigurar_totp`, ex.: trocou de celular) — exige
+  digitar a senha atual antes de invalidar o autenticador confirmado, pra uma sessão de navegador
+  esquecida aberta não conseguir sozinha rebaixar a segurança da conta.
+- **Um admin/gestor** pode resetar o autenticador de outro usuário (`admin.editar_usuario`, novo
+  checkbox "Resetar autenticador") — único jeito de destravar quem perdeu o celular sem conseguir
+  entrar sozinho (nesse caso a senha atual não ajuda, é o segundo fator que sumiu).
+
+⚠️ **Interruptor de segurança, não um bug:** a funcionalidade INTEIRA só liga quando a variável de
+ambiente `TOTP_CIFRA_KEY` está configurada (chave Fernet própria, gerada do mesmo jeito que
+`COFRE_SENHA_PROCESSO_KEY` — ver `.env.example`). Sem ela, `login()` continua funcionando exatamente
+como antes (só e-mail+senha, sem pedir nem oferecer autenticador nenhum) — nunca trava o acesso de
+ninguém por uma variável de ambiente esquecida no deploy. Deliberadamente NÃO reaproveita
+`COFRE_SENHA_PROCESSO_KEY` (o cofre que já cifra as chaves de API BYOK) apesar do mesmo mecanismo
+(Fernet): como a presença de um autenticador confirmado decide um gate de acesso GLOBAL, amarrar isso
+ao mesmo interruptor do cofre de BYOK ligaria a exigência obrigatória de 2FA pra empresa inteira como
+efeito colateral surpresa de cadastrar uma chave de API sem nenhuma relação — por isso a chave é
+separada, mesmo repetindo o mecanismo de cifra.
+
+### "Esqueci minha senha"
+
+Três telas (`app/routes/auth.py`, `app/utils/senha_redefinicao.py`): (1) informar e-mail — SEMPRE a
+mesma mensagem genérica ("se este e-mail estiver cadastrado, enviamos um código"), exista ou não a
+conta, pra nunca revelar por aqui se um e-mail está cadastrado; (2) digitar o código de 6 dígitos
+recebido (válido por 15 minutos, hash salvo — nunca o código em texto puro —, 5 tentativas erradas
+invalidam o código pendente, com botão "reenviar"); (3) só depois do código confirmado, nova senha +
+confirmação, com a política de força (`app/utils/senha_politica.py`, reusável em qualquer outro lugar
+que precise da mesma regra no futuro): mínimo 8 caracteres, 1 maiúscula, 1 minúscula, 1 número, 1
+caractere especial.
+
+Sem `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD` configurados (mesma checagem já usada pelo lembrete de
+compromisso da Agenda — `app/utils/email.py::smtp_configurado`), a tela avisa isso abertamente (nunca
+promete um código que nunca vai chegar) e não avança — mensagem diferente da de "e-mail não
+encontrado" de propósito: SMTP fora do ar é um problema do SISTEMA, não desta conta, então não vaza
+nada sobre nenhum e-mail específico dizer isso.
+
+**Pendências para o deploy (documentar/avisar o cliente):**
+
+1. Gerar e configurar `TOTP_CIFRA_KEY` no `.env` (comando no próprio `.env.example`) — sem isso, o
+   autenticador continua desligado e nenhum usuário é obrigado a configurar nada.
+2. Rodar `python sincronizar_schema.py` — cinco colunas novas, todas nullable, em `usuarios`
+   (`totp_secret_cifrado`, `totp_confirmado_em`, `reset_senha_codigo_hash`, `reset_senha_expira_em`,
+   `reset_senha_tentativas`).
+3. `SMTP_HOST`/`SMTP_USER`/`SMTP_PASSWORD` já deveriam estar configurados pelo lembrete de compromisso
+   da Agenda — se ainda não estiverem, "esqueci minha senha" também fica indisponível (avisa
+   honestamente, não quebra).
+4. `requirements.txt` ganhou `pyotp` e `qrcode` — rebuild do container aplica normalmente (nenhum
+   pacote de sistema operacional novo, ao contrário do OCR da seção -103).
+5. Depois do deploy, TODA conta existente (inclusive admins) vai cair na tela de configuração do
+   autenticador no próximo login — avisar a equipe com antecedência para não gerar tickets de suporte
+   por susto.
+
+**Testes:** `tests/test_autenticador_dois_fatores.py` (15 casos — funcionalidade desligada/ligada,
+conta sem autenticador direcionada e bloqueada em qualquer outra tela, geração/idempotência do QR,
+confirmação com código certo/errado, login exigindo segundo fator com código certo/errado/limite de
+tentativas, cancelar verificação, reconfigurar com senha atual certa/errada, admin resetando o de
+outro usuário, cadastro de empresa nova indo direto pra configuração) e
+`tests/test_redefinicao_senha.py` (19 casos — política de força isolada, SMTP indisponível, mensagem
+genérica com e-mail existente/inexistente, código certo/errado/expirado/limite de tentativas,
+reenvio, nova senha fraca/confirmação divergente, sucesso ponta a ponta com login na senha nova).
+Suíte completa (433 testes) rodada e passando sem regressão — incluindo a correção de um
+acoplamento acidental descoberto durante o desenvolvimento (ver acima, por que `TOTP_CIFRA_KEY` é
+separada do cofre de BYOK) que quebrava `tests/test_gemini_byok.py` antes de ser corrigido.
+
 ## -103. Itens 6, 3 e 2 da lista de pipeline de IA jurídica: data de segurança, ingestão/indexação e download incremental dos autos
 
 **Pedido:** "então finalize os itens 6, 3 e 2" da lista de 10 itens analisada na seção -101 (onde

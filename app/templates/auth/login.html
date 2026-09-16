@@ -31,9 +31,12 @@
           <label class="form-label">Senha</label>
           <input type="password" name="senha" class="form-control" required placeholder="••••••••">
         </div>
-        <div class="form-check mb-3">
-          <input class="form-check-input" type="checkbox" name="lembrar" id="lembrar">
-          <label class="form-check-label small text-muted-doc" for="lembrar">Manter conectado</label>
+        <div class="d-flex align-items-center justify-content-between mb-3">
+          <div class="form-check mb-0">
+            <input class="form-check-input" type="checkbox" name="lembrar" id="lembrar">
+            <label class="form-check-label small text-muted-doc" for="lembrar">Manter conectado</label>
+          </div>
+          <a class="small" href="{{ url_for('auth.esqueci_senha') }}">Esqueceu a senha?</a>
         </div>
         <button type="submit" class="btn btn-brass w-100">Entrar</button>
       </form>

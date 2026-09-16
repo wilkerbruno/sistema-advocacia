@@ -68,6 +68,28 @@
         <input type="password" name="senha" class="form-control" {% if not usuario %}required{% endif %}>
       </div>
 
+      {% if usuario and totp_disponivel %}
+      <div class="col-md-6">
+        <label class="form-label">Autenticador (2FA)</label>
+        <p class="small mb-1">
+          {% if usuario.totp_configurado %}
+          <span class="badge text-bg-success">Configurado</span> desde {{ usuario.totp_confirmado_em|data_hora_br }}
+          {% else %}
+          <span class="badge text-bg-secondary">Ainda não configurado</span>
+          {% endif %}
+        </p>
+        {% if usuario.totp_configurado %}
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="resetar_totp" id="resetarTotp">
+          <label class="form-check-label small" for="resetarTotp">
+            Resetar autenticador (use se o usuário perdeu o celular/app autenticador) — no próximo login,
+            ele configura um autenticador novo escaneando outro QR code.
+          </label>
+        </div>
+        {% endif %}
+      </div>
+      {% endif %}
+
       <div class="col-12">
         <div class="form-check">
           <input class="form-check-input" type="checkbox" name="acesso_financeiro" id="acessoFinanceiro"

@@ -9,6 +9,7 @@ from app.utils.notificacoes import registrar_log
 from app.utils.rede import resumir_user_agent
 from app.utils.financeiro_util import filtro_conta_terceiros
 from app.utils.desligamento import itens_em_aberto, tem_itens_em_aberto, reatribuir_itens_em_aberto
+from app.utils import totp as totp_utils
 from decimal import Decimal, InvalidOperation
 
 admin_bp = Blueprint("admin", __name__)
@@ -214,6 +215,19 @@ def editar_usuario(usuario_id):
         nova_senha = request.form.get("senha")
         if nova_senha:
             usuario.set_senha(nova_senha)
+
+        # Resetar autenticador (2FA — PENDENCIAS.md, seção -104): a única
+        # forma de destravar quem perdeu o celular/app autenticador e ficou
+        # sem conseguir logar sozinho, já que o próprio usuário não
+        # consegue entrar pra fazer isso na própria tela (ver
+        # conta.reconfigurar_totp, que exige a senha ATUAL — inútil pra
+        # quem só perdeu o segundo fator). Limpa o autenticador confirmado
+        # (se houver); no próximo login, o usuário cai de novo no fluxo de
+        # "ainda não configurado" e escaneia um QR novo.
+        if request.form.get("resetar_totp") and totp_utils.totp_disponivel():
+            totp_utils.resetar(usuario)
+            registrar_log(current_user, "resetou_autenticador_de_outro_usuario", "Usuario", usuario.id,
+                          usuario.email)
 
         registrar_log(current_user, "editou", "Usuario", usuario.id, usuario.email)
         db.session.commit()

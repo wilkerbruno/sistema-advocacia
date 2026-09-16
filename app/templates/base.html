@@ -152,6 +152,12 @@
           <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('conta.') }}" href="{{ url_for('conta.preferencias') }}">
             <span class="tab-index">PR</span> Preferências do menu
           </a>
+          {% if totp_disponivel %}
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('conta.') and 'totp' in request.endpoint }}" href="{{ url_for('conta.configurar_totp') }}">
+            <span class="tab-index">2F</span> Autenticador (2FA)
+            {% if not current_user.totp_configurado %}<span class="badge text-bg-danger ms-1">pendente</span>{% endif %}
+          </a>
+          {% endif %}
 
           {% if current_user.pode_gerenciar_usuarios() %}
           <div class="subgrupo-titulo">Minha empresa</div>

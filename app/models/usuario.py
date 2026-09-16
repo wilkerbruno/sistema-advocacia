@@ -65,6 +65,31 @@ class Usuario(db.Model, UserMixin):
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     ultimo_login = db.Column(db.DateTime)
 
+    # Autenticação em duas etapas obrigatória (ver app/utils/totp.py e
+    # app/routes/auth.py/conta.py) — TOTP (Google Authenticator/Authy/etc,
+    # RFC 6238), o mesmo padrão de app usado por praticamente todo serviço
+    # que oferece "app autenticador". O segredo nunca fica em texto puro no
+    # banco — cifrado com o MESMO cofre (Fernet) já usado para as chaves de
+    # API BYOK (ver app/utils/cofre.py). `totp_confirmado_em` só é
+    # preenchido depois que o usuário PROVA que configurou certo (digitou
+    # um código válido gerado pelo próprio app dele) — nulo significa
+    # "ainda não configurou" (conta nova, ou conta antiga de antes desta
+    # funcionalidade existir), mesmo que já exista um segredo PENDENTE
+    # gerado em `totp_secret_cifrado` (QR code mostrado mas ainda não
+    # confirmado). Ver `totp_configurado` abaixo — é essa propriedade, não
+    # os campos direto, que decide se o login exige o código.
+    totp_secret_cifrado = db.Column(db.LargeBinary, nullable=True)
+    totp_confirmado_em = db.Column(db.DateTime, nullable=True)
+
+    # "Esqueci minha senha" (ver app/utils/senha_redefinicao.py e
+    # app/routes/auth.py) — código de 6 dígitos enviado por e-mail, nunca
+    # guardado em texto puro (mesmo hash de senha do werkzeug), com prazo
+    # de validade e limite de tentativas erradas. Todos nullable: sem
+    # nenhuma redefinição pendente, os três ficam vazios.
+    reset_senha_codigo_hash = db.Column(db.String(255), nullable=True)
+    reset_senha_expira_em = db.Column(db.DateTime, nullable=True)
+    reset_senha_tentativas = db.Column(db.Integer, nullable=True)
+
     # Admin não pertence a nenhuma unidade específica (enxerga todas)
     unidade_id = db.Column(db.Integer, db.ForeignKey("unidades.id"), nullable=True)
     unidade = db.relationship("Unidade", back_populates="usuarios")
@@ -74,6 +99,13 @@ class Usuario(db.Model, UserMixin):
 
     def checar_senha(self, senha_texto_puro):
         return check_password_hash(self.senha_hash, senha_texto_puro)
+
+    @property
+    def totp_configurado(self):
+        """True só depois que o usuário CONFIRMOU o autenticador (digitou
+        um código válido) — ver app/utils/totp.py. Um segredo pendente
+        (QR mostrado, ainda não confirmado) não conta como configurado."""
+        return self.totp_confirmado_em is not None
 
     @property
     def is_admin(self):

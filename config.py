@@ -64,6 +64,18 @@ class Config:
     # mínimo necessário para nunca gravar a senha em texto puro no banco.
     COFRE_SENHA_PROCESSO_KEY = os.environ.get("COFRE_SENHA_PROCESSO_KEY", "")
 
+    # Autenticador em duas etapas obrigatório (TOTP — ver app/utils/totp.py
+    # e PENDENCIAS.md, seção -104). Chave Fernet PRÓPRIA, separada do cofre
+    # acima de propósito (ver docstring de app/utils/totp.py: evita que
+    # configurar uma chave de API BYOK qualquer ligue sozinho a exigência
+    # de 2FA pra empresa inteira como efeito colateral surpresa). Gere com
+    # o mesmo comando do cofre: python -c "from cryptography.fernet import
+    # Fernet; print(Fernet.generate_key().decode())". Sem esta variável
+    # configurada, a funcionalidade de autenticador fica DESLIGADA (login
+    # continua só com e-mail+senha) — nunca trava ninguém por uma env var
+    # esquecida.
+    TOTP_CIFRA_KEY = os.environ.get("TOTP_CIFRA_KEY", "")
+
     # ⚠️ DEPRECATED (correção de segurança, ver PENDENCIAS.md seção -28):
     # a API de leitura /api/v1/* (app/routes/api_integracao.py) usava um
     # único token global aqui, que dava acesso aos dados de TODAS as

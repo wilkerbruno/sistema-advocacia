@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nova senha — Sistema de Advocacia</title>
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="{{ url_for('static', filename='css/estilo.css') }}" rel="stylesheet">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-mark">Jus<span style="color: var(--brass-500);">Control</span><small>Escolher nova senha</small></div>
+
+      {% with mensagens = get_flashed_messages(with_categories=true) %}
+        {% if mensagens %}
+          {% for categoria, msg in mensagens %}
+            <div class="alert alert-{{ categoria }} py-2 px-3 small mt-3 mb-0">{{ msg }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <p class="small text-muted-doc mt-4 mb-1">Requisitos: {{ requisitos }}.</p>
+
+      <form method="post" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Nova senha</label>
+          <input type="password" name="nova_senha" class="form-control" required minlength="8" autofocus placeholder="••••••••">
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Confirmar nova senha</label>
+          <input type="password" name="confirmar_senha" class="form-control" required minlength="8" placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn btn-brass w-100">Redefinir senha</button>
+      </form>
+      <p class="text-center small mt-3 mb-0"><a href="{{ url_for('auth.login') }}">Voltar ao login</a></p>
+    </div>
+  </div>
+</body>
+</html>
