@@ -132,7 +132,14 @@ a:hover { color: var(--brass-600); }
   width: 100%;
   background: none;
   border: none;
-  font: inherit;
+  /* Só reseta a FAMÍLIA da fonte (herdada do body por padrão em alguns
+     navegadores) — nunca usar o atalho "font: inherit" aqui: ele também
+     reseta o TAMANHO da fonte, e como esta regra (elemento+2 classes) tem
+     mais especificidade que ".grupo-titulo" sozinho (2 classes), ela
+     ganhava e o texto voltava pro tamanho padrão do navegador em vez do
+     0.65rem pequeno — foi exatamente o bug reportado (\"Governança de
+     carteira\"/\"Configurações\" saindo bem maiores que \"Operação\"). */
+  font-family: inherit;
   cursor: pointer;
 }
 .sidebar-nav button.grupo-titulo:hover { color: var(--paper-100); }
