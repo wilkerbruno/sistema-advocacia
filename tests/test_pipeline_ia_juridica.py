@@ -257,3 +257,92 @@ def test_detalhe_tem_ancoras_de_decisao_prazo_e_movimentacao(app, client, login,
     assert f'id="decisao-{decisao.id}"' in html
     assert f'id="prazo-{prazo.id}"' in html
     assert f'id="mov-{mov.id}"' in html
+
+
+# ---------- item 3 (PENDENCIAS.md, seção -103): "corte por evento" ----------
+# `montar_digest_processo` antes cortava CRU em `limite_chars`, podendo
+# truncar uma movimentação/decisão no meio da frase — agora o corte é por
+# ITEM (cada linha só entra inteira ou fica de fora). Estes testes forçam
+# um `limite_chars` bem pequeno (parâmetro já exposto pela função) pra
+# tornar o truncamento determinístico, sem depender de gerar dezenas de
+# movimentações reais.
+
+def test_digest_com_limite_generoso_nao_trunca(app, cenario):
+    from datetime import datetime, timedelta
+    processo = db.session.get(Processo, cenario["processo_id"])
+    for i in range(5):
+        db.session.add(Movimentacao(processo_id=processo.id, data=datetime.utcnow() - timedelta(days=i),
+                                     texto_integral=f"Movimentação número {i} do processo.", hash_dedup=f"hd-{i}"))
+    db.session.commit()
+
+    texto, truncado = montar_digest_processo(processo)
+    assert truncado is False
+    assert "[...histórico truncado" not in texto
+    for i in range(5):
+        assert f"Movimentação número {i} do processo." in texto
+
+
+def test_digest_com_limite_apertado_trunca_e_nunca_corta_linha_no_meio(app, cenario):
+    from datetime import datetime, timedelta
+    processo = db.session.get(Processo, cenario["processo_id"])
+    linhas_esperadas = []
+    for i in range(20):
+        texto_mov = f"Movimentação número {i:02d} do processo, com um pouco mais de texto para preencher espaço."
+        db.session.add(Movimentacao(processo_id=processo.id, data=datetime.utcnow() - timedelta(days=i),
+                                     texto_integral=texto_mov, hash_dedup=f"hd-apertado-{i}"))
+        linhas_esperadas.append(f"- {(datetime.utcnow() - timedelta(days=i)).strftime('%d/%m/%Y')}: {texto_mov}")
+    db.session.commit()
+
+    # Orçamento pequeno o bastante pra caber só o cabeçalho fixo + poucas
+    # movimentações (a mais recente primeiro) — força o truncamento sem
+    # inventar um cenário artificial de milhares de itens.
+    texto, truncado = montar_digest_processo(processo, limite_chars=900)
+
+    assert truncado is True
+    assert texto.endswith("[...histórico truncado por limite de tamanho do contexto do modelo local — parte "
+                           "das movimentações/decisões/andamentos/trechos mais antigos ou menos relevantes foi "
+                           "omitida, sempre por item inteiro, nunca no meio de uma frase...]")
+
+    # Tudo que aparece no digest (fora o cabeçalho fixo e o aviso final) tem
+    # que ser uma LINHA INTEIRA de alguma das movimentações originais —
+    # nunca um pedaço cortado no meio. Verifica isso reconstruindo o corpo
+    # do texto por linha e conferindo que cada linha de movimentação
+    # (começando com "- ") bate exatamente com uma das linhas esperadas.
+    for linha in texto.splitlines():
+        if linha.startswith("- ") and "Movimentação número" in linha:
+            assert linha in linhas_esperadas, f"linha cortada no meio ou corrompida: {linha!r}"
+
+    # A movimentação mais recente (índice 0, primeira da lista "mais
+    # recente primeiro") sempre cabe — o orçamento é gasto de cima pra
+    # baixo, então ela nunca é a primeira a ser cortada.
+    assert "Movimentação número 00 do processo" in texto
+    # Com um orçamento tão apertado, nem todas as 20 movimentações cabem —
+    # confirma que o truncamento realmente aconteceu, não só que o aviso
+    # foi anexado por engano.
+    assert "Movimentação número 19 do processo" not in texto
+
+
+def test_digest_bloco_que_nao_cabe_nem_com_titulo_e_omitido_inteiro(app, cenario):
+    processo = db.session.get(Processo, cenario["processo_id"])
+    db.session.add(Decisao(processo_id=processo.id, tipo="sentenca", resultado="procedente",
+                            tese="Uma tese qualquer para a decisão de teste."))
+    db.session.commit()
+
+    # Orçamento menor que o próprio cabeçalho fixo do processo já deixa
+    # nada de dinâmico caber — nenhum bloco (nem o título) deve aparecer,
+    # e o aviso de truncamento ainda assim é anexado (nunca finge que
+    # coube tudo).
+    cabecalho_fixo = "\n\n".join([
+        f"Processo {processo.numero_processo or processo.numero_interno or ('#' + str(processo.id))} — "
+        f"área: {processo.area_direito}, classe: {processo.classe_processual or '—'}, "
+        f"assunto: {processo.assunto_cnj or '—'}.",
+        f"Tribunal/vara: {processo.tribunal or '—'} / {processo.vara or '—'}. Fase: {processo.fase or '—'}. "
+        f"Estado atual: {processo.estado_negocio_atual or '—'}.",
+        f"Cliente: {processo.cliente.nome if processo.cliente else '—'} (polo: {processo.polo_cliente or '—'}). "
+        f"Parte contrária: {processo.parte_contraria or '—'}.",
+    ])
+    texto, truncado = montar_digest_processo(processo, limite_chars=len(cabecalho_fixo) + 5)
+
+    assert truncado is True
+    assert "Decisões:" not in texto
+    assert "Uma tese qualquer" not in texto

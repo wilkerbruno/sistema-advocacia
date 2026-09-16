@@ -225,6 +225,21 @@ class Prazo(db.Model):
     descricao = db.Column(db.String(255), nullable=False)
     data_inicial = db.Column(db.Date)  # data de publicação/ciência que inicia a contagem
     data_vencimento = db.Column(db.Date, nullable=False)  # data fatal calculada (sempre editável)
+    # "Data de segurança" (item 6 da lista de pipeline de IA jurídica —
+    # PENDENCIAS.md, seção -103): data INTERNA de alerta, alguns dias úteis
+    # ANTES da data fatal — nunca substitui `data_vencimento` (que continua
+    # sendo a data legal de verdade), só dá margem de manobra pra revisar/
+    # protocolar com folga em vez de correr no último dia útil. Calculada
+    # automaticamente (ver app/utils/prazos_engine.py::calcular_data_seguranca,
+    # usando RegraProximaAcao.dias_seguranca quando a regra define um valor
+    # próprio, ou DIAS_SEGURANCA_PADRAO como default) sempre que o prazo é
+    # criado — nula só para prazos "historico_anterior" (nunca fizeram
+    # sentido ter alerta, já são do passado) e prazos criados antes desta
+    # coluna existir (nunca populada retroativamente por adivinhação).
+    # Editável independente da data de vencimento (mesmo espírito de
+    # "sempre editável" da data fatal) — quem cuida da agenda pode antecipar
+    # ou adiar só o alerta sem mexer na data legal.
+    data_seguranca = db.Column(db.Date, nullable=True)
     calculo_automatico = db.Column(db.Boolean, default=False)  # True quando veio do motor de prazos
     prioridade = db.Column(db.String(20), default="normal")
     status = db.Column(db.String(30), default="pendente")
@@ -325,6 +340,16 @@ class Documento(db.Model):
 
     enviado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
     enviado_por = db.relationship("Usuario")
+
+    # Indexação (item 3 — PENDENCIAS.md, seção -103): ver
+    # app/models/indexacao.py::DocumentoIndexado (os pedaços de verdade) e
+    # app/utils/indexacao_documentos.py (o pipeline). `indexado_em` só é
+    # preenchido quando a indexação RODOU e terminou (com ou sem OCR/
+    # embedding — ver `erro_indexacao` pra saber se algo degradou no
+    # caminho); nulo significa "ainda não processado" (documento enviado
+    # antes desta funcionalidade existir, ou job ainda não rodou/na fila).
+    indexado_em = db.Column(db.DateTime, nullable=True)
+    erro_indexacao = db.Column(db.String(500), nullable=True)
 
 
 class ProcessoAcessoRestrito(db.Model):

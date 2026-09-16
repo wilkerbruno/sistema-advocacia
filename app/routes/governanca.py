@@ -46,6 +46,7 @@ from app.utils.audiencias_engine import detectar_e_aplicar_audiencia
 from app.utils import tribunais_datajud
 from app.utils.paginacao import paginar, limitar_com_total
 from app.utils.conflito_interesse import varrer_conflitos_da_empresa
+from app.utils.indexacao_documentos import info_ultima_busca_autos
 
 governanca_bp = Blueprint("governanca", __name__)
 
@@ -852,14 +853,28 @@ def buscar_processo(processo_id):
             criadas.append(slug)
 
         if criadas:
+            # Download incremental (item 2 — PENDENCIAS.md, seção -103): NÃO
+            # bloqueia o pedido (o piloto do Agente Local ainda pode valer a
+            # pena tentar de novo, ex.: uma tentativa anterior falhou por
+            # rede) — só avisa quando o sistema já sabe que os autos
+            # completos já foram baixados e indexados antes, sem nada novo
+            # capturado desde então, pra quem pediu decidir com essa
+            # informação em vez de pedir às cegas toda vez.
+            info_anterior = info_ultima_busca_autos(processo)
             registrar_log(current_user, "solicitou_busca_autos_agente_local", "Processo", processo.id,
                           f"busca unificada (piloto, {len(criadas)} conector(es)): {', '.join(criadas)}")
             db.session.commit()
-            flash("Busca enviada para o seu Agente Local (ainda em piloto, não testado contra nenhum "
-                  f"tribunal real) nos {len(criadas)} conector(es) disponíveis — assim que o agente no "
-                  "seu computador verificar por tarefas novas, o processo completo aparece aqui. Isso "
-                  "pode levar alguns instantes, não é na hora. Se preferir não esperar, dá pra buscar "
-                  "pelos sistemas públicos agora mesmo, na tabela mais abaixo.", "success")
+            if info_anterior and info_anterior["indexado"] and info_anterior["qtd_movimentacoes_novas"] == 0:
+                flash("Busca enviada mesmo assim, mas os autos completos já tinham sido baixados e "
+                      f"indexados em {info_anterior['documento'].enviado_em.strftime('%d/%m/%Y')} e "
+                      "nenhuma movimentação nova foi capturada por nenhuma fonte desde então — talvez "
+                      "não precise esperar por este pedido novo.", "info")
+            else:
+                flash("Busca enviada para o seu Agente Local (ainda em piloto, não testado contra nenhum "
+                      f"tribunal real) nos {len(criadas)} conector(es) disponíveis — assim que o agente no "
+                      "seu computador verificar por tarefas novas, o processo completo aparece aqui. Isso "
+                      "pode levar alguns instantes, não é na hora. Se preferir não esperar, dá pra buscar "
+                      "pelos sistemas públicos agora mesmo, na tabela mais abaixo.", "success")
         else:
             flash("Já existe uma busca do Agente Local em aberto para este processo — aguarde a "
                   "resposta ou cancele na tabela abaixo antes de pedir de novo.", "info")

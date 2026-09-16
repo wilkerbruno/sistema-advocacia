@@ -397,20 +397,56 @@ def _montar_dossie_tipo_peca(processo, tipo_peca):
     return "\n".join(linhas)
 
 
+def _montar_bloco_trechos_relevantes(processo, consulta_semantica):
+    """
+    Item 3 (ingestão e indexação — PENDENCIAS.md, seção -103): trechos dos
+    DOCUMENTOS anexados/indexados mais relevantes para `consulta_semantica`
+    (busca por similaridade quando a empresa tem chave do Gemini
+    configurada, ver app/utils/indexacao_documentos.py; senão, os chunks
+    mais recentes — nunca finge relevância que não foi calculada). Devolve
+    None se não há nenhum documento indexado ainda para este processo, pra
+    `montar_digest_processo` simplesmente omitir o bloco.
+    """
+    from app.utils.indexacao_documentos import buscar_trechos_relevantes
+
+    trechos = buscar_trechos_relevantes(processo, consulta_semantica, top_k=6)
+    if not trechos:
+        return None
+    linhas = []
+    for t in trechos:
+        origem = f"pág. {t.pagina}" if t.pagina else "documento"
+        nome_doc = t.documento.nome_original if t.documento else "documento"
+        prefixo_ocr = " [texto por OCR — confira antes de confiar]" if t.origem_texto == "ocr" else ""
+        linhas.append(f"- ({nome_doc}, {origem}{prefixo_ocr}): {t.texto[:600]}")
+    return linhas
+
+
 def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_ITENS,
-                            limite_chars=LIMITE_PADRAO_CHARS):
+                            limite_chars=LIMITE_PADRAO_CHARS, consulta_semantica=None):
     """Monta o texto de contexto real do processo injetado no prompt. Devolve
     (texto, truncado) — truncado=True quando o histórico teve que ser cortado.
 
     `tipo_peca` (item 4 — PENDENCIAS.md, seção -101): quando informado e
     presente em TIPOS_PECA_COM_DOSSIE, insere um bloco de "dossiê mínimo
-    suficiente" logo no início do digest (ver `_montar_dossie_tipo_peca`) —
-    de propósito ANTES dos blocos genéricos de prazos/movimentações/decisões
-    abaixo, porque o corte por `limite_chars` é sempre do FIM do texto: um
-    processo com histórico grande poderia truncar exatamente os itens mais
-    importantes para a peça se eles ficassem depois na ordem.
+    suficiente" logo no início do digest (ver `_montar_dossie_tipo_peca`).
+
+    `consulta_semantica` (item 3 — PENDENCIAS.md, seção -103): texto livre
+    usado pra buscar, por similaridade, os trechos mais relevantes dos
+    DOCUMENTOS anexados/indexados (não confundir com movimentações/decisões
+    abaixo, que vêm do cadastro estruturado) — normalmente a delimitação do
+    objeto ou o tipo de peça pedido (ver `gerar_analise`).
+
+    "Corte por evento" (item 3): ao contrário da versão anterior deste
+    módulo (que juntava tudo e cortava cru em `limite_chars` caracteres,
+    podendo truncar uma movimentação/decisão no meio da frase), o corte
+    aqui é por ITEM — cada linha de cada bloco (um prazo, uma movimentação,
+    um trecho de documento...) só entra INTEIRA ou fica de fora; nenhuma
+    linha é cortada pela metade. Os blocos "fixos" (cabeçalho do processo e
+    o dossiê por tipo de peça) sempre entram inteiros primeiro — o
+    orçamento de caracteres é sempre gasto de cima pra baixo, então
+    colocá-los cedo garante que nunca são os primeiros a serem cortados.
     """
-    partes = [
+    partes_fixas = [
         f"Processo {processo.numero_processo or processo.numero_interno or ('#' + str(processo.id))} — "
         f"área: {processo.area_direito}, classe: {processo.classe_processual or '—'}, "
         f"assunto: {processo.assunto_cnj or '—'}.",
@@ -420,10 +456,14 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
         f"Parte contrária: {processo.parte_contraria or '—'}.",
     ]
     if processo.valor_causa:
-        partes.append(f"Valor da causa: R$ {processo.valor_causa}.")
-
+        partes_fixas.append(f"Valor da causa: R$ {processo.valor_causa}.")
     if tipo_peca in TIPOS_PECA_COM_DOSSIE:
-        partes.append(_montar_dossie_tipo_peca(processo, tipo_peca))
+        partes_fixas.append(_montar_dossie_tipo_peca(processo, tipo_peca))
+
+    # Cada bloco dinâmico é (título, [linhas]) — só o título fixo entra
+    # inteiro ou de fora; as linhas entram uma a uma, na ordem, até o
+    # orçamento acabar (ver loop de montagem final abaixo).
+    blocos_dinamicos = []
 
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora —
     # já foi revisado e regularizado, não é um prazo pendente de verdade;
@@ -437,8 +477,15 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
         # pedida no system prompt (RESUMO_SYSTEM) — o modelo local (pequeno)
         # tende a "copiar" de volta um bloco do contexto quando o rótulo bate
         # com o título de seção pedido, duplicando a lista em duas seções.
-        partes.append("Prazos ainda em aberto no cadastro (usar só na seção PRAZOS PENDENTES da "
-                       "resposta, não repetir em nenhuma outra seção):\n" + "\n".join(linhas))
+        blocos_dinamicos.append(("Prazos ainda em aberto no cadastro (usar só na seção PRAZOS PENDENTES "
+                                  "da resposta, não repetir em nenhuma outra seção):", linhas))
+
+    if consulta_semantica:
+        linhas_trechos = _montar_bloco_trechos_relevantes(processo, consulta_semantica)
+        if linhas_trechos:
+            blocos_dinamicos.append(("Trechos relevantes de documentos anexados e indexados (busca por "
+                                      "similaridade — use como contexto adicional, mas confira o "
+                                      "documento original antes de citar como fato certo):", linhas_trechos))
 
     movs = [m for m in processo.movimentacoes if not m.deletado_em][:limite_itens]
     if movs:
@@ -449,29 +496,52 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
         # não misturar item de movimentação com item de prazo na resposta
         # (já aconteceu: o modelo listou movimentações como se fossem
         # prazos pendentes, com data e tudo, dentro da seção errada).
-        partes.append("Histórico de movimentações capturadas, mais recente primeiro (usar só na seção "
-                       "ÚLTIMOS ATOS RELEVANTES da resposta — isto aqui NÃO são prazos, mesmo tendo "
-                       "data; não colocar nenhum destes itens na seção PRAZOS PENDENTES):\n"
-                       + "\n".join(linhas))
+        blocos_dinamicos.append(("Histórico de movimentações capturadas, mais recente primeiro (usar só "
+                                  "na seção ÚLTIMOS ATOS RELEVANTES da resposta — isto aqui NÃO são "
+                                  "prazos, mesmo tendo data; não colocar nenhum destes itens na seção "
+                                  "PRAZOS PENDENTES):", linhas))
 
     decisoes = list(processo.decisoes)[:limite_itens]
     if decisoes:
         linhas = [f"- {d.data.strftime('%d/%m/%Y') if d.data else '—'} ({d.tipo or 'decisão'}): "
                   f"{(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}" for d in decisoes]
-        partes.append("Decisões:\n" + "\n".join(linhas))
+        blocos_dinamicos.append(("Decisões:", linhas))
 
     andamentos = list(processo.andamentos)[:limite_itens]
     if andamentos:
         linhas = [f"- {a.data.strftime('%d/%m/%Y')} ({a.tipo}): {a.descricao}" for a in andamentos]
-        partes.append("Andamentos registrados pela equipe:\n" + "\n".join(linhas))
+        blocos_dinamicos.append(("Andamentos registrados pela equipe:", linhas))
 
-    texto = "\n\n".join(partes)
+    texto = "\n\n".join(partes_fixas)
     truncado = False
-    if len(texto) > limite_chars:
-        texto = texto[:limite_chars]
-        truncado = True
+    orcamento = limite_chars - len(texto)
+
+    for titulo, linhas in blocos_dinamicos:
+        if orcamento <= len(titulo) + 1:
+            truncado = True
+            continue  # nem o título deste bloco cabe mais — pula o bloco inteiro, tenta o próximo
+
+        linhas_incluidas = []
+        orcamento_bloco = orcamento - len(titulo) - 1  # +1 do "\n" entre título e primeira linha
+        for linha in linhas:
+            custo = len(linha) + 1  # +1 do "\n" de separação entre linhas
+            if custo > orcamento_bloco:
+                truncado = True
+                break
+            linhas_incluidas.append(linha)
+            orcamento_bloco -= custo
+
+        if not linhas_incluidas:
+            continue  # título cabia, mas nenhuma linha coube — bloco inteiro fica de fora
+
+        bloco_texto = titulo + "\n" + "\n".join(linhas_incluidas)
+        texto += "\n\n" + bloco_texto
+        orcamento -= len(bloco_texto) + 2  # +2 do "\n\n" de separação entre blocos
+
+    if truncado:
         texto += ("\n\n[...histórico truncado por limite de tamanho do contexto do modelo local — parte "
-                  "das movimentações/decisões/andamentos mais antigos foi omitida...]")
+                  "das movimentações/decisões/andamentos/trechos mais antigos ou menos relevantes foi "
+                  "omitida, sempre por item inteiro, nunca no meio de uma frase...]")
 
     return texto, truncado
 
@@ -509,13 +579,34 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
         raise ValueError(f"Tipo de análise desconhecido: {tipo}")
 
     usa_referencia = tipo == "rascunho_peticao" and texto_referencia
+
+    # Consulta usada pela busca semântica nos documentos indexados (item 3
+    # — PENDENCIAS.md, seção -103, ver montar_digest_processo/
+    # buscar_trechos_relevantes): a delimitação do objeto é o texto mais
+    # específico disponível (quando existe); na falta dela, o tipo de peça;
+    # na falta dos dois (resumo sem tipo_peca), um resumo genérico do
+    # próprio processo — ainda assim mais útil que nenhuma busca.
+    if delimitacao is not None:
+        def _campo(nome):
+            valor = delimitacao.get(nome) if isinstance(delimitacao, dict) else getattr(delimitacao, nome, None)
+            return (valor or "").strip()
+        consulta_semantica = " ".join(filter(None, [
+            _campo("materia_fato"), _campo("materia_direito"), _campo("tese_a_sustentar"),
+        ])) or None
+    elif tipo_peca:
+        consulta_semantica = f"{NOMES_TIPOS_PECA.get(tipo_peca, tipo_peca)} {instrucao or ''}".strip()
+    else:
+        consulta_semantica = (instrucao or f"{processo.assunto_cnj or ''} {processo.classe_processual or ''} "
+                               f"{processo.area_direito or ''}").strip() or None
+
     # Com referência de estilo, o digest do processo abre mão de parte do
     # próprio orçamento pra abrir espaço pro trecho de referência dentro da
     # janela de contexto pequena do modelo local (ver comentário de
     # max_tokens logo abaixo) — sem isso, um processo com histórico grande
     # MAIS uma referência de estilo grande estourariam a janela juntos.
     digest, truncado = montar_digest_processo(
-        processo, tipo_peca=tipo_peca, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS
+        processo, tipo_peca=tipo_peca, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS,
+        consulta_semantica=consulta_semantica,
     )
 
     if tipo == "resumo":

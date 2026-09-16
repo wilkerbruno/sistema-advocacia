@@ -212,3 +212,18 @@ class Config:
     # isso consome a cota gratuita do Sentry bem mais rápido, e o objetivo
     # deste item é monitorar ERRO, não performance.
     SENTRY_TRACES_SAMPLE_RATE = float(os.environ.get("SENTRY_TRACES_SAMPLE_RATE", "0"))
+
+    # Ingestão e indexação de documentos (item 3 — PENDENCIAS.md, seção
+    # -103): OCR de PDF escaneado (ver app/utils/ocr_documento.py) e
+    # chunking/embedding (ver app/utils/indexacao_documentos.py).
+    # OCR_MAX_PAGINAS: teto de páginas OCR'd por documento numa única
+    # rodada de indexação — o OCR é lento (roda por CPU, uma imagem por
+    # página) e "dez mil páginas" (cenário citado no próprio pedido) não
+    # pode travar o worker da fila por horas; páginas além do teto ficam
+    # sem texto (marcadas como tal), nunca travam a indexação do resto.
+    OCR_MAX_PAGINAS = int(os.environ.get("OCR_MAX_PAGINAS", "80"))
+    # Tamanho-alvo (em caracteres) de cada pedaço (chunk) indexado — pedaços
+    # menores dão busca por similaridade mais precisa; maiores dão menos
+    # chamadas de embedding (custo/tempo). 1500 é um meio-termo comum para
+    # embeddings de texto jurídico em português.
+    INDEXACAO_TAMANHO_CHUNK_CHARS = int(os.environ.get("INDEXACAO_TAMANHO_CHUNK_CHARS", "1500"))

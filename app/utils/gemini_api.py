@@ -156,6 +156,89 @@ def _extrair_erro(resposta):
         return resposta.text[:300]
 
 
+MODELO_EMBEDDING_PADRAO = "gemini-embedding-001"  # ver https://ai.google.dev/api/embeddings
+TAMANHO_LOTE_EMBEDDING = 90  # documentação pública não confirma um teto oficial pro batchEmbedContents — valor conservador, abaixo do "100" citado informalmente por integrações de terceiros
+
+
+def gerar_embeddings_lote(textos, api_key, modelo=None):
+    """
+    Gera embeddings (vetor de números) para uma lista de textos, usada pela
+    indexação de documentos (item 3 — PENDENCIAS.md, seção -103, ver
+    app/utils/indexacao_documentos.py). Usa o endpoint `batchEmbedContents`
+    (várias chamadas de uma vez, em vez de uma requisição HTTP por chunk —
+    mesmo endpoint/formato documentado em https://ai.google.dev/api/embeddings,
+    confirmado por pesquisa; não foi possível testar contra uma chamada real
+    a partir deste ambiente de geração, mesma limitação de rede já registrada
+    no topo deste módulo para `gerar_resposta`).
+
+    Devolve uma lista de listas de float, NA MESMA ORDEM E TAMANHO de
+    `textos` — nunca reordena nem descarta silenciosamente um item; se o
+    Google devolver menos embeddings do que textos enviados (resposta
+    malformada), levanta erro em vez de casar os índices errados.
+
+    Processa em lotes de `TAMANHO_LOTE_EMBEDDING` textos por chamada HTTP —
+    documentos grandes (dezenas/centenas de chunks) não viram uma única
+    requisição gigante nem centenas de requisições individuais.
+    """
+    if not api_key:
+        raise GeminiIndisponivelError("Nenhuma chave de API do Gemini configurada.")
+    if not textos:
+        return []
+
+    modelo = modelo or MODELO_EMBEDDING_PADRAO
+    url = f"{API_BASE}/{modelo}:batchEmbedContents"
+    headers = {"x-goog-api-key": api_key, "content-type": "application/json"}
+
+    resultado = []
+    for inicio in range(0, len(textos), TAMANHO_LOTE_EMBEDDING):
+        lote = textos[inicio:inicio + TAMANHO_LOTE_EMBEDDING]
+        payload = {
+            "requests": [
+                {"model": f"models/{modelo}", "content": {"parts": [{"text": t}]}}
+                for t in lote
+            ]
+        }
+        try:
+            resposta = requests.post(url, json=payload, headers=headers, timeout=TIMEOUT_SEGUNDOS)
+        except requests.RequestException as e:
+            raise GeminiIndisponivelError(f"Falha de conexão com a API de embeddings do Gemini: {e}") from e
+
+        if resposta.status_code == 400:
+            detalhe = _extrair_erro(resposta)
+            if "api key not valid" in detalhe.lower() or "api_key_invalid" in detalhe.lower():
+                raise GeminiIndisponivelError(
+                    "O Google recusou a chave de API (400 — chave inválida, revogada ou digitada errada)."
+                )
+            raise GeminiIndisponivelError(f"O Google recusou a requisição de embedding (400): {detalhe}")
+        if resposta.status_code == 403:
+            raise GeminiIndisponivelError(
+                "O Google recusou a requisição de embedding por permissão (403) — confira faturamento "
+                "e acesso ao modelo de embedding na chave configurada."
+            )
+        if resposta.status_code == 429:
+            raise GeminiIndisponivelError(
+                "A conta Google desta empresa atingiu o limite de uso/taxa no momento (429) ao gerar "
+                "embeddings. Tente novamente em instantes."
+            )
+        if resposta.status_code != 200:
+            raise GeminiIndisponivelError(
+                f"A API de embeddings do Gemini respondeu {resposta.status_code} de forma inesperada: "
+                f"{resposta.text[:300]}"
+            )
+
+        corpo = resposta.json()
+        embeddings = corpo.get("embeddings") or []
+        if len(embeddings) != len(lote):
+            raise GeminiIndisponivelError(
+                f"A API de embeddings devolveu {len(embeddings)} vetor(es) para {len(lote)} texto(s) "
+                "enviados — resposta inconsistente, abortando para não casar embedding com chunk errado."
+            )
+        for item in embeddings:
+            resultado.append((item.get("values") or []))
+
+    return resultado
+
+
 def validar_chave(api_key, modelo=None):
     """
     Faz uma chamada mínima (5 tokens de resposta) só pra confirmar que a

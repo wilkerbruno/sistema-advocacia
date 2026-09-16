@@ -33,6 +33,7 @@ from werkzeug.utils import secure_filename
 from app.extensions import db
 from app.models import AgenteLocalPareado, SolicitacaoBuscaAutos, Documento
 from app.utils.notificacoes import registrar_log
+from app.utils.fila import enfileirar
 
 agente_local_api_bp = Blueprint("agente_local_api", __name__)
 
@@ -140,6 +141,11 @@ def enviar_resultado(tarefa_id):
     registrar_log(tarefa.solicitado_por, "agente_local_entregou_autos", "Processo",
                    tarefa.processo_id, f"{nome_original} (conector: {tarefa.tribunal_conector})")
     db.session.commit()
+    # Indexação em segundo plano (item 3 — PENDENCIAS.md, seção -103) — os
+    # autos completos trazidos pelo Agente Local são exatamente o caso de
+    # uso central do item ("dez mil páginas"): nunca roda dentro desta
+    # requisição, que é o próprio agente do advogado esperando resposta.
+    enfileirar("app.jobs.indexacao_jobs.indexar_documento_job", doc.id)
     return jsonify(ok=True, documento_id=doc.id)
 
 

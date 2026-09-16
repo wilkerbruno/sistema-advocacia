@@ -12,7 +12,7 @@ from sqlalchemy import func
 from app.models import (
     Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
     Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito, LogAtividade,
-    SolicitacaoBuscaAutos, DelimitacaoObjeto,
+    SolicitacaoBuscaAutos, DelimitacaoObjeto, DocumentoIndexado,
 )
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
@@ -35,6 +35,8 @@ from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSup
 from app.utils.eproc_links import links_eproc_estadual, links_eproc_federal
 from app.utils.projudi_links import links_projudi_estadual
 from app.utils.creta_tucujuris_links import links_outros_estadual, links_outros_federal
+from app.utils.prazos_engine import calcular_data_seguranca
+from app.utils.indexacao_documentos import info_ultima_busca_autos
 
 processos_bp = Blueprint("processos", __name__)
 
@@ -341,6 +343,10 @@ def detalhe(processo_id):
     tem_agente_local_pareado = (
         AgenteLocalPareado.query.filter_by(usuario_id=current_user.id, ativo=True).first() is not None
     )
+    # Download incremental (item 2 — PENDENCIAS.md, seção -103): mostra
+    # ANTES do clique, não só depois, se os autos completos já foram
+    # baixados/indexados e se há algo novo capturado desde então.
+    info_ultima_busca = info_ultima_busca_autos(processo)
 
     # Links de conveniência pro eproc (PENDENCIAS.md, seção -81) — NÃO é
     # captura automática, só abre o site oficial do tribunal já com o
@@ -378,6 +384,7 @@ def detalhe(processo_id):
                             solicitacoes_busca_autos=solicitacoes_busca_autos,
                             opcoes_conectores_tribunal=tribunais_conectores.opcoes_para_formulario(),
                             tem_agente_local_pareado=tem_agente_local_pareado,
+                            info_ultima_busca=info_ultima_busca,
                             eproc_links=eproc_links,
                             projudi_links=projudi_links,
                             outros_links=outros_links,
@@ -583,10 +590,19 @@ def add_prazo(processo_id):
     checar_acesso_processo_ou_403(processo)
 
     responsavel_id = request.form.get("responsavel_id") or current_user.id
+    data_vencimento = _parse_data(request.form["data_vencimento"])
+    # "Data de segurança" (item 6 — PENDENCIAS.md, seção -103): mesmo
+    # cadastro manual ganha uma data de alerta automática (dias úteis antes
+    # da data informada) — sempre editável depois, campo próprio no
+    # formulário permite sobrescrever o cálculo padrão na hora do cadastro.
+    data_seguranca_form = request.form.get("data_seguranca")
+    data_seguranca = (_parse_data(data_seguranca_form) if data_seguranca_form
+                       else calcular_data_seguranca(data_vencimento, tribunal=processo.tribunal))
     prazo = Prazo(
         processo_id=processo.id,
         descricao=request.form["descricao"],
-        data_vencimento=_parse_data(request.form["data_vencimento"]),
+        data_vencimento=data_vencimento,
+        data_seguranca=data_seguranca,
         prioridade=request.form.get("prioridade", "normal"),
         observacoes=request.form.get("observacoes"),
         responsavel_id=responsavel_id,
@@ -905,8 +921,32 @@ def add_documento(processo_id):
     db.session.add(doc)
     registrar_log(current_user, "upload_documento", "Processo", processo.id, nome_original)
     db.session.commit()
-    flash("Documento enviado.", "success")
+    # Indexação em segundo plano (item 3 — PENDENCIAS.md, seção -103): só
+    # depois do commit acima, pro job (processo separado) já encontrar a
+    # linha do Documento no banco. Nunca bloqueia o upload — se a fila/Redis
+    # estiver fora do ar, o documento fica só "não indexado ainda", nunca
+    # falha o upload em si.
+    enfileirar("app.jobs.indexacao_jobs.indexar_documento_job", doc.id)
+    flash("Documento enviado — a indexação para busca/IA roda em segundo plano.", "success")
     return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
+
+@processos_bp.route("/documentos/<int:documento_id>/reindexar", methods=["POST"])
+@login_required
+def reindexar_documento(documento_id):
+    """
+    Dispara (de novo) a indexação de um documento já anexado (item 3 —
+    PENDENCIAS.md, seção -103) — útil pra documentos enviados antes desta
+    funcionalidade existir, ou cuja indexação anterior falhou (ex.: OCR
+    ainda não estava instalado no servidor na época, chave do Gemini
+    cadastrada depois). Idempotente: reindexar apaga os chunks antigos e
+    recria (ver app/utils/indexacao_documentos.py::indexar_documento).
+    """
+    doc = db.get_or_404(Documento, documento_id)
+    checar_acesso_processo_ou_403(doc.processo)
+    enfileirar("app.jobs.indexacao_jobs.indexar_documento_job", doc.id)
+    flash(f'Reindexação de "{doc.nome_original}" solicitada — roda em segundo plano.', "info")
+    return redirect(url_for("processos.detalhe", processo_id=doc.processo_id))
 
 
 @processos_bp.route("/documentos/<int:documento_id>/baixar")
@@ -955,6 +995,11 @@ def excluir_documento(documento_id):
     caminho = os.path.join(current_app.config["UPLOAD_FOLDER"], str(processo_id), doc.nome_arquivo)
     if os.path.exists(caminho):
         os.remove(caminho)
+    # Chunks indexados (item 3 — PENDENCIAS.md, seção -103) não têm cascade
+    # de exclusão configurado no banco (documentos_indexados.documento_id é
+    # FK NOT NULL) — apaga explicitamente antes, senão o DELETE do
+    # documento falharia por violação de integridade referencial.
+    DocumentoIndexado.query.filter_by(documento_id=doc.id).delete()
     db.session.delete(doc)
     registrar_log(current_user, "excluiu_documento", "Processo", processo_id, doc.nome_original)
     db.session.commit()

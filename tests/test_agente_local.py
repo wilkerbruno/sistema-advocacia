@@ -275,12 +275,20 @@ def test_api_lista_so_tarefas_do_proprio_usuario(client, cenario, agente_autenti
     assert tarefas[0]["id"] == pedido_meu.id
 
 
-def test_api_iniciar_enviar_resultado_e_criar_documento(client, cenario, agente_autenticado, app):
+def test_api_iniciar_enviar_resultado_e_criar_documento(client, cenario, agente_autenticado, app, monkeypatch):
     pedido = SolicitacaoBuscaAutos(processo_id=cenario["processo_id"], tribunal_conector="pje_mni",
                                     solicitado_por_id=cenario["adv_id"])
     db.session.add(pedido)
     db.session.commit()
     pedido_id = pedido.id
+
+    # A entrega do resultado enfileira a indexação em segundo plano (item 3
+    # — PENDENCIAS.md, seção -103) — sem Redis disponível no ambiente de
+    # teste, mocka `enfileirar` (mesmo padrão de tests/test_pipeline_ia_juridica.py).
+    import app.routes.agente_local_api as mod_agente_local_api
+    chamadas_fila = []
+    monkeypatch.setattr(mod_agente_local_api, "enfileirar",
+                         lambda func_path, *args, **kwargs: chamadas_fila.append((func_path, args)))
 
     r_iniciar = client.post(f"/api/agente-local/tarefas/{pedido_id}/iniciar", headers=agente_autenticado["headers"])
     assert r_iniciar.status_code == 200

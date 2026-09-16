@@ -13,8 +13,18 @@ WORKDIR /app
 # geração de IA (ver app/utils/fila.py, docker/entrypoint.sh e
 # PENDENCIAS.md, seção -32) — roda dentro deste mesmo container, de
 # propósito, pra não exigir configurar um serviço novo no EasyPanel.
+# tesseract-ocr + tesseract-ocr-por + poppler-utils: OCR de PDF escaneado
+# (item 3 da lista de pipeline de IA jurídica — PENDENCIAS.md, seção -103,
+# ver app/utils/ocr_documento.py) — pytesseract/pdf2image (requirements.txt)
+# são só wrappers Python, quem faz o OCR de verdade é o binário `tesseract`
+# (motor) e quem rasteriza cada página do PDF em imagem antes disso é o
+# `poppler` (usado por pdf2image); sem os dois pacotes de sistema aqui,
+# `ocr_disponivel()` devolve False e a indexação degrada honestamente (PDF
+# escaneado fica sem texto, nunca trava nem finge sucesso — ver docstring
+# de ocr_documento.py).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     default-libmysqlclient-dev pkg-config gcc g++ cmake cron redis-server redis-tools \
+    tesseract-ocr tesseract-ocr-por poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

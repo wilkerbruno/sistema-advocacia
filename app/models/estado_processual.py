@@ -81,5 +81,12 @@ class RegraProximaAcao(db.Model):
     unidade_prazo = db.Column(db.String(20), default="dias_uteis")  # dias_uteis, dias_corridos, data_evento
     observacao_prazo = db.Column(db.String(120))  # ex: "conforme despacho", "data da audiência"
     responsavel_sugerido_papel = db.Column(db.String(20))  # advogado, gestor...
+    # "Data de segurança" (item 6 — PENDENCIAS.md, seção -103): quantos dias
+    # ÚTEIS antes da data fatal o alerta interno deve cair, PARA ESTA regra
+    # específica (ex: um prazo curto e crítico pode merecer 3-4 dias de
+    # margem; um prazo longo e de rotina, 1 dia já basta) — nulo usa
+    # DIAS_SEGURANCA_PADRAO (app/utils/prazos_engine.py), nunca fica sem
+    # data de segurança nenhuma por falta de configuração.
+    dias_seguranca = db.Column(db.Integer, nullable=True)
     ativo = db.Column(db.Boolean, default=True)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)

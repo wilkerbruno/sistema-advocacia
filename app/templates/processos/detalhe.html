@@ -74,6 +74,17 @@
           contra tribunal real): o resultado só aparece depois que o agente no seu computador verificar
           a tarefa — acompanhe na tabela "Buscar autos completos" mais abaixo.
         </div>
+        {% if info_ultima_busca %}
+        <div class="small mb-1" style="{{ 'color: var(--status-warn);' if info_ultima_busca.indexado and info_ultima_busca.qtd_movimentacoes_novas == 0 }}">
+          Já baixamos os autos completos em {{ info_ultima_busca.documento.enviado_em|data_br }}
+          ({{ "indexados" if info_ultima_busca.indexado else "ainda não indexados" }}) —
+          {% if info_ultima_busca.qtd_movimentacoes_novas %}
+          {{ info_ultima_busca.qtd_movimentacoes_novas }} movimentação(ões) nova(s) capturada(s) desde então.
+          {% else %}
+          nenhuma movimentação nova capturada por nenhuma fonte desde então; talvez não precise buscar de novo.
+          {% endif %}
+        </div>
+        {% endif %}
         <form method="post" action="{{ url_for('governanca.buscar_processo', processo_id=processo.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button class="btn btn-brass btn-sm w-100">Buscar processo</button>
@@ -259,8 +270,9 @@
         <div class="card-doc tab p-3 mb-3">
           <form method="post" action="{{ url_for('processos.add_prazo', processo_id=processo.id) }}" class="row g-2">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <div class="col-md-5"><input type="text" name="descricao" class="form-control form-control-sm" placeholder="Descrição do prazo" required></div>
-            <div class="col-md-3"><input type="date" name="data_vencimento" class="form-control form-control-sm" required></div>
+            <div class="col-md-4"><input type="text" name="descricao" class="form-control form-control-sm" placeholder="Descrição do prazo" required></div>
+            <div class="col-md-2"><input type="date" name="data_vencimento" class="form-control form-control-sm" required title="Data fatal (vencimento legal)"></div>
+            <div class="col-md-2"><input type="date" name="data_seguranca" class="form-control form-control-sm" title="Data de segurança (opcional — se em branco, calcula automaticamente alguns dias úteis antes do vencimento)"></div>
             <div class="col-md-2">
               <select name="prioridade" class="form-select form-select-sm">
                 <option value="normal">Normal</option>
@@ -271,6 +283,10 @@
             </div>
             <div class="col-md-2"><button class="btn btn-brass btn-sm w-100">Adicionar</button></div>
           </form>
+          <p class="small text-muted-doc mt-2 mb-0">
+            "Data de segurança": alerta interno alguns dias úteis antes do vencimento legal — se deixar
+            em branco, o sistema calcula sozinho (mesma lógica do motor de prazos automático).
+          </p>
         </div>
         {% if processo.prazos %}
         {% set desc_generica = "Análise necessária — ato sem regra de próxima ação cadastrada" %}
@@ -304,6 +320,14 @@
                 {% endif %}
               </td>
               <td>{{ p.data_vencimento|data_br }}</td>
+              <td>
+                {% if p.data_seguranca %}
+                {{ p.data_seguranca|data_br }}
+                {% if p.status in status_em_aberto and p.data_seguranca <= hoje and p.data_vencimento > hoje %}
+                <br><span class="badge-status badge-alta">dentro da margem de segurança</span>
+                {% endif %}
+                {% else %}—{% endif %}
+              </td>
               <td><span class="badge-status badge-{{ p.prioridade }}">{{ p.prioridade }}</span></td>
               <td><span class="badge-status badge-{{ p.status }}">{{ p.status }}</span></td>
               <td>
@@ -364,7 +388,7 @@
         <h3 class="font-display" style="font-size: 1.05rem;">Prazos em aberto ({{ prazos_abertos|length }})</h3>
         {% if prazos_abertos %}
         <table class="table-doc mb-4">
-          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Segurança</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {% for p in prazos_abertos %}{{ linha_prazo(p) }}{% endfor %}
           </tbody>
@@ -376,7 +400,7 @@
         <h3 class="font-display" style="font-size: 1.05rem;">Prazos concluídos e finalizados ({{ prazos_concluidos|length }})</h3>
         {% if prazos_concluidos %}
         <table class="table-doc">
-          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
+          <thead><tr><th>Descrição</th><th>Vencimento</th><th>Segurança</th><th>Prioridade</th><th>Status</th><th></th></tr></thead>
           <tbody>
             {% for p in prazos_concluidos %}{{ linha_prazo(p) }}{% endfor %}
           </tbody>
@@ -461,7 +485,7 @@
         </div>
         {% if processo.documentos %}
         <table class="table-doc">
-          <thead><tr><th>Arquivo</th><th>Categoria</th><th>Enviado em</th><th></th></tr></thead>
+          <thead><tr><th>Arquivo</th><th>Categoria</th><th>Enviado em</th><th>Indexação</th><th></th></tr></thead>
           <tbody>
             {% for d in processo.documentos %}
             <tr>
@@ -469,12 +493,31 @@
               <td>{{ d.categoria }}</td>
               <td>{{ d.enviado_em|data_hora_br }}</td>
               <td>
+                {% if d.indexado_em %}
+                  {% set qtd_chunks = d.chunks_indexados.count() %}
+                  {% if qtd_chunks %}
+                  <span class="badge-status badge-cumprido" title="Indexado em {{ d.indexado_em|data_hora_br }}">indexado ({{ qtd_chunks }})</span>
+                  {% else %}
+                  <span class="badge-status badge-perdido" title="{{ d.erro_indexacao or '—' }}">falhou</span>
+                  {% endif %}
+                  {% if d.erro_indexacao and qtd_chunks %}
+                  <br><span class="small text-muted-doc">{{ d.erro_indexacao }}</span>
+                  {% endif %}
+                {% else %}
+                <span class="badge-status badge-pendente">não indexado</span>
+                {% endif %}
+              </td>
+              <td>
                 <a href="{{ url_for('processos.baixar_documento', documento_id=d.id) }}" class="btn btn-outline-doc btn-sm">Baixar</a>
                 {% if current_user.is_admin or current_user.is_gestor %}
                 <a href="{{ url_for('processos.historico_documento', documento_id=d.id) }}" class="btn btn-outline-doc btn-sm" title="Quem já baixou este documento">
                   Histórico{% if contagem_downloads_documentos.get(d.id) %} ({{ contagem_downloads_documentos.get(d.id) }}){% endif %}
                 </a>
                 {% endif %}
+                <form method="post" action="{{ url_for('processos.reindexar_documento', documento_id=d.id) }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="btn btn-outline-doc btn-sm">{{ "Reindexar" if d.indexado_em else "Indexar" }}</button>
+                </form>
                 <form method="post" action="{{ url_for('processos.excluir_documento', documento_id=d.id) }}" class="d-inline">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <button class="btn btn-outline-doc btn-sm">Excluir</button>

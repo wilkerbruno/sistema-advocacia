@@ -1,5 +1,107 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -103. Itens 6, 3 e 2 da lista de pipeline de IA jurídica: data de segurança, ingestão/indexação e download incremental dos autos
+
+**Pedido:** "então finalize os itens 6, 3 e 2" da lista de 10 itens analisada na seção -101 (onde
+tinham sido diagnosticados como "em grande parte já implementado, só falta o nome" — item 6 —,
+"NÃO implementado" — item 3 — e "infraestrutura parcial, sem lógica incremental" — item 2).
+
+### Item 6 — Prazo e data de segurança
+
+`Prazo.data_seguranca` (nova coluna, nullable): uma data de ALERTA INTERNO, distinta da data fatal
+(`Prazo.data_vencimento`) — por padrão `DIAS_SEGURANCA_PADRAO = 2` dias ÚTEIS antes da data fatal,
+reaproveitando o MESMO calendário de feriados/recesso (`eh_dia_util`) já usado por
+`calcular_data_fatal`, então nunca cai num fim de semana/feriado por acidente. Configurável por regra
+(`RegraProximaAcao.dias_seguranca`, nullable — cai no padrão quando não preenchido) e sempre editável
+manualmente no cadastro de prazo (nunca fica "preso" ao cálculo automático — o campo aceita
+sobrescrita direta no formulário, igual já acontecia com `data_vencimento`). Nunca cai antes da
+`data_inicial` do próprio prazo, mesmo com `dias_seguranca` grande (`data_minima` como piso). Calculada
+tanto pelo motor de próxima ação (`aplicar_regra_proxima_acao`, regra encontrada OU prazo genérico
+"análise necessária") quanto no cadastro manual (`processos.add_prazo`). Exibida nas duas tabelas de
+prazos do processo, com um selo visual quando o processo já está dentro da margem de segurança mas
+ainda não venceu de fato.
+
+### Item 3 — Ingestão e indexação
+
+Pipeline completo, reaproveitando a arquitetura de fila já existente (`app/utils/fila.py`/RQ) para
+nunca bloquear o upload:
+
+- **Extração por página/seção:** PDF (pypdf, página a página), .docx (python-docx, por parágrafo) e
+  .txt — outro tipo de arquivo é recusado com erro claro (`erro_indexacao`), nunca finge sucesso.
+- **OCR de PDF escaneado (`app/utils/ocr_documento.py`):** quando uma página de PDF vem com a camada
+  de texto nativa quase vazia (< 20 caracteres — indício de página escaneada/imagem), tenta OCR via
+  `pytesseract`+`pdf2image`. Depende de BINÁRIOS de sistema operacional (`tesseract-ocr`,
+  `tesseract-ocr-por`, `poppler-utils` — adicionados ao `Dockerfile`), não só de wheel Python; se não
+  estiverem instalados no servidor, degrada honestamente (`ocr_disponivel()` devolve False, a página
+  fica sem texto, nunca finge que rodou OCR). Cada chunk guarda a própria origem (`camada_pdf`/`ocr`/
+  `docx`/`txt`) — nunca esconde que um trecho veio de OCR de quem for conferir depois.
+- **"Corte por evento" (`particionar_em_chunks`):** cada chunk é uma unidade fechada — corta por
+  fronteira de parágrafo primeiro, e só cai para fronteira de FRASE quando um parágrafo sozinho é maior
+  que o alvo; o corte bruto por caractere só acontece no caso extremo de uma frase única maior que o
+  alvo inteiro (sem pontuação nenhuma) — nunca corta no meio de uma palavra fora desse último recurso.
+  O MESMO princípio foi aplicado a `montar_digest_processo` (usado no resumo/rascunho por IA): antes
+  cortava cru em `limite_chars` caracteres (podendo truncar uma movimentação/decisão no meio da
+  frase); agora monta o digest item a item — cada linha (um prazo, uma movimentação, um trecho de
+  documento indexado) só entra INTEIRA ou fica de fora, nunca pela metade.
+- **Índice vetorial (`DocumentoIndexado.embedding`, novo modelo):** embedding gerado via API do Gemini
+  (`gerar_embeddings_lote`, endpoint `batchEmbedContents`, confirmado por pesquisa — não testado contra
+  uma chamada real a partir deste ambiente) quando a empresa tem QUALQUER chave do Gemini cadastrada em
+  "Minhas Integrações" (BYOK) — independente de qual provedor está selecionado como padrão do chat, ter
+  uma chave do Gemini já basta para habilitar embedding. Sem chave, o sistema ainda indexa (chunking já
+  ajuda sozinho) mas a busca cai para "chunks mais recentes primeiro", nunca inventa uma similaridade
+  que não foi calculada. Guardado como JSON num `Text` (não uma coluna vetorial nativa — o banco de
+  produção é MySQL simples, sem extensão de vetor); similaridade de cosseno calculada em Python/numpy
+  na hora da busca — funciona bem na escala de um processo, não foi desenhado para escalar a milhões de
+  vetores.
+- **Busca por relevância nos rascunhos/resumos por IA:** `montar_digest_processo` agora também inclui
+  um bloco "Trechos relevantes de documentos anexados e indexados", buscado por similaridade (ou pelos
+  mais recentes, no fallback) a partir da delimitação do objeto/tipo de peça pedido — antes, os
+  documentos anexados nunca alimentavam o digest, só serviam de referência de estilo (seção -53).
+- Roda em segundo plano (`app/jobs/indexacao_jobs.py`, mesmo padrão RQ de `ia_jobs.py`) sempre que um
+  documento é anexado (upload manual OU pelo Agente Local) — nunca no ciclo de requisição/resposta.
+  Botão "Reindexar" disponível por documento (útil para reindexar o que foi enviado antes desta
+  funcionalidade existir, ou cuja indexação falhou por OCR/chave indisponível na época).
+
+### Item 2 — Download dos autos: "baixa só o que ainda não está indexado"
+
+`info_ultima_busca_autos` (novo) sabe, para cada processo: quando foi o último download completo dos
+autos pelo Agente Local (`Documento.categoria == "autos_completo_agente_local"`), se ele já foi
+indexado, e quantas movimentações novas foram capturadas por QUALQUER fonte desde então. Plugado na
+rota unificada `governanca.buscar_processo`: quando o advogado pede uma nova busca e o sistema já sabe
+que os autos completos foram baixados e indexados antes SEM nenhuma novidade capturada desde então, a
+mensagem de confirmação avisa disso (em vez do texto genérico de sempre). **Decisão deliberada: isto é
+só informativo, NUNCA bloqueia** — a `SolicitacaoBuscaAutos` continua sendo criada do mesmo jeito,
+porque o Agente Local ainda é piloto (não testado contra tribunal real) e uma tentativa anterior pode
+ter falhado por motivo que vale tentar de novo; o objetivo é dar ao advogado a informação que faltava
+para decidir com consciência, nunca decidir por ele.
+
+**Pendências para o deploy (documentar/avisar o cliente):**
+
+1. Rodar `python sincronizar_schema.py` no servidor — uma tabela nova (`documentos_indexados`) e
+   colunas novas, todas nullable (`prazos.data_seguranca`, `regras_proxima_acao.dias_seguranca`,
+   `documentos.indexado_em`, `documentos.erro_indexacao`).
+2. Rebuildar a imagem Docker — `Dockerfile` ganhou os pacotes de sistema `tesseract-ocr`,
+   `tesseract-ocr-por` e `poppler-utils`; sem o rebuild, OCR fica indisponível (degrada honestamente,
+   mas sem OCR nenhum PDF escaneado é indexado).
+3. **OCR e qualidade de embedding não foram validados contra volume real** — testado só com PDFs
+   sintéticos (texto gerado, nunca um scan de verdade com carimbo/assinatura/papel amarelado/manuscrito)
+   e com a chamada ao Gemini inteiramente mockada (mesma limitação de rede já registrada para toda
+   integração externa deste projeto). Trate o resultado de OCR como aproximado — por isso cada chunk
+   marca a própria origem, nunca escondendo que veio de OCR.
+4. Índice vetorial só funciona de verdade (busca semântica) para empresas com chave do Gemini
+   cadastrada em "Minhas Integrações" — é o único provedor de embedding suportado hoje, mesmo que a
+   empresa use o modelo local ou o Claude BYOK para o chat.
+
+**Testes:** `tests/test_prazo_data_seguranca.py` (11 casos — cálculo em dias úteis, pulo de fim de
+semana, piso mínimo, motor de próxima ação com/sem regra customizada, cadastro manual automático e
+com sobrescrita), `tests/test_indexacao_documentos.py` (23 casos — corte por evento em todas as
+fronteiras, indexação de .txt/.docx/.pdf sem e com chave do Gemini, fallback de OCR mockado
+disponível/indisponível, idempotência ao reindexar, busca por similaridade e fallback, rotas de
+upload/reindexar/excluir) e `tests/test_download_incremental_autos.py` (9 casos — função pura em
+todos os cenários, rota unificada com/sem download anterior indexado/com novidade, nunca bloqueia a
+criação da solicitação). Mais 3 novos testes de truncamento item-a-item em
+`tests/test_pipeline_ia_juridica.py`. Suíte completa (399 testes) rodada e passando sem regressão.
+
 ## -102. Item 1 da lista de pipeline de IA jurídica: captura por OAB (DJEN/API Comunica) + push do tribunal
 
 **Pedido:** "Captura da intimação DJEN e API Comunica do CNJ por OAB do escritório, mais push do

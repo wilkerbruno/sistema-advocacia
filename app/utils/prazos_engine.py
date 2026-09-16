@@ -96,6 +96,47 @@ def calcular_data_fatal(data_inicial: date, dias: int, tribunal: str | None = No
     return d
 
 
+DIAS_SEGURANCA_PADRAO = 2  # dias úteis de antecedência à data fatal, quando a regra não define um valor próprio (item 6 — PENDENCIAS.md, seção -103)
+
+
+def calcular_data_seguranca(data_vencimento, dias_seguranca=None, tribunal=None, data_minima=None):
+    """
+    "Data de segurança" (item 6 da lista de pipeline de IA jurídica —
+    PENDENCIAS.md, seção -103): data INTERNA de alerta, alguns dias ÚTEIS
+    ANTES da data fatal (`data_vencimento`) — nunca substitui a data legal
+    de verdade, só dá margem de manobra pra revisar/protocolar com folga em
+    vez de correr no último dia útil. Conta pra trás em dias úteis (mesmo
+    calendário de feriados/recesso forense de `calcular_data_fatal`), nunca
+    cai num fim de semana/feriado.
+
+    `dias_seguranca=None` usa `DIAS_SEGURANCA_PADRAO`. `data_minima`
+    (normalmente a `data_inicial` do prazo): nunca deixa a data de
+    segurança cair ANTES do início da própria contagem do prazo — em
+    prazos muito curtos, "N dias úteis antes da data fatal" poderia
+    resultar numa data anterior ao próprio início, o que não faz sentido
+    como alerta; neste caso a data de segurança fica igual à data mínima.
+    """
+    if data_vencimento is None:
+        return None
+    dias = dias_seguranca if dias_seguranca is not None else DIAS_SEGURANCA_PADRAO
+    if dias <= 0:
+        return data_vencimento
+
+    d = data_vencimento
+    contados = 0
+    iteracoes = 0
+    limite_iteracoes = dias * 5 + 60  # mesma margem de segurança de calcular_data_fatal
+    while contados < dias and iteracoes < limite_iteracoes:
+        d -= timedelta(days=1)
+        iteracoes += 1
+        if eh_dia_util(d, tribunal):
+            contados += 1
+
+    if data_minima and d < data_minima:
+        return data_minima
+    return d
+
+
 def _encontrar_regra(codigo_tpu, texto):
     """Compartilhado por `aplicar_regra_proxima_acao` (Movimentacao) e
     `aplicar_regra_a_publicacao` (Publicacao, item 1 — PENDENCIAS.md, seção
@@ -121,13 +162,16 @@ def _montar_prazo(processo, regra, data_inicial, tipo_ato_fallback, publicacao_i
     sem regra cadastrada gera tarefa genérica de análise, nunca é
     ignorado")."""
     if regra is None:
+        data_vencimento = data_inicial + timedelta(days=5)  # prazo provisório curto, sempre editável
         return Prazo(
             processo_id=processo.id,
             publicacao_id=publicacao_id,
             tipo_ato=(tipo_ato_fallback or "")[:120],
             descricao="Análise necessária — ato sem regra de próxima ação cadastrada",
             data_inicial=data_inicial,
-            data_vencimento=data_inicial + timedelta(days=5),  # prazo provisório curto, sempre editável
+            data_vencimento=data_vencimento,
+            data_seguranca=calcular_data_seguranca(data_vencimento, tribunal=processo.tribunal,
+                                                     data_minima=data_inicial),
             calculo_automatico=False,
             prioridade="alta",
             status="pendente",
@@ -154,6 +198,8 @@ def _montar_prazo(processo, regra, data_inicial, tipo_ato_fallback, publicacao_i
         descricao=regra.acao_exigida,
         data_inicial=data_inicial,
         data_vencimento=data_vencimento,
+        data_seguranca=calcular_data_seguranca(data_vencimento, dias_seguranca=regra.dias_seguranca,
+                                                 tribunal=processo.tribunal, data_minima=data_inicial),
         calculo_automatico=calculo_automatico,
         data_original_calculada=data_vencimento if calculo_automatico else None,
         prioridade="normal",
