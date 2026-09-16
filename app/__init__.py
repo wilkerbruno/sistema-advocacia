@@ -263,6 +263,7 @@ def create_app(config_class=Config):
 
     @app.context_processor
     def injetar_globais():
+        from flask import request as req
         from flask_login import current_user
         qtd_notif = contar_notificacoes_nao_lidas(current_user) if current_user.is_authenticated else 0
         qtd_triagem_oab = 0
@@ -276,8 +277,22 @@ def create_app(config_class=Config):
         # app/utils/paginacao.py, PENDENCIAS.md seção -47) pra montar o
         # link de cada página mantendo os filtros da URL atual.
         from app.utils.totp import totp_disponivel
+
+        # Tutorial guiado de primeiro acesso (ver app/static/js/tour_guiado.js
+        # e Usuario.tour_concluido_em). Só considera iniciar sozinho na tela
+        # do Painel — é a página de pouso depois do login, então é o único
+        # lugar onde o menu lateral inteiro já está visível pra apontar; em
+        # qualquer outra tela o gate ficaria disputando atenção com o
+        # conteúdo daquela página. `?tutorial=1` (usado pelo link "Rever
+        # tutorial" em Minha conta) força a exibição de novo mesmo pra quem
+        # já concluiu — nunca precisa "resetar" nada no banco pra rever.
+        tour_deve_iniciar = (
+            current_user.is_authenticated
+            and req.endpoint == "dashboard.index"
+            and (current_user.tour_concluido_em is None or req.args.get("tutorial") == "1")
+        )
         return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, url_pagina=url_pagina,
-                    totp_disponivel=totp_disponivel())
+                    totp_disponivel=totp_disponivel(), tour_deve_iniciar=tour_deve_iniciar)
 
     @app.template_filter("moeda")
     def formatar_moeda(valor):

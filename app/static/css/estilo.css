@@ -534,3 +534,69 @@ textarea.form-control { min-height: 90px; }
 .campo-lockable-wrap .btn-lapis:hover { color: var(--brass-600); background: var(--brass-100); }
 .campo-lockable-wrap .btn-lapis svg { width: 14px; height: 14px; }
 .campo-lockable-wrap textarea.travado ~ .btn-lapis { top: 6px; }
+
+/* =========================================================
+   Tutorial guiado de primeiro acesso (ver app/static/js/tour_guiado.js)
+   ========================================================= */
+.tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: transparent; /* o escurecido inteiro vem do box-shadow de .tour-spot */
+}
+.tour-spot {
+  position: fixed;
+  z-index: 3001;
+  border-radius: 8px;
+  box-shadow: 0 0 0 9999px rgba(20, 23, 31, 0.6);
+  pointer-events: none;
+  transition: top .2s ease, left .2s ease, width .2s ease, height .2s ease;
+}
+.tour-cartao {
+  position: fixed;
+  z-index: 3002;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  background: var(--paper-0);
+  border: 1px solid var(--paper-200);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 30px rgba(20, 23, 31, 0.28);
+  padding: 18px 20px;
+  transition: top .2s ease, left .2s ease;
+}
+.tour-cartao::before {
+  content: "";
+  position: absolute;
+  top: -1px;
+  left: 18px;
+  width: 46px;
+  height: 6px;
+  background: var(--brass-500);
+  border-radius: 0 0 3px 3px;
+}
+.tour-cartao h4 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  margin-bottom: 8px;
+  color: var(--ink-900);
+}
+.tour-cartao p { font-size: .86rem; color: var(--ink-600); margin-bottom: 14px; }
+.tour-cartao-passos {
+  font-size: .7rem;
+  color: var(--ink-300);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 6px;
+}
+.tour-cartao-acoes { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.tour-cartao-acoes-dir { display: flex; gap: 8px; }
+.tour-pular {
+  background: none;
+  border: none;
+  color: var(--ink-500);
+  font-size: .78rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+.tour-pular:hover { color: var(--brass-600); }

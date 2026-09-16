@@ -8,7 +8,7 @@
 {% block conteudo %}
 
 <div class="kpi-grid mb-4">
-  <a href="{{ url_for('processos.listar', status='ativo') }}" class="kpi-card kpi-card-link">
+  <a href="{{ url_for('processos.listar', status='ativo') }}" class="kpi-card kpi-card-link" data-tour="kpi-painel">
     <div class="kpi-label">Processos ativos</div>
     <div class="kpi-value">{{ total_processos_ativos }}</div>
     <div class="kpi-sub">{% if current_user.is_admin %}em todas as unidades{% else %}na sua unidade{% endif %}</div>

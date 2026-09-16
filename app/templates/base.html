@@ -49,7 +49,7 @@
       {% set governanca_aberto = esta_em_governanca or favorito == 'governanca' %}
       {% set config_aberto = esta_em_config or favorito == 'config' %}
 
-      <div class="grupo-colapsavel {{ 'expandido' if operacao_aberto }}" data-grupo="operacao">
+      <div class="grupo-colapsavel {{ 'expandido' if operacao_aberto }}" data-grupo="operacao" data-tour="grupo-operacao">
         <button type="button" class="grupo-titulo grupo-toggle">
           <span>Operação</span> <span class="grupo-chevron">▾</span>
         </button>
@@ -57,10 +57,10 @@
           <a class="nav-item {{ 'active' if request.endpoint == 'dashboard.index' }}" href="{{ url_for('dashboard.index') }}">
             <span class="tab-index">01</span> Painel
           </a>
-          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('processos.') }}" href="{{ url_for('processos.listar') }}">
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('processos.') }}" href="{{ url_for('processos.listar') }}" data-tour="menu-processos">
             <span class="tab-index">02</span> Processos
           </a>
-          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('clientes.') }}" href="{{ url_for('clientes.listar') }}">
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('clientes.') }}" href="{{ url_for('clientes.listar') }}" data-tour="menu-clientes">
             <span class="tab-index">03</span> Clientes
           </a>
           <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('leads.') }}" href="{{ url_for('leads.kanban') }}">
@@ -69,7 +69,7 @@
           <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('tarefas.') }}" href="{{ url_for('tarefas.listar') }}">
             <span class="tab-index">04</span> Tarefas
           </a>
-          <a class="nav-item {{ 'active' if request.endpoint == 'agenda.index' }}" href="{{ url_for('agenda.index') }}">
+          <a class="nav-item {{ 'active' if request.endpoint == 'agenda.index' }}" href="{{ url_for('agenda.index') }}" data-tour="menu-agenda">
             <span class="tab-index">AG</span> Agenda
           </a>
           <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('timesheet.') }}" href="{{ url_for('timesheet.listar') }}">
@@ -89,7 +89,7 @@
         </div>
       </div>
 
-      <div class="grupo-colapsavel {{ 'expandido' if governanca_aberto }}" data-grupo="governanca">
+      <div class="grupo-colapsavel {{ 'expandido' if governanca_aberto }}" data-grupo="governanca" data-tour="grupo-governanca">
         <button type="button" class="grupo-titulo grupo-toggle">
           <span>Governança de carteira</span> <span class="grupo-chevron">▾</span>
         </button>
@@ -143,7 +143,7 @@
          que continuam restritos como sempre foram. #}
       {% set mostra_config = current_user.is_authenticated %}
       {% if mostra_config %}
-      <div class="grupo-colapsavel {{ 'expandido' if config_aberto }}" data-grupo="config">
+      <div class="grupo-colapsavel {{ 'expandido' if config_aberto }}" data-grupo="config" data-tour="grupo-config">
         <button type="button" class="grupo-titulo grupo-toggle">
           <span>Configurações</span> <span class="grupo-chevron">▾</span>
         </button>
@@ -153,11 +153,14 @@
             <span class="tab-index">PR</span> Preferências do menu
           </a>
           {% if totp_disponivel %}
-          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('conta.') and 'totp' in request.endpoint }}" href="{{ url_for('conta.configurar_totp') }}">
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('conta.') and 'totp' in request.endpoint }}" href="{{ url_for('conta.configurar_totp') }}" data-tour="menu-autenticador">
             <span class="tab-index">2F</span> Autenticador (2FA)
             {% if not current_user.totp_configurado %}<span class="badge text-bg-danger ms-1">pendente</span>{% endif %}
           </a>
           {% endif %}
+          <a class="nav-item" href="{{ url_for('dashboard.index', tutorial=1) }}">
+            <span class="tab-index">TU</span> Rever tutorial
+          </a>
 
           {% if current_user.pode_gerenciar_usuarios() %}
           <div class="subgrupo-titulo">Minha empresa</div>
@@ -420,6 +423,17 @@
   });
 })();
 </script>
+
+{% if current_user.is_authenticated %}
+<script>
+  // Ver app/static/js/tour_guiado.js — flags lidas pelo próprio script
+  // (mesmo padrão do token CSRF: o script lê do DOM/globals, não recebe
+  // parâmetro nenhum passado na tag <script>).
+  window.TOUR_AUTO_INICIAR = {{ 'true' if tour_deve_iniciar else 'false' }};
+  window.TOUR_URL_CONCLUIR = "{{ url_for('conta.tutorial_concluir') }}";
+</script>
+<script src="{{ url_for('static', filename='js/tour_guiado.js') }}" defer></script>
+{% endif %}
 
 {% block scripts_extra %}{% endblock %}
 </body>

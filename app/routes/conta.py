@@ -19,7 +19,9 @@ Por ser preferência de USUÁRIO (não de empresa), este blueprint não usa
 `apenas_admin` — qualquer papel autenticado pode escolher a própria
 categoria favorita, inclusive quem não gerencia nada.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request
+from datetime import datetime
+
+from flask import Blueprint, render_template, redirect, url_for, flash, request, jsonify
 from flask_login import login_required, current_user
 
 from app.extensions import db
@@ -67,6 +69,23 @@ def salvar_favorito():
     else:
         flash("Nenhuma categoria favorita — o menu volta a abrir sozinho só a categoria da página atual.", "info")
     return redirect(url_for("conta.preferencias"))
+
+
+# ---------------------- Tutorial guiado de primeiro acesso ----------------------
+# Ver app/static/js/tour_guiado.js e Usuario.tour_concluido_em. O JS chama
+# esta rota via fetch em segundo plano (mesmo padrão de
+# /api/notificacoes/<id>/marcar-lida) tanto ao concluir o tutorial quanto
+# ao pular — as duas ações contam como "já viu", pra não insistir de novo
+# sozinho no próximo login. Rever depois é sempre opt-in do usuário (link
+# "Rever tutorial", que usa ?tutorial=1 no Painel) e não depende deste
+# campo ter sido limpo.
+
+@conta_bp.route("/tutorial/concluir", methods=["POST"])
+@login_required
+def tutorial_concluir():
+    current_user.tour_concluido_em = datetime.utcnow()
+    db.session.commit()
+    return jsonify(ok=True)
 
 
 # ---------------------- Autenticador (2FA obrigatório) ----------------------

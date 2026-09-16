@@ -61,6 +61,20 @@ class Usuario(db.Model, UserMixin):
     # mesmo motivo de `acesso_financeiro`: sincronizar_schema.py não aplica
     # DEFAULT em ALTER TABLE.
     menu_grupo_favorito = db.Column(db.String(20), nullable=True)
+    # Tutorial guiado de primeiro acesso (ver app/static/js/tour_guiado.js e
+    # app/routes/conta.py::tutorial_concluir) — passeio rápido pelo Painel e
+    # pelo menu lateral, mostrado sozinho na primeira vez que o usuário
+    # chega no Painel. Nulo = "ainda não viu" (conta nova, ou conta antiga
+    # de antes desta funcionalidade existir — nesse caso também é mostrado
+    # uma vez, sem problema). Preenchido tanto ao concluir quanto ao pular
+    # o tutorial (as duas ações contam como "já viu", pra não insistir toda
+    # vez); rever depois é sempre por escolha do usuário, em "Minha conta >
+    # Rever tutorial" (não depende deste campo — ver injetar_globais em
+    # app/__init__.py, que também aceita `?tutorial=1` na URL do Painel
+    # pra forçar a exibição de novo). Nullable pelo mesmo motivo de
+    # `menu_grupo_favorito`: sincronizar_schema.py não aplica DEFAULT em
+    # ALTER TABLE.
+    tour_concluido_em = db.Column(db.DateTime, nullable=True)
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     ultimo_login = db.Column(db.DateTime)

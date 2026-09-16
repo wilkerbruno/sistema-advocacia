@@ -1,5 +1,60 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -105. Tutorial guiado de primeiro acesso
+
+**Pedido:** "para o primeiro acesso poderia fazer um tutorial guiado do sistema para facilitar o uso
+para o usuário?"
+
+Passeio curto (10 passos) mostrado sozinho na primeira vez que o usuário chega no Painel depois do
+login — destaca um elemento real da tela por vez (um cartão de KPI, um grupo do menu, um item
+específico) com um cartãozinho de texto explicando o que é aquilo, e pode ser avançado, voltado ou
+pulado a qualquer momento. Cobre: boas-vindas, Painel, o grupo Operação, Processos, Clientes, Agenda,
+Governança de carteira, Configurações, Autenticador (2FA) e uma tela final. Nunca navega pra outra URL
+no meio do tour — tudo acontece sobre a própria página do Painel, inclusive expandindo sozinho o grupo
+do menu correspondente quando precisa destacar um item de dentro dele (reaproveita o mesmo
+clique/toggle que o usuário usaria manualmente).
+
+**Decisão de propósito — sem biblioteca nenhuma:** implementado em JavaScript puro
+(`app/static/js/tour_guiado.js`), mesmo espírito de não usar biblioteca de calendário na Agenda — é só
+um destaque (`box-shadow` gigante ao redor do elemento-alvo, mesma técnica de "spotlight" que qualquer
+biblioteca de tour usaria por baixo dos panos) mais um cartão posicionado ao lado, e uma dependência
+nova não compensava só pra isso.
+
+**Quando aparece sozinho:** `Usuario.tour_concluido_em` (nulo = "ainda não viu"). O context processor
+`injetar_globais` (`app/__init__.py`) calcula `tour_deve_iniciar` — só considera True na tela do
+Painel (`dashboard.index`; em qualquer outra tela ficaria disputando atenção com o conteúdo daquela
+página) e só se o campo estiver nulo. Cada avanço até o fim OU "Pular tutorial" chama
+`POST /minha-conta/tutorial/concluir` (`app/routes/conta.py`) em segundo plano (mesmo padrão de
+`/api/notificacoes/<id>/marcar-lida`), preenchendo o campo — as duas ações contam como "já viu", pra
+não insistir sozinho nos próximos logins.
+
+**Rever depois:** link "Rever tutorial" em Configurações > Minha conta, que manda pro Painel com
+`?tutorial=1` — o context processor força `tour_deve_iniciar=True` mesmo pra quem já concluiu, sem
+precisar "resetar" nada no banco. O próprio JS limpa esse parâmetro da URL (`history.replaceState`)
+assim que o tour termina, pra um F5 simples não reabrir sozinho de novo.
+
+**Alvo que não existe nesta conta:** cada passo aponta pra um `data-tour="..."` real no HTML (ver
+`app/templates/base.html` e `app/templates/dashboard/index.html`). Se o elemento não existir — por
+exemplo, o passo do Autenticador quando `TOTP_CIFRA_KEY` não está configurada no servidor, ou qualquer
+item que só apareça por papel/módulo contratado — o passo é pulado sozinho, nos dois sentidos (avançar
+e voltar); o tour nunca trava numa tela em branco.
+
+Testado ponta a ponta com um navegador de verdade (Playwright, headless) além da suíte pytest: login →
+tour aparece sozinho → destaque em cada elemento confere pixel a pixel → expandir grupo do menu
+sozinho → voltar/avançar → pular dispara a chamada de conclusão → não reaparece sozinho num F5 →
+"Rever tutorial" reabre do zero. `tests/test_tour_guiado.py` cobre a parte que a suíte automatizada
+consegue exercitar sem navegador (o servidor decidir quando começar sozinho, a rota de conclusão exigir
+login e CSRF, o link "Rever tutorial" aparecer no menu).
+
+Arquivos: `app/static/js/tour_guiado.js` (novo), `app/static/css/estilo.css` (seção "Tutorial guiado de
+primeiro acesso"), `app/models/usuario.py` (`tour_concluido_em`), `app/routes/conta.py`
+(`tutorial_concluir`), `app/__init__.py` (`tour_deve_iniciar` em `injetar_globais`),
+`app/templates/base.html` (atributos `data-tour`, inclusão do script, link "Rever tutorial"),
+`app/templates/dashboard/index.html` (atributo `data-tour` no card de KPI), `tests/test_tour_guiado.py`
+(novo, 7 testes). Coluna nova em `Usuario` — nullable, sem `DEFAULT` (ver
+`sincronizar_schema.py`), então basta rodar o script de sincronização depois do deploy pra aparecer no
+banco.
+
 ## -104. Autenticador obrigatório (2FA/TOTP) em todo login + "esqueci minha senha" por código de e-mail
 
 **Pedido:** "toda vez que o cliente for logar deve pedir o autenticador, para maior segurança" — conta
