@@ -78,7 +78,8 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, system, mensagens_api,
         db.session.commit()
 
 
-def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, texto_referencia=None):
+def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, texto_referencia=None,
+                                   tipo_peca=None, delimitacao_id=None):
     """
     Gera o resumo/rascunho de petição de um processo (ver
     app/utils/analise_processo_ia.py::gerar_analise) e grava direto na
@@ -89,10 +90,16 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, text
     extraído pela rota ANTES de enfileirar — o job nunca lê arquivo do
     disco, só recebe o texto já pronto (ver
     app/routes/processos.py::gerar_analise_ia).
+
+    `tipo_peca`/`delimitacao_id` (PENDENCIAS.md, seção -101 — itens 4 e 7):
+    `delimitacao_id` é o id da DelimitacaoObjeto já criada pela rota (o job
+    recebe só o id, não o objeto, pelo mesmo motivo de sempre — nada do
+    request/sessão web atravessa a fila) e é recarregada aqui dentro do
+    app_context do worker.
     """
     app = _obter_app()
     with app.app_context():
-        from app.models import AnaliseProcessoIA, Processo
+        from app.models import AnaliseProcessoIA, Processo, DelimitacaoObjeto
         from app.utils import agente_ia_router
         from app.utils.analise_processo_ia import gerar_analise
 
@@ -107,8 +114,11 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, text
             db.session.commit()
             return
 
+        delimitacao = db.session.get(DelimitacaoObjeto, delimitacao_id) if delimitacao_id else None
+
         try:
-            resultado, truncado = gerar_analise(processo, tipo, instrucao, texto_referencia=texto_referencia)
+            resultado, truncado = gerar_analise(processo, tipo, instrucao, texto_referencia=texto_referencia,
+                                                 tipo_peca=tipo_peca, delimitacao=delimitacao)
             analise.resultado = resultado
             analise.digest_truncado = truncado
         except agente_ia_router.ProvedorIAIndisponivelError as e:

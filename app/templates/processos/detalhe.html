@@ -21,6 +21,7 @@
         <span class="badge-status badge-{{ processo.status }}">{{ processo.status }}</span>
         <div class="d-flex gap-2">
           <a href="{{ url_for('processos.pdf', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm" target="_blank" title="Resumo em PDF com capa, partes, movimentações, prazos e audiências">PDF</a>
+          <a href="{{ url_for('processos.relatorio', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm" title="Relatório estruturado: partes, pedidos, causa de pedir, decisões, provas, valores e estado atual, com link para cada evento de origem">Relatório</a>
           <a href="{{ url_for('processos.editar', processo_id=processo.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
         </div>
       </div>
@@ -188,6 +189,7 @@
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#audiencias" type="button">Audiências</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#documentos" type="button">Documentos</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#governanca-mov" type="button">Governança {% if processo.movimentacoes|selectattr('triagem_pendente')|list|length %}<span class="badge-status badge-pendente">{{ processo.movimentacoes|selectattr('triagem_pendente')|list|length }} em triagem</span>{% endif %}</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#decisoes" type="button">Decisões</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cofre" type="button">Cofre de senha</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#analise-ia" type="button">Análise IA</button></li>
     </ul>
@@ -275,7 +277,7 @@
         {% set status_em_aberto = ("pendente", "em_elaboracao", "protocolado_aguardando_evidencia") %}
 
         {% macro linha_prazo(p) %}
-            <tr>
+            <tr id="prazo-{{ p.id }}">
               <td>
                 {{ p.descricao }}
                 {% if p.descricao == desc_generica %}
@@ -450,6 +452,7 @@
                 <option value="procuracao">Procuração</option>
                 <option value="contrato">Contrato</option>
                 <option value="decisao">Decisão</option>
+                <option value="laudo">Laudo</option>
                 <option value="outros">Outros</option>
               </select>
             </div>
@@ -571,7 +574,7 @@
           <thead><tr><th>Data</th><th>Código TPU</th><th>Texto</th><th>Estado resultante</th></tr></thead>
           <tbody>
             {% for m in processo.movimentacoes %}
-            <tr>
+            <tr id="mov-{{ m.id }}">
               <td>{{ m.data|data_hora_br }}</td>
               <td>{{ m.codigo_tpu or "—" }}</td>
               <td>{{ m.texto_integral[:100] }}{% if m.complemento %} <span class="text-muted-doc small">— {{ m.complemento }}</span>{% endif %}</td>
@@ -599,6 +602,32 @@
           </ul>
           {% else %}
           <p class="text-muted-doc small mb-0">Nenhuma transição de estado registrada ainda.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- DECISÕES (base da camada de jurimetria — alimentada pela captura automática -->
+      <!-- ou pela integração via API; ver app/models/movimentacao.py::Decisao) -->
+      <div class="tab-pane fade" id="decisoes">
+        <div class="card-doc tab p-3">
+          {% if processo.decisoes %}
+          <table class="table-doc">
+            <thead><tr><th>Data</th><th>Tipo</th><th>Órgão julgador</th><th>Resultado</th><th>Tese/teor</th></tr></thead>
+            <tbody>
+              {% for d in processo.decisoes %}
+              <tr id="decisao-{{ d.id }}">
+                <td>{{ d.data|data_br if d.data else "—" }}</td>
+                <td>{{ d.tipo or "—" }}</td>
+                <td>{{ d.orgao_julgador or "—" }}</td>
+                <td>{{ d.resultado or "—" }}</td>
+                <td>{{ (d.tese or d.inteiro_teor or "—")[:200] }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p class="text-muted-doc small mb-0">Nenhuma decisão registrada ainda para este processo — chegam pela
+            captura automática (quando configurada) ou por integração; não há cadastro manual aqui.</p>
           {% endif %}
         </div>
       </div>
@@ -647,7 +676,14 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="row g-2 align-items-start">
               <div class="col-md-4">
-                <select name="tipo" id="tipo-analise-ia" class="form-select form-select-sm" required onchange="document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao'); document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)'); document.getElementById('campo-documento-referencia').style.display = (this.value === 'rascunho_peticao' ? 'block' : 'none');">
+                <select name="tipo" id="tipo-analise-ia" class="form-select form-select-sm" required onchange="
+                  document.getElementById('instrucao-ia').required = (this.value === 'rascunho_peticao');
+                  document.getElementById('instrucao-ia-label').textContent = (this.value === 'rascunho_peticao' ? 'O que a petição precisa fazer? *' : 'Alguma instrução específica? (opcional)');
+                  document.getElementById('campo-documento-referencia').style.display = (this.value === 'rascunho_peticao' ? 'block' : 'none');
+                  document.getElementById('campo-tipo-peca').style.display = (this.value === 'rascunho_peticao' ? 'block' : 'none');
+                  document.getElementById('campo-delimitacao-objeto').style.display = (this.value === 'rascunho_peticao' ? 'block' : 'none');
+                  document.querySelectorAll('#campo-delimitacao-objeto [data-obrigatorio-rascunho]').forEach(function (c) { c.required = (this.value === 'rascunho_peticao'); }.bind(this));
+                ">
                   <option value="resumo">Resumo dos autos</option>
                   <option value="rascunho_peticao">Rascunho de petição</option>
                 </select>
@@ -661,6 +697,49 @@
                   processo e esta instrução — pedidos muito longos e detalhados podem não caber.
                   Se aparecer um aviso de "pedido grande demais", encurte o texto aqui (peça o mais
                   essencial primeiro, refine numa segunda geração) e tente de novo.
+                </div>
+              </div>
+            </div>
+            <div id="campo-tipo-peca" class="mt-2" style="display: none;">
+              <label class="form-label small mb-1">Tipo de peça (opcional — monta um dossiê mínimo específico)</label>
+              <select name="tipo_peca" class="form-select form-select-sm">
+                <option value="">Não informado — seleção genérica de sempre</option>
+                {% for chave, nome in nomes_tipos_peca.items() %}
+                <option value="{{ chave }}">{{ nome }}</option>
+                {% endfor %}
+              </select>
+              <div class="small text-muted-doc mt-1">
+                Quando informado, prioriza no digest o que essa peça costuma exigir (petição inicial,
+                decisão relevante, laudos, últimos atos), em vez do corte genérico "os mais recentes de
+                cada categoria".
+              </div>
+            </div>
+            <div id="campo-delimitacao-objeto" class="mt-3 p-2" style="display: none; border: 1px solid var(--paper-200); border-radius: 6px;">
+              <p class="small mb-2">
+                <strong>Delimitação do objeto</strong> — a minuta só é gerada depois disso preenchido:
+                descreva a matéria controvertida e a tese ANTES de pedir o rascunho, em vez de deixar o
+                modelo "adivinhar" o que está em disputa.
+              </p>
+              <div class="row g-2">
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Matéria de fato controvertida *</label>
+                  <textarea name="materia_fato" data-obrigatorio-rascunho class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Matéria de direito controvertida *</label>
+                  <textarea name="materia_direito" data-obrigatorio-rascunho class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Tese a sustentar *</label>
+                  <textarea name="tese_a_sustentar" data-obrigatorio-rascunho class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label small mb-1">Resultado pretendido *</label>
+                  <textarea name="resultado_pretendido" data-obrigatorio-rascunho class="form-control form-control-sm" rows="2"></textarea>
+                </div>
+                <div class="col-md-12">
+                  <label class="form-label small mb-1">O que se ataca da decisão (só em recurso — opcional)</label>
+                  <textarea name="ataca_da_decisao" class="form-control form-control-sm" rows="2"></textarea>
                 </div>
               </div>
             </div>
@@ -708,6 +787,7 @@
               — {{ a.solicitado_por.nome if a.solicitado_por else "—" }} em {{ a.criado_em|data_hora_br }}
               {% if a.digest_truncado %}<span class="badge-status badge-pendente ms-1">histórico truncado</span>{% endif %}
               {% if a.documento_referencia %}<span class="badge-status badge-normal ms-1">estilo de "{{ a.documento_referencia.nome_original }}"</span>{% endif %}
+              {% if a.tipo_peca %}<span class="badge-status badge-normal ms-1">dossiê: {{ nomes_tipos_peca.get(a.tipo_peca, a.tipo_peca) }}</span>{% endif %}
             </div>
             <form method="post" action="{{ url_for('processos.excluir_analise_ia', analise_id=a.id) }}"
                   onsubmit="return confirm('Excluir esta análise?');">
@@ -716,6 +796,16 @@
             </form>
           </div>
           {% if a.instrucao %}<p class="small mb-2"><strong>Pedido:</strong> {{ a.instrucao }}</p>{% endif %}
+          {% if a.delimitacao_objeto %}
+          <details class="small mb-2">
+            <summary>Objeto delimitado usado nesta geração</summary>
+            <p class="mb-1 mt-1"><strong>Matéria de fato:</strong> {{ a.delimitacao_objeto.materia_fato }}</p>
+            <p class="mb-1"><strong>Matéria de direito:</strong> {{ a.delimitacao_objeto.materia_direito }}</p>
+            <p class="mb-1"><strong>Tese:</strong> {{ a.delimitacao_objeto.tese_a_sustentar }}</p>
+            {% if a.delimitacao_objeto.ataca_da_decisao %}<p class="mb-1"><strong>Ataca da decisão:</strong> {{ a.delimitacao_objeto.ataca_da_decisao }}</p>{% endif %}
+            <p class="mb-0"><strong>Resultado pretendido:</strong> {{ a.delimitacao_objeto.resultado_pretendido }}</p>
+          </details>
+          {% endif %}
           {% if a.status == "processando" %}
           <div class="alert alert-warning py-1 px-2 small mb-0">
             Gerando com o modelo local (CPU, sem custo) — pode levar alguns minutos. Esta página
@@ -767,11 +857,31 @@
           });
         });
 
-        var abaSalva = sessionStorage.getItem(chaveAbaAtiva);
-        if (abaSalva) {
-          var botaoAlvo = document.querySelector('#abasProcesso button[data-bs-target="' + abaSalva + '"]');
-          if (botaoAlvo && window.bootstrap) {
-            new bootstrap.Tab(botaoAlvo).show();
+        // Link para o evento de origem (ex.: relatório do processo linkando pra uma
+        // decisão/movimentação/prazo específico — ver processos/relatorio.html e
+        // PENDENCIAS.md, seção -101, item 5): se a URL chegou com #decisao-123 (ou
+        // #mov-123, #prazo-123), abre a aba que CONTÉM esse elemento antes de rolar
+        // até ele — sem isso, o navegador tenta rolar pra dentro de uma aba escondida
+        // (display:none) e o elemento nunca aparece na tela. Tem prioridade sobre a
+        // aba lembrada no sessionStorage: quem clicou num link específico quer ver
+        // aquele item, não a última aba que estava aberta antes.
+        var idAlvoHash = window.location.hash ? window.location.hash.substring(1) : null;
+        var elementoAlvoHash = idAlvoHash ? document.getElementById(idAlvoHash) : null;
+        var painelAlvoHash = elementoAlvoHash ? elementoAlvoHash.closest(".tab-pane") : null;
+
+        if (painelAlvoHash) {
+          var botaoAlvoHash = document.querySelector('#abasProcesso button[data-bs-target="#' + painelAlvoHash.id + '"]');
+          if (botaoAlvoHash && window.bootstrap) {
+            new bootstrap.Tab(botaoAlvoHash).show();
+            setTimeout(function () { elementoAlvoHash.scrollIntoView({ block: "center" }); }, 150);
+          }
+        } else {
+          var abaSalva = sessionStorage.getItem(chaveAbaAtiva);
+          if (abaSalva) {
+            var botaoAlvo = document.querySelector('#abasProcesso button[data-bs-target="' + abaSalva + '"]');
+            if (botaoAlvo && window.bootstrap) {
+              new bootstrap.Tab(botaoAlvo).show();
+            }
           }
         }
       });

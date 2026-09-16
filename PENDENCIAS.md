@@ -1,5 +1,158 @@
 # Status das pendências do briefing (atualizado em 16/09/2026)
 
+## -101. Análise da lista de pipeline de IA jurídica de ponta a ponta (10 itens) + 3 implementados
+
+**Pedido:** o usuário trouxe uma lista de 10 itens descrevendo um pipeline ideal, da captura da
+intimação até a minuta final: (1) Captura da intimação, (2) Download dos autos, (3) Ingestão e
+indexação, (4) Dossiê mínimo suficiente, (5) Relatório estruturado, (6) Prazo e data de segurança,
+(7) Delimitação do objeto, (8) Pesquisa vinculada, (9) Cálculo, (10) Minuta no modelo do escritório —
+e pediu uma análise honesta do que já está implementado, parcialmente implementado ou pendente.
+
+**Análise item a item (grounded no código, não em suposição):**
+
+1. **Captura da intimação (DJEN/API Comunica por OAB):** NÃO implementado. `conector_datajud.py` tem
+   `monitorar_publicacoes_por_oab()` e `buscar_processos_por_parte()`, mas ambos levantam
+   `FuncionalidadeNaoDisponivelError` — o sistema hoje só monitora por NÚMERO de processo já
+   cadastrado (DataJud), nunca por OAB do escritório. O "input humano no onboarding é a OAB, não o
+   processo" descrito no item é o OPOSTO do fluxo atual (cadastro manual por CNJ).
+2. **Download dos autos (PJe/eproc/Projudi/ESAJ com certificado ou cofre):** infraestrutura parcial,
+   NÃO testada contra tribunal real. "Meu agente local" (`app/models/agente_local.py`,
+   `AgenteLocalPareado`/`SolicitacaoBuscaAutos`) já tem a arquitetura certa (certificado nunca sai da
+   máquina do advogado, servidor só guarda hash do pareamento + fila de pedidos) mas o próprio README
+   do `agente_local_jc/` avisa que NUNCA foi testada contra PJe/eproc/Projudi/ESAJ de verdade. **Erro
+   conceitual no item original, que vale registrar:** "certificado" e "credencial guardada no cofre"
+   NÃO são a mesma coisa neste sistema — `SenhaProcesso` (o "cofre") é a senha de SEGREDO DE JUSTIÇA
+   do PRÓPRIO PROCESSO, emitida pelo tribunal às partes, não uma credencial de login do escritório no
+   tribunal (o próprio docstring do modelo diz: "acesso com credencial alheia é crime, Lei
+   12.737/2012, fora do escopo"). Só o agente local (certificado) é candidato a "baixar autos"; o
+   cofre não. Também não existe hoje nenhuma lógica de "baixa só o que ainda não está indexado"
+   (incremental) — a dedução mais próxima é o hash de dedup de `Movimentacao`, que resolve duplicata
+   de MOVIMENTAÇÃO, não de "documento do processo ainda não baixado".
+3. **Ingestão e indexação (OCR, índice vetorial, corte por evento):** NÃO implementado. Zero
+   ocorrência de "vetorial"/"embedding" em todo o `app/`. `extracao_documento.py` explicitamente
+   recusa PDF escaneado (sem OCR) e serve só como referência de ESTILO (2000 caracteres, nunca
+   indexação). O sistema hoje nunca lida com "dez mil páginas" — o corte por tamanho existente
+   (`LIMITE_PADRAO_CHARS`) é por caractere bruto, não por relevância indexada.
+4. **Dossiê mínimo suficiente: IMPLEMENTADO nesta rodada** (ver detalhes abaixo).
+5. **Relatório estruturado: IMPLEMENTADO nesta rodada** (ver detalhes abaixo).
+6. **Prazo e data de segurança:** em grande parte JÁ IMPLEMENTADO, só faltando o nome "data de
+   segurança". `app/utils/prazos_engine.py::calcular_data_fatal` já conta em dias úteis (CPC art.
+   219) usando a tabela `Feriado` (nacional + por tribunal + recesso forense) e já suporta prazo em
+   dobro (art. 229/183 CPC). `RegraProximaAcao` já liga ato capturado → artigo/prazo/responsável de
+   forma editável (nunca hardcoded). O que falta: uma "data de segurança" distinta da data fatal (ex.:
+   2 dias úteis antes) não existe como campo — hoje só existe UMA data (`Prazo.data_vencimento`).
+7. **Delimitação do objeto: IMPLEMENTADO nesta rodada** (ver detalhes abaixo).
+8. **Pesquisa vinculada (legislação/jurisprudência com link, citação bloqueada):** parcialmente
+   coberto, mas não do jeito pedido. `_checar_grounding()` (`analise_processo_ia.py`) já bloqueia
+   — na prática, sinaliza com aviso bem visível — citação legal/valor em R$ que não aparece nos dados
+   reais do processo, mas é uma checagem MECÂNICA contra o digest local, não uma busca em base real de
+   legislação/jurisprudência com ementa e link. Não existe nenhuma integração com base de
+   jurisprudência.
+9. **Cálculo (custas, preparo, guias):** NÃO implementado. Zero ocorrência de "custas"/"preparo"/
+   "guia"/"GRU"/"DARF" em `app/routes/financeiro.py` ou em qualquer lugar do sistema — o financeiro
+   existente é só faturamento do escritório (`Lancamento`), não cálculo de custas processuais.
+10. **Minuta no modelo do escritório (biblioteca de modelos, âncora por evento):** parcialmente
+    coberto de um jeito bem mais simples do que o pedido. `gerar_analise(tipo="rascunho_peticao")` já
+    gera rascunho com um documento de referência de ESTILO (UM documento por vez, nunca uma
+    biblioteca por tipo de peça/área — ver PENDENCIAS.md, seção -53) e nunca "aprende" de peças
+    anteriores automaticamente. Timbrado (`app/utils/timbrado.py`) só cobre logo em PDF, não
+    modelo/cláusula. Não há âncora de evento por afirmação — ver item 5 abaixo, que dá o primeiro
+    passo nessa direção (mas só no nível de seção do relatório, não frase a frase da minuta).
+
+**O que foi implementado nesta rodada (itens 4, 5 e 7 — escolhidos pelo usuário por já terem base
+construída no sistema):**
+
+- **Item 7 — Delimitação do objeto:** nova tabela `DelimitacaoObjeto`
+  (`app/models/agente_ia.py`) — matéria de fato controvertida, matéria de direito controvertida, tese
+  a sustentar, o que se ataca da decisão (opcional, só em recurso) e resultado pretendido. Preenchida
+  pelo advogado na MESMA tela de pedir o rascunho de petição (`processos/detalhe.html`, aba "Análise
+  IA") e **agora é OBRIGATÓRIA para gerar rascunho_peticao** — tanto a rota
+  (`processos.gerar_analise_ia`) quanto o motor (`analise_processo_ia.gerar_analise`) recusam a
+  geração sem isso preenchido, com a mesma mensagem de erro nos dois lugares (defesa em duas camadas,
+  mesmo padrão já usado pra `instrucao`). O texto delimitado entra no prompt do modelo como um bloco
+  próprio, pedindo pra ele focar SÓ nesse objeto em vez de "adivinhar" a partir dos dados brutos do
+  processo. Fica salvo linkado à análise gerada (auditoria: qual delimitação gerou qual rascunho) —
+  nunca sobrescreve uma anterior, porque o mesmo processo pode legitimamente pedir rascunhos com
+  objeto diferente ao longo do tempo (contestação, depois um recurso, etc.).
+- **Item 4 — Dossiê mínimo suficiente por tipo de peça:** novo seletor opcional "Tipo de peça"
+  (contestação / recurso) no mesmo formulário. Quando escolhido, `montar_digest_processo` monta um
+  bloco de dossiê ANTES do corte genérico de sempre — pra contestação: petição inicial (documento
+  anexado mais antigo com categoria "Petição" — categoria nova "Laudo" também adicionada ao formulário
+  de upload), decisão mais recente registrada (proxy honesto pra "decisão que abriu o prazo" — ver
+  limitação abaixo), laudos anexados e os últimos 3 atos do processo (sempre incluídos, protegidos do
+  corte por tamanho porque entram cedo no texto); pra recurso: decisão recorrida (mais recente
+  registrada) e últimos 3 atos. **Limitação honesta e deliberada:** como o sistema não tem nenhuma
+  classificação automática de "qual documento é a petição inicial" nem "qual decisão abriu ESTE prazo
+  específico" (isso exigiria NLP que não existe — ver item 3 acima), os dois usam PROXIES
+  explicitamente rotulados como tal no próprio texto gerado ("proxy para...", "confira se é a certa")
+  em vez de fingir uma certeza que o sistema não tem.
+- **Item 5 — Relatório estruturado:** nova aba "Decisões" em `processos/detalhe.html` (os registros de
+  `Decisao` nunca tinham UI própria antes desta seção — só eram lidos internamente pelo digest de IA),
+  dois campos novos de texto livre em `Processo` (`pedidos`, `causa_de_pedir`, editáveis no formulário
+  do processo) e uma página nova, `/processos/<id>/relatorio`: partes e polos, pedidos, causa de
+  pedir, o que já foi decidido (linkado pra aba Decisões), provas produzidas (documentos categoria
+  "Laudo"/"Contrato"), valores (valor da causa + provisão de contingência, se houver), incidentes
+  pendentes (prazos em aberto, linkados pra aba Prazos) e estado atual do feito. Os links usam âncora
+  (`#decisao-N`, `#prazo-N`, `#mov-N`) e uma pequena rotina de JS em `detalhe.html` que detecta o hash
+  na URL, abre a aba certa (Bootstrap esconde `display:none` as abas não ativas — sem isso o link
+  "funcionaria" mas o elemento nunca apareceria) e rola até o item.
+
+**Fora do escopo desta rodada, deliberadamente:** itens 1, 2, 3, 6 (parte da "data de segurança"), 8,
+9 e 10 continuam como estavam — não foram tocados. O usuário pediu, à parte, para começar o
+PLANEJAMENTO (não a implementação) do item 2 — ver "Plano do item 2" logo abaixo, ainda dentro desta
+mesma seção.
+
+### Plano do item 2 — Download dos autos (planejamento, sem código nesta rodada)
+
+Objetivo do item: baixar automaticamente os autos de PJe/eproc/Projudi/ESAJ usando sessão autenticada
+do escritório, trazendo só o que ainda não está indexado. Antes de qualquer linha de código, três
+coisas precisam ficar resolvidas — nenhuma delas é trabalho de programação, são decisões/validações:
+
+1. **Separar de vez "certificado" de "cofre" no vocabulário do projeto** (a lista original do usuário
+   tratava os dois como intercambiáveis — ver item 2 na análise acima). Só o agente local (certificado
+   A1/A3, nunca sai da máquina do advogado) é candidato a autenticar e baixar autos. `SenhaProcesso`
+   (cofre) é a senha de segredo de justiça do PRÓPRIO PROCESSO — usá-la para "logar no tribunal como se
+   fosse o advogado" seria acessar com credencial alheia (crime, Lei 12.737/2012) e está fora de
+   cogitação. Qualquer especificação futura do item 2 deve tratar como DOIS mecanismos de acesso
+   distintos, nunca um "ou" intercambiável.
+2. **Validar "Meu agente local" contra pelo menos UM tribunal real antes de prometer os quatro
+   (PJe/eproc/Projudi/ESAJ).** Hoje a arquitetura (pareamento por hash, fila de solicitações via
+   `SolicitacaoBuscaAutos`) está pronta, mas o próprio `agente_local_jc/README.md` avisa que nunca foi
+   testada de verdade — não se sabe ainda se o fluxo de autenticação com certificado funciona igual em
+   cada sistema (PJe tem um formato de autenticação bem diferente do e-SAJ, por exemplo), quanto tempo
+   leva, nem que erros aparecem na prática (captcha, MFA, sessão expirando no meio do download). Isso
+   precisa ser testado manualmente com um caso real (um processo de verdade, consentimento do
+   escritório) ANTES de generalizar pros outros três sistemas — tentar cobrir os quatro de uma vez sem
+   nenhuma validação real é o tipo de trabalho que "parece pronto" mas quebra no primeiro uso real.
+3. **Desenhar o "baixa apenas o que ainda não está indexado" como um registro específico, não
+   reaproveitar o hash de `Movimentacao`.** O hash de dedup existente resolve "esta movimentação de
+   texto já foi vista" — um problema diferente de "este DOCUMENTO do processo (petição, decisão,
+   anexo) já foi baixado". A solução mais simples e consistente com o resto do sistema é um registro
+   por documento do tribunal já baixado (número/identificador do documento na fonte + hash do
+   conteúdo, mesmo padrão de auditoria já usado em `TokenIntegracao`/`AgenteLocalPareado` — nunca
+   guardar segredo em texto puro), consultado antes de cada nova rodada de busca pra pedir ao agente
+   local só a diferença.
+
+Nenhuma dessas três decisões está bloqueada por falta de informação técnica — a próxima ação natural,
+quando o usuário quiser seguir com isso, é o passo 2 (testar contra um tribunal real com um caso
+real), porque as outras duas decisões dependem do que aparecer nesse teste (ex.: se a autenticação com
+certificado falhar de um jeito específico no PJe, isso muda o desenho do passo 3 também).
+
+**Suíte inteira: 328 testes passando (era 314 antes desta seção).** `tests/test_pipeline_ia_juridica.py`
+(novo, 14 testes) cobre: `gerar_analise` recusa rascunho sem delimitação e aceita com ela (bloco chega
+no prompt); resumo nunca exige delimitação; a rota recusa sem os 4 campos obrigatórios e não cria
+nem `AnaliseProcessoIA` nem enfileira nada nesse caso; com delimitação válida, cria as duas linhas
+linkadas e passa o id certo pro job; dossiê de contestação inclui a petição mais antiga e os laudos;
+dossiê de recurso inclui a decisão recorrida; nenhum `tipo_peca` mantém o digest idêntico ao de antes
+(sem regressão); últimos 3 atos sempre aparecem; pedidos/causa de pedir salvam na edição e aparecem no
+relatório; processo sem nenhum dado extra mostra mensagens honestas (não erro, não texto vazio); e as
+âncoras de decisão/prazo/movimentação aparecem de fato no HTML de `detalhe.html`.
+
+**Nota de compatibilidade:** os 3 testes de `tests/test_referencia_estilo_minuta.py` que exercitam a
+rota com `tipo=rascunho_peticao` precisaram ganhar os 4 campos de delimitação no payload do POST (senão
+a rota passaria a recusar a geração, quebrando testes que não são sobre delimitação) — nenhuma
+mudança de comportamento além disso.
+
 ## -100. Cards do painel viraram links + valor total dos processos ativos
 
 **Pedido:** "quero que ao clicar em 'Processos ativos' vai para a pagina de processos, clicando em

@@ -12,7 +12,7 @@ from sqlalchemy import func
 from app.models import (
     Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
     Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito, LogAtividade,
-    SolicitacaoBuscaAutos,
+    SolicitacaoBuscaAutos, DelimitacaoObjeto,
 )
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
@@ -20,7 +20,7 @@ from app.utils.acesso import (
 )
 from app.utils.notificacoes import registrar_log, notificar
 from app.utils import tribunais_datajud, agente_ia_router, tribunais_conectores, timbrado
-from app.utils.analise_processo_ia import gerar_analise
+from app.utils.analise_processo_ia import gerar_analise, TIPOS_PECA_COM_DOSSIE, NOMES_TIPOS_PECA
 from app.utils.fila import enfileirar
 from app.utils.cnj import validar_numero_cnj
 from app.utils.captura_conectores import obter_conector, ConectorNaoConfiguradoError
@@ -220,6 +220,8 @@ def novo():
             valor_causa=request.form.get("valor_causa") or None,
             data_distribuicao=_parse_data(request.form.get("data_distribuicao")),
             descricao=request.form.get("descricao"),
+            pedidos=request.form.get("pedidos") or None,
+            causa_de_pedir=request.form.get("causa_de_pedir") or None,
             segredo_justica=bool(request.form.get("segredo_justica")),
             cliente_id=request.form["cliente_id"],
             responsavel_id=request.form.get("responsavel_id") or current_user.id,
@@ -378,7 +380,37 @@ def detalhe(processo_id):
                             tem_agente_local_pareado=tem_agente_local_pareado,
                             eproc_links=eproc_links,
                             projudi_links=projudi_links,
-                            outros_links=outros_links)
+                            outros_links=outros_links,
+                            nomes_tipos_peca=NOMES_TIPOS_PECA)
+
+
+@processos_bp.route("/<int:processo_id>/relatorio")
+@login_required
+def relatorio(processo_id):
+    """
+    Relatório estruturado do processo (item 5 da lista de pipeline de IA
+    jurídica trazida pelo usuário — PENDENCIAS.md, seção -101): "partes e
+    polos, pedidos, causa de pedir, o que já foi decidido, provas
+    produzidas, valores, incidentes pendentes e estado atual do feito, com
+    link para o evento de origem de cada item".
+
+    Cada item de "o que já foi decidido" e dos "incidentes pendentes" linka
+    de volta pra aba correspondente em processos/detalhe.html (decisão,
+    prazo, movimentação — ver a âncora tratada em detalhe.html, que abre a
+    aba certa a partir do #id no link). "Provas produzidas" usa
+    Documento.categoria (peticao/laudo/contrato/decisao/procuracao/outros)
+    — não há classificação mais fina que isso hoje.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    decisoes = list(processo.decisoes)
+    incidentes_pendentes = [p for p in processo.prazos
+                             if p.status not in ("cumprido", "historico_anterior") and not p.deletado_em]
+    documentos_prova = [d for d in processo.documentos if d.categoria in ("laudo", "contrato")]
+
+    return render_template("processos/relatorio.html", processo=processo, decisoes=decisoes,
+                            incidentes_pendentes=incidentes_pendentes, documentos_prova=documentos_prova)
 
 
 @processos_bp.route("/<int:processo_id>/pdf")
@@ -434,6 +466,8 @@ def editar(processo_id):
         processo.valor_causa = request.form.get("valor_causa") or None
         processo.data_distribuicao = _parse_data(request.form.get("data_distribuicao"))
         processo.descricao = request.form.get("descricao")
+        processo.pedidos = request.form.get("pedidos") or None
+        processo.causa_de_pedir = request.form.get("causa_de_pedir") or None
         processo.segredo_justica = bool(request.form.get("segredo_justica"))
         processo.cliente_id = request.form["cliente_id"]
         processo.responsavel_id = request.form.get("responsavel_id") or processo.responsavel_id
@@ -1010,6 +1044,29 @@ def gerar_analise_ia(processo_id):
         flash("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
+    # Dossiê por tipo de peça (item 4 — PENDENCIAS.md, seção -101) — opcional,
+    # só faz sentido em rascunho_peticao. Valor fora de TIPOS_PECA_COM_DOSSIE
+    # (ex.: "" do <select> quando o advogado não escolhe nenhum) vira None,
+    # que é o comportamento genérico de sempre (nenhuma mudança de digest).
+    tipo_peca = request.form.get("tipo_peca") or None
+    if tipo_peca not in TIPOS_PECA_COM_DOSSIE:
+        tipo_peca = None
+
+    # Delimitação do objeto (item 7 — PENDENCIAS.md, seção -101): "a minuta
+    # só começa depois disso resolvido" — por isso é OBRIGATÓRIA para
+    # rascunho_peticao, mesmo espírito da checagem de `instrucao` acima.
+    materia_fato = request.form.get("materia_fato", "").strip()
+    materia_direito = request.form.get("materia_direito", "").strip()
+    tese_a_sustentar = request.form.get("tese_a_sustentar", "").strip()
+    resultado_pretendido = request.form.get("resultado_pretendido", "").strip()
+    ataca_da_decisao = request.form.get("ataca_da_decisao", "").strip()
+    if tipo == "rascunho_peticao" and not (materia_fato and materia_direito and tese_a_sustentar
+                                            and resultado_pretendido):
+        flash("Delimite o objeto da petição antes de gerar o rascunho: descreva a matéria de fato "
+              "controvertida, a matéria de direito controvertida, a tese a sustentar e o resultado "
+              "pretendido.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id))
+
     empresa_do_processo = processo.unidade.empresa if processo.unidade else None
     if not agente_ia_router.provedor_disponivel(empresa_do_processo):
         flash("Agente de IA indisponível para esta empresa no momento (modelo local não baixado, ou "
@@ -1041,7 +1098,7 @@ def gerar_analise_ia(processo_id):
     # a aba Análise IA se atualiza sozinha quando terminar.
     analise = AnaliseProcessoIA(
         processo_id=processo.id, solicitado_por_id=current_user.id, tipo=tipo,
-        instrucao=instrucao or None, resultado="", status="processando",
+        instrucao=instrucao or None, resultado="", status="processando", tipo_peca=tipo_peca,
         # Só grava a referência quando o texto realmente foi extraído — se a
         # extração falhou (não suportado/ilegível), fica None: mais honesto
         # do que mostrar "baseado no estilo de X" pra algo que não influenciou
@@ -1049,11 +1106,25 @@ def gerar_analise_ia(processo_id):
         documento_referencia_id=(doc_referencia.id if texto_referencia else None),
     )
     db.session.add(analise)
+    db.session.flush()  # precisa de analise.id pra linkar a delimitação abaixo
+
+    delimitacao_id = None
+    if tipo == "rascunho_peticao":
+        delimitacao = DelimitacaoObjeto(
+            processo_id=processo.id, analise_id=analise.id, criado_por_id=current_user.id,
+            materia_fato=materia_fato, materia_direito=materia_direito,
+            tese_a_sustentar=tese_a_sustentar, resultado_pretendido=resultado_pretendido,
+            ataca_da_decisao=ataca_da_decisao or None,
+        )
+        db.session.add(delimitacao)
+        db.session.flush()
+        delimitacao_id = delimitacao.id
+
     registrar_log(current_user, "gerou_analise_ia", "Processo", processo.id, tipo)
     db.session.commit()
 
     enfileirar("app.jobs.ia_jobs.processar_analise_processo_ia", analise.id, processo.id, tipo, instrucao,
-               texto_referencia)
+               texto_referencia, tipo_peca, delimitacao_id)
 
     flash("Gerando análise em segundo plano — acompanhe na aba \"Análise IA\" (atualiza sozinha; "
           "pode levar alguns minutos no modelo local). É sempre um rascunho para conferência humana.",

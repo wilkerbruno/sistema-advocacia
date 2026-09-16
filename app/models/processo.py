@@ -52,6 +52,19 @@ class Processo(db.Model):
     descricao = db.Column(db.Text)
     segredo_justica = db.Column(db.Boolean, default=False)
 
+    # Relatório estruturado (item 5 da lista de pipeline de IA jurídica —
+    # PENDENCIAS.md, seção -101): "pedidos" e "causa de pedir" são texto
+    # livre preenchido pelo advogado, não extraído automaticamente — este
+    # sistema não tem nenhuma camada de NLP/extração estrutural de peças
+    # (a extração de documento existente, app/utils/extracao_documento.py,
+    # só pega texto cru pra referência de ESTILO, nunca interpreta conteúdo
+    # jurídico). Ambos nullable, como toda coluna nova deste projeto (ver
+    # sincronizar_schema.py) — processo já cadastrado antes desta
+    # funcionalidade simplesmente fica sem esses dois campos até alguém
+    # preenchê-los.
+    pedidos = db.Column(db.Text, nullable=True)
+    causa_de_pedir = db.Column(db.Text, nullable=True)
+
     # Lista completa de partes (todos os polos, com advogados) devolvida
     # pela captura automática (DataJud/e-SAJ público — PENDENCIAS.md, seção
     # -77) — antes disso o retorno de `partes` do conector só era usado pra

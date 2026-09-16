@@ -160,6 +160,10 @@ def test_referencia_nunca_entra_no_digest_usado_pelo_grounding(app, cenario, mon
     resultado, truncado = gerar_analise(
         processo, "rascunho_peticao", instrucao="contestação padrão",
         texto_referencia="Modelo antigo que menciona R$ 77.777,00 só como exemplo de estilo.",
+        delimitacao={
+            "materia_fato": "Se houve entrega do produto.", "materia_direito": "Vício do produto.",
+            "tese_a_sustentar": "Ausência de vício.", "resultado_pretendido": "Improcedência do pedido.",
+        },
     )
 
     assert "Modelo antigo que menciona R$ 77.777,00" in capturado["system"], \
@@ -206,6 +210,8 @@ def test_rota_extrai_referencia_antes_de_enfileirar(app, client, login, post_csr
     r = post_csrf(f"/processos/{cenario['processo_id']}/analise-ia", {
         "tipo": "rascunho_peticao", "instrucao": "contestação padrão",
         "documento_referencia_id": str(doc.id),
+        "materia_fato": "Fato controvertido.", "materia_direito": "Direito controvertido.",
+        "tese_a_sustentar": "Tese.", "resultado_pretendido": "Resultado.",
     }, get_url=f"/processos/{cenario['processo_id']}")
     assert r.status_code == 200
 
@@ -214,7 +220,8 @@ def test_rota_extrai_referencia_antes_de_enfileirar(app, client, login, post_csr
     assert analise.documento_referencia_id == doc.id
 
     assert len(chamadas) == 1
-    texto_referencia_enviado = chamadas[0][-1]
+    # args = (analise.id, processo.id, tipo, instrucao, texto_referencia, tipo_peca, delimitacao_id)
+    texto_referencia_enviado = chamadas[0][4]
     assert texto_referencia_enviado is not None
     assert "Trecho de estilo" in texto_referencia_enviado
 
@@ -228,6 +235,8 @@ def test_rota_documento_de_outro_processo_e_rejeitado_sem_bloquear_geracao(app, 
     r = post_csrf(f"/processos/{cenario['processo_id']}/analise-ia", {
         "tipo": "rascunho_peticao", "instrucao": "contestação padrão",
         "documento_referencia_id": str(doc_outro_processo.id),
+        "materia_fato": "Fato controvertido.", "materia_direito": "Direito controvertido.",
+        "tese_a_sustentar": "Tese.", "resultado_pretendido": "Resultado.",
     }, get_url=f"/processos/{cenario['processo_id']}")
     assert r.status_code == 200
     assert "referência" in r.data.decode("utf-8").lower() or "inválido" in r.data.decode("utf-8").lower()
@@ -236,7 +245,7 @@ def test_rota_documento_de_outro_processo_e_rejeitado_sem_bloquear_geracao(app, 
     assert analise is not None
     assert analise.documento_referencia_id is None
     assert len(chamadas) == 1
-    assert chamadas[0][-1] is None, "geração segue sem referência, nunca bloqueada"
+    assert chamadas[0][4] is None, "geração segue sem referência, nunca bloqueada"
 
 
 def test_rota_tipo_nao_suportado_avisa_mas_nao_bloqueia(app, client, login, post_csrf, cenario, monkeypatch):
@@ -247,6 +256,8 @@ def test_rota_tipo_nao_suportado_avisa_mas_nao_bloqueia(app, client, login, post
     r = post_csrf(f"/processos/{cenario['processo_id']}/analise-ia", {
         "tipo": "rascunho_peticao", "instrucao": "contestação padrão",
         "documento_referencia_id": str(doc_imagem.id),
+        "materia_fato": "Fato controvertido.", "materia_direito": "Direito controvertido.",
+        "tese_a_sustentar": "Tese.", "resultado_pretendido": "Resultado.",
     }, get_url=f"/processos/{cenario['processo_id']}")
     assert r.status_code == 200
 
@@ -254,7 +265,7 @@ def test_rota_tipo_nao_suportado_avisa_mas_nao_bloqueia(app, client, login, post
     assert analise is not None
     assert analise.documento_referencia_id is None
     assert len(chamadas) == 1
-    assert chamadas[0][-1] is None
+    assert chamadas[0][4] is None
 
 
 def test_rota_sem_referencia_funciona_como_antes(app, client, login, post_csrf, cenario, monkeypatch):

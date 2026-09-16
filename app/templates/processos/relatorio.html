@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block titulo %}Relatório — {{ processo.numero_processo or processo.numero_interno or "Processo" }} — JusControl{% endblock %}
+{% block eyebrow %}Processo{% endblock %}
+{% block cabecalho %}Relatório estruturado{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3">
+  <a href="{{ url_for('processos.detalhe', processo_id=processo.id) }}">← Voltar para o processo</a>
+  — {{ processo.numero_processo or processo.numero_interno or ("#" ~ processo.id) }}
+</p>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Partes e polos</h3>
+  <p class="small mb-1"><strong>Cliente:</strong> <a href="{{ url_for('clientes.detalhe', cliente_id=processo.cliente_id) }}">{{ processo.cliente.nome if processo.cliente else "—" }}</a> (polo: {{ processo.polo_cliente or "—" }})</p>
+  <p class="small mb-1"><strong>Parte contrária:</strong> {{ processo.parte_contraria or "—" }}{% if processo.advogado_contrario %} — advogado(a): {{ processo.advogado_contrario }}{% endif %}</p>
+  {% if processo.partes_texto %}
+  <p class="small mb-0" style="white-space: pre-line;"><strong>Partes (captura automática):</strong><br>{{ processo.partes_texto }}</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Pedidos</h3>
+  {% if processo.pedidos %}
+  <p class="small mb-0" style="white-space: pre-line;">{{ processo.pedidos }}</p>
+  {% else %}
+  <p class="text-muted-doc small mb-0">Não preenchido — edite o processo (aba "Editar") para adicionar.</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Causa de pedir</h3>
+  {% if processo.causa_de_pedir %}
+  <p class="small mb-0" style="white-space: pre-line;">{{ processo.causa_de_pedir }}</p>
+  {% else %}
+  <p class="text-muted-doc small mb-0">Não preenchida — edite o processo (aba "Editar") para adicionar.</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">O que já foi decidido</h3>
+  {% if decisoes %}
+  <ul class="small mb-0">
+    {% for d in decisoes %}
+    <li class="mb-1">
+      <a href="{{ url_for('processos.detalhe', processo_id=processo.id, _anchor='decisao-' ~ d.id) }}">
+        {{ d.data|data_br if d.data else "—" }} ({{ d.tipo or "decisão" }})
+      </a>
+      — {{ (d.tese or d.inteiro_teor or "sem teor registrado")[:200] }}{% if d.resultado %} — resultado: {{ d.resultado }}{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted-doc small mb-0">Nenhuma decisão registrada ainda para este processo.</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Provas produzidas</h3>
+  <p class="small text-muted-doc mb-2">Documentos anexados com categoria "Laudo" ou "Contrato" — não há
+    classificação mais fina de "prova" no sistema hoje.</p>
+  {% if documentos_prova %}
+  <ul class="small mb-0">
+    {% for d in documentos_prova %}
+    <li><a href="{{ url_for('processos.baixar_documento', documento_id=d.id) }}">{{ d.nome_original }}</a> ({{ d.categoria }})</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted-doc small mb-0">Nenhum documento de prova anexado ainda (aba "Documentos").</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Valores</h3>
+  <p class="small mb-1"><strong>Valor da causa:</strong> {{ processo.valor_causa|moeda if processo.valor_causa else "—" }}</p>
+  {% if processo.classificacao_contingencia %}
+  <p class="small mb-0"><strong>Provisão de contingência:</strong> {{ processo.valor_provisionado|moeda if processo.valor_provisionado is not none else "—" }}
+    ({{ processo.classificacao_contingencia }}, {{ processo.percentual_provisionamento_efetivo }}%)</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-3">
+  <h3 class="font-display" style="font-size: 1.05rem;">Incidentes pendentes ({{ incidentes_pendentes|length }})</h3>
+  {% if incidentes_pendentes %}
+  <ul class="small mb-0">
+    {% for p in incidentes_pendentes %}
+    <li>
+      <a href="{{ url_for('processos.detalhe', processo_id=processo.id, _anchor='prazo-' ~ p.id) }}">
+        {{ p.descricao }} — {{ p.data_vencimento|data_br }}
+      </a>
+      <span class="badge-status badge-{{ p.status }}">{{ p.status }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="text-muted-doc small mb-0">Nenhum incidente (prazo) pendente no momento.</p>
+  {% endif %}
+</div>
+
+<div class="card-doc tab p-3 mb-0">
+  <h3 class="font-display" style="font-size: 1.05rem;">Estado atual do feito</h3>
+  <p class="small mb-1"><strong>Status:</strong> <span class="badge-status badge-{{ processo.status }}">{{ processo.status }}</span></p>
+  <p class="small mb-1"><strong>Fase:</strong> {{ processo.fase or "—" }}</p>
+  <p class="small mb-0"><strong>Estado de negócio:</strong> {{ processo.estado_negocio_atual or "—" }}</p>
+</div>
+{% endblock %}

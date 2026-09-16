@@ -104,6 +104,23 @@ class AnaliseProcessoIA(db.Model):
     documento_referencia_id = db.Column(db.Integer, db.ForeignKey("documentos.id"), nullable=True)
     documento_referencia = db.relationship("Documento")
 
+    # Dossiê por tipo de peça (item 4 da lista de pipeline de IA jurídica —
+    # PENDENCIAS.md, seção -101): quando informado, muda quais documentos
+    # `montar_digest_processo` prioriza (ver app/utils/analise_processo_ia.py,
+    # TIPOS_PECA_COM_DOSSIE). Só faz sentido em rascunho_peticao; fica NULL
+    # em "resumo" e também em rascunhos sem tipo de peça específico escolhido
+    # (segue o comportamento genérico anterior a esta funcionalidade).
+    tipo_peca = db.Column(db.String(20), nullable=True)
+
+    # Delimitação do objeto (item 7 da mesma lista — PENDENCIAS.md, seção
+    # -101): "a minuta só começa depois disso resolvido". Obrigatório para
+    # rascunho_peticao (ver validação em app/routes/processos.py::
+    # gerar_analise_ia e em app/utils/analise_processo_ia.py::gerar_analise),
+    # nunca preenchido em "resumo". `uselist=False` porque cada análise tem
+    # NO MÁXIMO uma delimitação própria (histórico completo fica em
+    # DelimitacaoObjeto.processo, não aqui).
+    delimitacao_objeto = db.relationship("DelimitacaoObjeto", back_populates="analise", uselist=False)
+
     # nullable=False mas pode ser "" enquanto status="processando" (ver
     # abaixo) — o job de fundo preenche de verdade quando terminar.
     resultado = db.Column(db.Text, nullable=False, default="")
@@ -121,3 +138,55 @@ class AnaliseProcessoIA(db.Model):
 
     def __repr__(self):
         return f"<AnaliseProcessoIA {self.id} processo={self.processo_id} tipo={self.tipo}>"
+
+
+class DelimitacaoObjeto(db.Model):
+    """
+    Delimitação do objeto da peça (item 7 da lista de pipeline de IA
+    jurídica trazida pelo usuário — PENDENCIAS.md, seção -101): "matéria de
+    fato e matéria de direito controvertidas, tese a sustentar, o que se
+    ataca da decisão e o resultado pretendido. A minuta só começa depois
+    disso resolvido."
+
+    Preenchida pelo próprio advogado (texto livre — nada aqui é inferido
+    automaticamente do processo) na mesma tela onde pede o rascunho de
+    petição, e É OBRIGATÓRIA para gerar um rascunho: `gerar_analise_ia`
+    (app/routes/processos.py) recusa a geração de "rascunho_peticao" sem
+    isso preenchido, e `gerar_analise` (app/utils/analise_processo_ia.py)
+    repete a mesma checagem como segunda camada de defesa (mesmo padrão já
+    usado ali para `instrucao`).
+
+    Guarda UMA linha por rascunho gerado (nunca sobrescreve a anterior) —
+    processos que voltam a pedir rascunho depois (ex.: contestação e,
+    meses depois, um recurso) legitimamente têm tese/objeto diferentes a
+    cada vez, e apagar o histórico anterior perderia a auditoria de qual
+    delimitação embasou qual peça já gerada.
+    """
+    __tablename__ = "delimitacoes_objeto"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    processo_id = db.Column(db.Integer, db.ForeignKey("processos.id"), nullable=False)
+    processo = db.relationship("Processo")
+
+    # Preenchido pela rota logo após criar a AnaliseProcessoIA correspondente
+    # (precisa do id dela) — nullable só por causa dessa ordem de criação,
+    # nunca fica None depois de salvo pela rota (ver processos.py).
+    analise_id = db.Column(db.Integer, db.ForeignKey("analises_processo_ia.id"), nullable=True)
+    analise = db.relationship("AnaliseProcessoIA", back_populates="delimitacao_objeto")
+
+    materia_fato = db.Column(db.Text, nullable=False)  # matéria de fato controvertida
+    materia_direito = db.Column(db.Text, nullable=False)  # matéria de direito controvertida
+    tese_a_sustentar = db.Column(db.Text, nullable=False)
+    # Só faz sentido em peça recursal ("o que se ataca da decisão") —
+    # opcional porque nem toda peça é um recurso (ex.: contestação não
+    # ataca decisão nenhuma, ataca a inicial).
+    ataca_da_decisao = db.Column(db.Text, nullable=True)
+    resultado_pretendido = db.Column(db.Text, nullable=False)
+
+    criado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    criado_por = db.relationship("Usuario")
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<DelimitacaoObjeto {self.id} processo={self.processo_id}>"

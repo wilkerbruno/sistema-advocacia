@@ -21,6 +21,7 @@ uma janela de contexto bem maior — o mesmo corte se aplica hoje por
 simplicidade, mas dá pra revisitar se isso incomodar na prática.
 """
 import re
+from datetime import datetime
 
 from app.utils import agente_ia_router
 
@@ -282,10 +283,133 @@ INSTRUCAO_REFERENCIA_ESTILO = (
     "Trecho de referência (só estilo/estrutura, nunca fato):\n"
 )
 
+# Tipos de peça com dossiê dedicado (item 4 da lista de pipeline de IA
+# jurídica trazida pelo usuário — PENDENCIAS.md, seção -101): muda o que
+# `montar_digest_processo` prioriza, em vez do corte genérico (só "os N
+# itens mais recentes de cada categoria") usado quando nenhum tipo é
+# informado. `None`/qualquer outro valor mantém o comportamento antigo,
+# inalterado — isto é aditivo, nunca obrigatório.
+TIPOS_PECA_COM_DOSSIE = ("contestacao", "recurso")
+NOMES_TIPOS_PECA = {
+    "contestacao": "Contestação",
+    "recurso": "Recurso",
+}
 
-def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_chars=LIMITE_PADRAO_CHARS):
+BLOCO_DELIMITACAO_OBJETO_CABECALHO = (
+    "\n\nObjeto da peça já delimitado pelo advogado responsável (use isto para focar a peça — não "
+    "amplie nem reinterprete o pedido além do que está descrito aqui; se um fato dos dados do "
+    "processo não for relevante para este objeto específico, pode ser omitido da narrativa):\n"
+)
+
+
+def _montar_bloco_delimitacao_objeto(delimitacao):
+    """
+    Monta o texto do objeto delimitado (item 7: "a minuta só começa depois
+    disso resolvido") a partir de `delimitacao` — aceita tanto um dict
+    quanto um objeto com os mesmos atributos (ex.: DelimitacaoObjeto), pra
+    não acoplar este módulo (só lida com texto/IA) ao modelo de banco.
+    """
+    def campo(nome):
+        valor = delimitacao.get(nome) if isinstance(delimitacao, dict) else getattr(delimitacao, nome, None)
+        return (valor or "").strip()
+
+    linhas = [
+        f"- Matéria de fato controvertida: {campo('materia_fato') or '—'}",
+        f"- Matéria de direito controvertida: {campo('materia_direito') or '—'}",
+        f"- Tese a sustentar: {campo('tese_a_sustentar') or '—'}",
+        f"- Resultado pretendido: {campo('resultado_pretendido') or '—'}",
+    ]
+    if campo("ataca_da_decisao"):
+        linhas.append(f"- O que se ataca da decisão: {campo('ataca_da_decisao')}")
+    return BLOCO_DELIMITACAO_OBJETO_CABECALHO + "\n".join(linhas)
+
+
+def _montar_dossie_tipo_peca(processo, tipo_peca):
+    """
+    Dossiê mínimo suficiente por tipo de peça (item 4): em vez da seleção
+    genérica de `montar_digest_processo` (só "os N mais recentes de cada
+    categoria"), procura especificamente o que ESSE tipo de peça costuma
+    exigir — inicial, decisão relevante, laudos, últimos atos.
+
+    Honesto sobre o que este sistema NÃO consegue fazer ainda: não há
+    nenhuma classificação automática de "qual documento é a petição
+    inicial" nem "qual decisão abriu este prazo específico" (isso exigiria
+    NLP/classificação estrutural que este sistema não tem — ver
+    PENDENCIAS.md, seção -101, item 3 da lista). Por isso usa PROXIES
+    explicitamente rotulados como tal (documento de categoria "peticao"
+    mais ANTIGO anexado, decisão mais RECENTE registrada) em vez de fingir
+    certeza que o sistema não tem — se o proxy estiver errado num caso
+    concreto, fica claro no próprio rótulo do texto gerado, não escondido.
+    """
+    linhas = [f"Dossiê mínimo sugerido para {NOMES_TIPOS_PECA.get(tipo_peca, tipo_peca)} "
+              "(seleção automática — confira se é o documento certo antes de usar):"]
+
+    documentos = [d for d in processo.documentos]
+    peticoes = sorted((d for d in documentos if d.categoria == "peticao"),
+                       key=lambda d: d.enviado_em or datetime.min)
+    laudos = [d for d in documentos if d.categoria == "laudo"]
+    decisoes = list(processo.decisoes)
+
+    if tipo_peca == "contestacao":
+        if peticoes:
+            inicial = peticoes[0]
+            linhas.append(f"- Petição inicial (documento anexado mais antigo com categoria \"Petição\"): "
+                           f"\"{inicial.nome_original}\", enviado em "
+                           f"{inicial.enviado_em.strftime('%d/%m/%Y') if inicial.enviado_em else '—'}.")
+        else:
+            linhas.append("- Petição inicial: nenhum documento com categoria \"Petição\" anexado ao "
+                           "processo — anexe na aba Documentos para o dossiê incluir.")
+        if decisoes:
+            d = decisoes[0]
+            linhas.append(f"- Decisão mais recente registrada (proxy para \"decisão que abriu o prazo\" — "
+                           f"confira se é a certa): {d.data.strftime('%d/%m/%Y') if d.data else '—'} "
+                           f"({d.tipo or 'decisão'}) — {(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}")
+        else:
+            linhas.append("- Nenhuma decisão registrada no sistema para este processo.")
+        if laudos:
+            for laudo in laudos:
+                linhas.append(f"- Laudo anexado: \"{laudo.nome_original}\".")
+        else:
+            linhas.append("- Nenhum laudo anexado (categoria \"Laudo\").")
+
+    elif tipo_peca == "recurso":
+        if decisoes:
+            d = decisoes[0]
+            linhas.append(f"- Decisão recorrida (mais recente registrada): "
+                           f"{d.data.strftime('%d/%m/%Y') if d.data else '—'} ({d.tipo or 'decisão'}) — "
+                           f"{(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}")
+            if d.resultado:
+                linhas.append(f"  Resultado da decisão recorrida: {d.resultado}.")
+        else:
+            linhas.append("- Nenhuma decisão registrada no sistema para este processo — não há decisão "
+                           "recorrida identificável; confirme manualmente antes de prosseguir.")
+
+    # Últimos 3 atos: sempre incluído nos dois tipos, "nunca ficam de fora
+    # mesmo se o histórico geral for cortado por tamanho" (garantido aqui
+    # colocando este bloco cedo no digest — ver chamada em
+    # montar_digest_processo abaixo, o corte final é sempre do FIM do texto).
+    movs = [m for m in processo.movimentacoes if not m.deletado_em][:3]
+    if movs:
+        linhas.append("- Últimos 3 atos do processo:")
+        for m in movs:
+            linhas.append(f"  · {m.data.strftime('%d/%m/%Y')}: {m.texto_integral[:150]}")
+
+    return "\n".join(linhas)
+
+
+def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_ITENS,
+                            limite_chars=LIMITE_PADRAO_CHARS):
     """Monta o texto de contexto real do processo injetado no prompt. Devolve
-    (texto, truncado) — truncado=True quando o histórico teve que ser cortado."""
+    (texto, truncado) — truncado=True quando o histórico teve que ser cortado.
+
+    `tipo_peca` (item 4 — PENDENCIAS.md, seção -101): quando informado e
+    presente em TIPOS_PECA_COM_DOSSIE, insere um bloco de "dossiê mínimo
+    suficiente" logo no início do digest (ver `_montar_dossie_tipo_peca`) —
+    de propósito ANTES dos blocos genéricos de prazos/movimentações/decisões
+    abaixo, porque o corte por `limite_chars` é sempre do FIM do texto: um
+    processo com histórico grande poderia truncar exatamente os itens mais
+    importantes para a peça se eles ficassem depois na ordem.
+    """
     partes = [
         f"Processo {processo.numero_processo or processo.numero_interno or ('#' + str(processo.id))} — "
         f"área: {processo.area_direito}, classe: {processo.classe_processual or '—'}, "
@@ -297,6 +421,9 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
     ]
     if processo.valor_causa:
         partes.append(f"Valor da causa: R$ {processo.valor_causa}.")
+
+    if tipo_peca in TIPOS_PECA_COM_DOSSIE:
+        partes.append(_montar_dossie_tipo_peca(processo, tipo_peca))
 
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora —
     # já foi revisado e regularizado, não é um prazo pendente de verdade;
@@ -349,13 +476,14 @@ def montar_digest_processo(processo, limite_itens=LIMITE_PADRAO_ITENS, limite_ch
     return texto, truncado
 
 
-def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
+def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_peca=None, delimitacao=None):
     """
     Gera o resumo ou rascunho de petição para `processo`. Levanta ValueError
-    para erro de uso (tipo inválido, instrução obrigatória faltando) e deixa
-    propagar agente_ia_router.ProvedorIAIndisponivelError quando o provedor
-    de IA configurado para a empresa do processo (modelo local, Claude BYOK
-    ou Gemini BYOK) não está pronto — quem chama decide como exibir isso.
+    para erro de uso (tipo inválido, instrução obrigatória faltando, objeto
+    não delimitado) e deixa propagar agente_ia_router.ProvedorIAIndisponivelError
+    quando o provedor de IA configurado para a empresa do processo (modelo
+    local, Claude BYOK ou Gemini BYOK) não está pronto — quem chama decide
+    como exibir isso.
 
     `texto_referencia` (opcional, só usado em rascunho_peticao): trecho de
     texto de um documento já anexado a outro momento do processo (ou outro
@@ -363,6 +491,17 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
     peça (PENDENCIAS.md, seção -53) — ver
     app/utils/extracao_documento.py::extrair_texto_documento. Ignorado
     silenciosamente pra tipo="resumo" (não faz sentido ali).
+
+    `tipo_peca` (opcional, item 4 — PENDENCIAS.md, seção -101): ver
+    TIPOS_PECA_COM_DOSSIE acima; muda a seleção de documentos do digest.
+
+    `delimitacao` (item 7 — PENDENCIAS.md, seção -101): dict ou objeto com
+    materia_fato/materia_direito/tese_a_sustentar/resultado_pretendido
+    (ataca_da_decisao opcional) — OBRIGATÓRIO para tipo="rascunho_peticao"
+    ("a minuta só começa depois disso resolvido"); a validação já acontece
+    antes de enfileirar (ver app/routes/processos.py::gerar_analise_ia),
+    esta aqui é a segunda camada de defesa, mesmo padrão já usado para
+    `instrucao` logo abaixo.
 
     Devolve (resultado_texto, digest_truncado).
     """
@@ -376,7 +515,7 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
     # max_tokens logo abaixo) — sem isso, um processo com histórico grande
     # MAIS uma referência de estilo grande estourariam a janela juntos.
     digest, truncado = montar_digest_processo(
-        processo, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS
+        processo, tipo_peca=tipo_peca, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS
     )
 
     if tipo == "resumo":
@@ -393,7 +532,11 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None):
     else:
         if not instrucao or not instrucao.strip():
             raise ValueError("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").")
+        if delimitacao is None:
+            raise ValueError("Delimite o objeto da petição (matéria de fato e de direito controvertidas, tese a "
+                              "sustentar e resultado pretendido) antes de gerar o rascunho.")
         system = RASCUNHO_SYSTEM + "\n\nDados do processo:\n" + digest
+        system += _montar_bloco_delimitacao_objeto(delimitacao)
         if usa_referencia:
             system += INSTRUCAO_REFERENCIA_ESTILO + texto_referencia
         pedido = instrucao.strip()
