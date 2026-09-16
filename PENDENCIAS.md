@@ -1,4 +1,56 @@
-# Status das pendências do briefing (atualizado em 14/09/2026)
+# Status das pendências do briefing (atualizado em 15/09/2026)
+
+## -97. Menu lateral reorganizado — "Configurações" (Gestão + Plataforma) e grupos recolhíveis
+
+**Pedido do usuário:** "tem muita informação nesse menu, ele está muito longo [...] quero que tenha
+uma aba configurações que tenha tudo de gestão e plataforma dentro desse menu somente, mas quero tudo
+de forma organizada e o resto do menu também quero que fique mais organizado para não puluir muito o
+sistema e assustar o cliente". Motivação: pra um admin_desenvolvedor, o menu chegava a ~20 links
+soltos ao mesmo tempo (9 em Operação, 11 em Governança de carteira, 6 em Gestão, 4 em Plataforma) — o
+oposto de "profissional" que o usuário estava buscando (esse pedido veio na mesma conversa de uma
+análise do site do concorrente Exordial AI, olhando o que dava pra melhorar no sistema).
+
+**O que mudou** — só em `app/templates/base.html` e `app/static/css/estilo.css`, NENHUMA rota ou
+blueprint foi renomeada/movida (zero risco pros testes de permissão/URL já existentes, todos
+continuam passando sem alteração):
+- "Gestão" e "Plataforma" viraram um único grupo **"Configurações"**, com dois subtítulos internos —
+  "Minha empresa" (Unidades, Equipe, Relatórios, Auditoria, Alçada de aprovação, Minha licença,
+  Módulos, Integrações) e "Plataforma" (Painel de licenças, Empresas clientes, Catálogo de módulos,
+  Preços padrão, só pro admin_desenvolvedor) — exatamente os mesmos itens de antes, só reagrupados.
+- **"Governança de carteira" e "Configurações" agora são grupos RECOLHÍVEIS** (accordion, clique no
+  título abre/fecha) — é isso que resolve o "menu muito longo" de verdade, não só reagrupar rótulo.
+  Cada grupo abre sozinho quando a página atual está dentro dele (nunca esconde onde o usuário está —
+  calculado no Jinja, `class="expandido"`); fora isso, um script pequeno no fim de `base.html` lembra
+  a última escolha do usuário em `localStorage` (por navegador, não sincroniza entre dispositivos —
+  não precisa, é só conveniência de UI) ou começa fechado por padrão pra quem nunca mexeu.
+- **"Operação" continua sempre visível, sem recolher** — é a única coisa que se usa todo dia
+  (Painel, Processos, Clientes, Tarefas, Agenda, Horas, Agente de IA, Meu agente local, Financeiro).
+- CSS novo em `estilo.css`: `.grupo-colapsavel`/`.grupo-titulo` (agora um `<button>`, não mais um
+  `<div>`, pra ficar clicável e acessível por teclado) com um chevron (▾) que gira -90° quando
+  fechado, e `.subgrupo-titulo` pros dois subtítulos dentro de Configurações.
+
+**Resultado prático:** um admin comum (não-dev) que entra no sistema agora vê só "Operação" aberto —
+Governança e Configurações ficam fechados até ele clicar ou até ele estar numa página de dentro de um
+deles. Isso derruba o menu de ~20 links simultâneos pra ~9 na primeira vista, sem esconder nem mover
+nenhuma funcionalidade — tudo continua no mesmo lugar/URL de sempre, só precisa de um clique a mais
+pra aparecer.
+
+**Suíte inteira: 290 testes passando (era 285 antes desta seção)** — `tests/test_menu_configuracoes.py`
+(novo, 5 testes): admin_desenvolvedor vê "Configurações" com os dois subtítulos e todos os itens
+antigos presentes; admin comum vê "Configurações" mas NUNCA vê nada de "Plataforma" (nem o subtítulo,
+nem os itens); um advogado sem `pode_gerenciar_usuarios()` não vê o grupo "Configurações" (nem o
+cabeçalho, não só os itens escondidos); a marcação recolhível (`grupo-toggle`, `grupo-chevron`,
+`data-grupo`) está presente pros dois grupos certos e "Operação" continua fixo (não virou
+`grupo-colapsavel`); e uma página de dentro de Governança (`/governanca/painel`) chega com o grupo já
+`expandido` e sem a classe `recolhido`, confirmando que o servidor nunca esconde onde o usuário está,
+mesmo antes do JavaScript carregar.
+
+**Deliberadamente fora do escopo desta rodada:** não movi nenhuma rota pra dentro de outra (ex.:
+"Cadastro por CNJ" e "Importar em lote" continuam em Governança, não viraram botões dentro da tela de
+Processos) — o pedido explícito era sobre Configurações e sobre o menu ficar "mais organizado", não
+sobre redesenhar fluxos de cadastro; misturar as duas coisas na mesma rodada aumentaria bastante o
+risco sem ter sido pedido. Fica registrado aqui como uma ideia pra uma futura rodada de UX, se o
+usuário quiser.
 
 ## -96. Gemini (Google) como terceiro provedor BYOK do Agente de IA
 

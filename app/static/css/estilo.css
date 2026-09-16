@@ -119,6 +119,38 @@ a:hover { color: var(--brass-600); }
   width: 18px;
 }
 
+/* Grupos recolhíveis do menu (Governança de carteira, Configurações) — só
+   pra reduzir o tanto de link visível de uma vez (menu ficava comprido
+   demais pra admin, ver PENDENCIAS.md). "Operação" continua sempre
+   visível (uso diário); os outros abrem sozinhos quando a página atual
+   está dentro deles, senão respeitam a última escolha do usuário
+   (localStorage) ou começam fechados por padrão pra quem nunca mexeu. */
+.sidebar-nav button.grupo-titulo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  font: inherit;
+  cursor: pointer;
+}
+.sidebar-nav button.grupo-titulo:hover { color: var(--paper-100); }
+.sidebar-nav .grupo-chevron {
+  font-size: 0.6rem;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+.grupo-colapsavel:not(.expandido) .grupo-chevron { transform: rotate(-90deg); }
+.grupo-colapsavel .grupo-itens.recolhido { display: none; }
+.sidebar-nav .subgrupo-titulo {
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-500);
+  padding: 10px 12px 4px;
+}
+
 .sidebar-footer {
   padding: 14px 18px 18px;
   border-top: 1px solid rgba(250, 249, 246, 0.08);

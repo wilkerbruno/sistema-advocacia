@@ -57,94 +57,119 @@
       </a>
       {% endif %}
 
-      <div class="grupo-titulo">Governança de carteira</div>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.painel' }}" href="{{ url_for('governanca.painel') }}">
-        <span class="tab-index">G1</span> Painel de governança
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.fila_intimacoes' }}" href="{{ url_for('governanca.fila_intimacoes') }}">
-        <span class="tab-index">G2</span> Fila de intimações
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.metricas' }}" href="{{ url_for('governanca.metricas') }}">
-        <span class="tab-index">G3</span> Métricas
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.novo_por_cnj' }}" href="{{ url_for('governanca.novo_por_cnj') }}">
-        <span class="tab-index">G4</span> Cadastro por CNJ
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.importar_lote' }}" href="{{ url_for('governanca.importar_lote') }}">
-        <span class="tab-index">G5</span> Importar em lote
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.relatorio_semanal_preview' }}" href="{{ url_for('governanca.relatorio_semanal_preview') }}">
-        <span class="tab-index">G6</span> Relatório semanal (preview)
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.produtividade' }}" href="{{ url_for('governanca.produtividade') }}">
-        <span class="tab-index">G7</span> Produtividade da equipe
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.contingenciamento' }}" href="{{ url_for('governanca.contingenciamento') }}">
-        <span class="tab-index">G8</span> Contingenciamento
-      </a>
-      {% if current_user.is_admin %}
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao'] }}" href="{{ url_for('governanca.regras_proxima_acao_lista') }}">
-        <span class="tab-index">G9</span> Regras de próxima ação
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado'] }}" href="{{ url_for('governanca.mapa_estado_lista') }}">
-        <span class="tab-index">GA</span> Mapa de estado (TPU)
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'governanca.verificacao_conflitos' }}" href="{{ url_for('governanca.verificacao_conflitos') }}">
-        <span class="tab-index">GB</span> Verificação de conflitos
-      </a>
-      {% endif %}
+      {# Governança de carteira e Configurações são GRUPOS RECOLHÍVEIS (ver
+         estilo.css) — o menu ficava comprido demais pra quem é admin (até
+         ~20 links de uma vez), o que passa impressão de sistema poluído
+         pro cliente. Cada grupo abre sozinho quando a página atual está
+         dentro dele (`class="expandido"` calculado no Jinja, nunca
+         escondendo onde o usuário está); fora isso, o JS no fim da página
+         lembra a última escolha (localStorage) ou começa fechado por
+         padrão. "Operação" continua sempre visível (é uso diário). #}
+      {% set esta_em_governanca = request.endpoint and (request.endpoint.startswith('governanca.')) %}
+      <div class="grupo-colapsavel {{ 'expandido' if esta_em_governanca }}" data-grupo="governanca">
+        <button type="button" class="grupo-titulo grupo-toggle">
+          <span>Governança de carteira</span> <span class="grupo-chevron">▾</span>
+        </button>
+        <div class="grupo-itens {{ '' if esta_em_governanca else 'recolhido' }}">
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.painel' }}" href="{{ url_for('governanca.painel') }}">
+            <span class="tab-index">G1</span> Painel de governança
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.fila_intimacoes' }}" href="{{ url_for('governanca.fila_intimacoes') }}">
+            <span class="tab-index">G2</span> Fila de intimações
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.metricas' }}" href="{{ url_for('governanca.metricas') }}">
+            <span class="tab-index">G3</span> Métricas
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.novo_por_cnj' }}" href="{{ url_for('governanca.novo_por_cnj') }}">
+            <span class="tab-index">G4</span> Cadastro por CNJ
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.importar_lote' }}" href="{{ url_for('governanca.importar_lote') }}">
+            <span class="tab-index">G5</span> Importar em lote
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.relatorio_semanal_preview' }}" href="{{ url_for('governanca.relatorio_semanal_preview') }}">
+            <span class="tab-index">G6</span> Relatório semanal (preview)
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.produtividade' }}" href="{{ url_for('governanca.produtividade') }}">
+            <span class="tab-index">G7</span> Produtividade da equipe
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.contingenciamento' }}" href="{{ url_for('governanca.contingenciamento') }}">
+            <span class="tab-index">G8</span> Contingenciamento
+          </a>
+          {% if current_user.is_admin %}
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao'] }}" href="{{ url_for('governanca.regras_proxima_acao_lista') }}">
+            <span class="tab-index">G9</span> Regras de próxima ação
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado'] }}" href="{{ url_for('governanca.mapa_estado_lista') }}">
+            <span class="tab-index">GA</span> Mapa de estado (TPU)
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.verificacao_conflitos' }}" href="{{ url_for('governanca.verificacao_conflitos') }}">
+            <span class="tab-index">GB</span> Verificação de conflitos
+          </a>
+          {% endif %}
+        </div>
+      </div>
 
-      {% if current_user.is_authenticated and current_user.pode_gerenciar_usuarios() %}
-      <div class="grupo-titulo">Gestão</div>
-      {% if current_user.is_admin %}
-      <a class="nav-item {{ 'active' if request.endpoint == 'admin.unidades' or request.endpoint == 'admin.nova_unidade' or request.endpoint == 'admin.editar_unidade' }}" href="{{ url_for('admin.unidades') }}">
-        <span class="tab-index">06</span> Unidades
-      </a>
-      {% endif %}
-      <a class="nav-item {{ 'active' if request.endpoint and 'usuario' in request.endpoint }}" href="{{ url_for('admin.usuarios') }}">
-        <span class="tab-index">07</span> Equipe
-      </a>
-      {% if current_user.is_admin %}
-      <a class="nav-item {{ 'active' if request.endpoint == 'admin.relatorios' }}" href="{{ url_for('admin.relatorios') }}">
-        <span class="tab-index">08</span> Relatórios
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'admin.auditoria' }}" href="{{ url_for('admin.auditoria') }}">
-        <span class="tab-index">09</span> Auditoria
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'admin.alcada_aprovacao' }}" href="{{ url_for('admin.alcada_aprovacao') }}">
-        <span class="tab-index">09b</span> Alçada de aprovação
-      </a>
-      {% endif %}
+      {% set mostra_config = current_user.is_authenticated and (current_user.pode_gerenciar_usuarios() or current_user.is_admin_desenvolvedor) %}
+      {% if mostra_config %}
+      {% set esta_em_config = request.endpoint and request.endpoint.split('.')[0] in ['admin', 'licenciamento', 'integracoes', 'plataforma'] %}
+      <div class="grupo-colapsavel {{ 'expandido' if esta_em_config }}" data-grupo="config">
+        <button type="button" class="grupo-titulo grupo-toggle">
+          <span>Configurações</span> <span class="grupo-chevron">▾</span>
+        </button>
+        <div class="grupo-itens {{ '' if esta_em_config else 'recolhido' }}">
+          {% if current_user.pode_gerenciar_usuarios() %}
+          <div class="subgrupo-titulo">Minha empresa</div>
+          {% if current_user.is_admin %}
+          <a class="nav-item {{ 'active' if request.endpoint == 'admin.unidades' or request.endpoint == 'admin.nova_unidade' or request.endpoint == 'admin.editar_unidade' }}" href="{{ url_for('admin.unidades') }}">
+            <span class="tab-index">06</span> Unidades
+          </a>
+          {% endif %}
+          <a class="nav-item {{ 'active' if request.endpoint and 'usuario' in request.endpoint }}" href="{{ url_for('admin.usuarios') }}">
+            <span class="tab-index">07</span> Equipe
+          </a>
+          {% if current_user.is_admin %}
+          <a class="nav-item {{ 'active' if request.endpoint == 'admin.relatorios' }}" href="{{ url_for('admin.relatorios') }}">
+            <span class="tab-index">08</span> Relatórios
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'admin.auditoria' }}" href="{{ url_for('admin.auditoria') }}">
+            <span class="tab-index">09</span> Auditoria
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'admin.alcada_aprovacao' }}" href="{{ url_for('admin.alcada_aprovacao') }}">
+            <span class="tab-index">09b</span> Alçada de aprovação
+          </a>
+          {% endif %}
+          {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}
+          <a class="nav-item {{ 'active' if request.endpoint == 'licenciamento.minha_licenca' or request.endpoint == 'licenciamento.pagamento_retorno' }}" href="{{ url_for('licenciamento.minha_licenca') }}">
+            <span class="tab-index">10</span> Minha licença
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.modulos') or request.endpoint == 'licenciamento.solicitar_modulo' }}" href="{{ url_for('licenciamento.modulos') }}">
+            <span class="tab-index">10b</span> Módulos
+          </a>
+          {% endif %}
+          {% if current_user.is_admin %}
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('integracoes.') }}" href="{{ url_for('integracoes.minhas_integracoes') }}">
+            <span class="tab-index">11</span> Integrações
+          </a>
+          {% endif %}
+          {% endif %}
 
-      {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}
-      <a class="nav-item {{ 'active' if request.endpoint == 'licenciamento.minha_licenca' or request.endpoint == 'licenciamento.pagamento_retorno' }}" href="{{ url_for('licenciamento.minha_licenca') }}">
-        <span class="tab-index">10</span> Minha licença
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.modulos') or request.endpoint == 'licenciamento.solicitar_modulo' }}" href="{{ url_for('licenciamento.modulos') }}">
-        <span class="tab-index">10b</span> Módulos
-      </a>
-      {% endif %}
-      {% if current_user.is_admin %}
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('integracoes.') }}" href="{{ url_for('integracoes.minhas_integracoes') }}">
-        <span class="tab-index">11</span> Integrações
-      </a>
-      {% endif %}
-      {% endif %}
-
-      {% if current_user.is_authenticated and current_user.is_admin_desenvolvedor %}
-      <div class="grupo-titulo">Plataforma</div>
-      <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.painel_licencas' }}" href="{{ url_for('plataforma.painel_licencas') }}">
-        <span class="tab-index">P1</span> Painel de licenças
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.empresa') or request.endpoint == 'plataforma.empresas' or request.endpoint == 'plataforma.modulos_empresa' or request.endpoint == 'plataforma.licenca_empresa' }}" href="{{ url_for('plataforma.empresas') }}">
-        <span class="tab-index">P2</span> Empresas clientes
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.modulo') and request.endpoint != 'plataforma.modulos_empresa' }}" href="{{ url_for('plataforma.modulos_lista') }}">
-        <span class="tab-index">P3</span> Catálogo de módulos
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.editar_planos' }}" href="{{ url_for('plataforma.editar_planos') }}">
-        <span class="tab-index">P4</span> Preços padrão
-      </a>
+          {% if current_user.is_admin_desenvolvedor %}
+          <div class="subgrupo-titulo">Plataforma</div>
+          <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.painel_licencas' }}" href="{{ url_for('plataforma.painel_licencas') }}">
+            <span class="tab-index">P1</span> Painel de licenças
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.empresa') or request.endpoint == 'plataforma.empresas' or request.endpoint == 'plataforma.modulos_empresa' or request.endpoint == 'plataforma.licenca_empresa' }}" href="{{ url_for('plataforma.empresas') }}">
+            <span class="tab-index">P2</span> Empresas clientes
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.modulo') and request.endpoint != 'plataforma.modulos_empresa' }}" href="{{ url_for('plataforma.modulos_lista') }}">
+            <span class="tab-index">P3</span> Catálogo de módulos
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.editar_planos' }}" href="{{ url_for('plataforma.editar_planos') }}">
+            <span class="tab-index">P4</span> Preços padrão
+          </a>
+          {% endif %}
+        </div>
+      </div>
       {% endif %}
     </nav>
 
@@ -309,6 +334,47 @@
 })();
 </script>
 {% endif %}
+
+<script>
+// Grupos recolhíveis do menu lateral (Governança de carteira,
+// Configurações — ver estilo.css e o comentário no <nav> acima). O Jinja
+// já decide se o grupo começa aberto quando a página atual está dentro
+// dele (classe "expandido" no wrapper); aqui só cuida do CLIQUE pra
+// abrir/fechar e lembra a escolha em localStorage — nunca no servidor,
+// é só conveniência de navegação por navegador, não precisa sincronizar
+// entre dispositivos. Se localStorage não estiver disponível (aba
+// anônima, política do navegador etc.), o menu simplesmente não lembra a
+// escolha entre uma página e outra — nunca quebra a navegação em si.
+(function () {
+  document.querySelectorAll(".grupo-colapsavel").forEach(function (grupo) {
+    var nomeGrupo = grupo.dataset.grupo;
+    var botao = grupo.querySelector(".grupo-toggle");
+    var itens = grupo.querySelector(".grupo-itens");
+    if (!botao || !itens) return;
+
+    // Estado inicial: se a página atual já está dentro do grupo, o Jinja
+    // já mandou aberto (classe "expandido") — não mexe. Senão, respeita a
+    // última escolha salva no navegador (se houver).
+    if (!grupo.classList.contains("expandido")) {
+      var salvo = null;
+      try { salvo = localStorage.getItem("menu-grupo-" + nomeGrupo); } catch (e) { /* sem storage */ }
+      if (salvo === "1") {
+        itens.classList.remove("recolhido");
+        grupo.classList.add("expandido");
+      }
+    }
+
+    botao.addEventListener("click", function () {
+      var vaiAbrir = itens.classList.contains("recolhido");
+      itens.classList.toggle("recolhido", !vaiAbrir);
+      grupo.classList.toggle("expandido", vaiAbrir);
+      try {
+        localStorage.setItem("menu-grupo-" + nomeGrupo, vaiAbrir ? "1" : "0");
+      } catch (e) { /* sem storage disponível — só não lembra da próxima vez */ }
+    });
+  });
+})();
+</script>
 
 {% block scripts_extra %}{% endblock %}
 </body>
