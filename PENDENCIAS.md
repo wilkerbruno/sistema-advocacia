@@ -1,4 +1,52 @@
-# Status das pendências do briefing (atualizado em 15/09/2026)
+# Status das pendências do briefing (atualizado em 16/09/2026)
+
+## -98. "Operação" também virou grupo recolhível + favorito de menu por usuário
+
+**Correção antes desta seção:** logo depois da seção -97 ir pro ar, veio um retorno com print
+mostrando "GOVERNANÇA DE CARTEIRA" e "CONFIGURAÇÕES" renderizando bem maiores/mais bold que
+"OPERAÇÃO" (quebrando em duas linhas) — bug de especificidade de CSS: a regra
+`.sidebar-nav button.grupo-titulo { font: inherit; ... }` (elemento + 2 classes) tinha mais peso que
+`.sidebar-nav .grupo-titulo { font-size: 0.65rem; ... }` (2 classes), e o atalho `font: inherit`
+reseta TAMBÉM o tamanho da fonte (não só a família), voltando pro padrão do navegador. Corrigido
+trocando para `font-family: inherit;` (só reseta a família, preserva o tamanho herdado da regra mais
+genérica) — confirmado com print real da barra lateral, não só análise do CSS.
+
+**Pedido:** "agora quero que 'operação' também funcione como os 'governança de carteira' e
+'configurações' [...] quero também que tenha uma opção de favoritos em configurações para o cliente
+selecionar uma categoria desse menu como favorito e ele já apareça aberto igual o 'operação'".
+
+**O que mudou:**
+- **"Operação" agora é um grupo recolhível igual aos outros dois** (`data-grupo="operacao"`, mesmo
+  botão/chevron/CSS) — antes era o único grupo sempre fixo/aberto. Ele auto-expande sozinho quando a
+  página atual está dentro dele (Painel, Processos, Clientes, Tarefas, Agenda, Horas, Agente de IA,
+  Meu agente local, Financeiro), do mesmo jeito que Governança/Configurações já faziam.
+- **Favorito de menu, por usuário** (não por empresa): novo campo `Usuario.menu_grupo_favorito`
+  (nullable, valores `"operacao"`/`"governanca"`/`"config"`/`None`) e uma tela nova, "Minha conta >
+  Preferências do menu" (`app/routes/conta.py`, dentro do próprio grupo "Configurações" — subtítulo
+  "Minha conta", acessível a QUALQUER papel logado, não só quem gerencia usuários). Marcar uma
+  categoria como favorita faz ela vir sempre `expandido` no carregamento da página, mesmo estando
+  numa página fora dela — exatamente o comportamento que "Operação" sempre teve.
+- Como consequência direta de ter uma preferência pessoal dentro de "Configurações", **o grupo
+  "Configurações" passou a aparecer pra QUALQUER usuário autenticado** (antes só quem tinha
+  `pode_gerenciar_usuarios()` ou era admin_desenvolvedor via) — só os subtítulos "Minha empresa" e
+  "Plataforma" continuam com as mesmas restrições de sempre; quem não gerencia nada só vê "Minha
+  conta" lá dentro.
+- Sem favorito escolhido, o comportamento é idêntico ao da seção -97: cada grupo abre sozinho só
+  quando a página atual está dentro dele, e o clique manual continua sendo lembrado por navegador via
+  `localStorage` (não sincroniza entre dispositivos — quem quer isso usa o favorito, que fica salvo
+  no banco).
+
+**Banco de dados:** precisa rodar `python sincronizar_schema.py` de novo (ou `--checar` primeiro) pra
+criar a coluna nova `usuarios.menu_grupo_favorito` — é `nullable`, então não quebra nada em usuários
+já existentes (todos ficam sem favorito até escolherem um).
+
+**Suíte inteira: 296 testes passando (era 290 antes desta seção).** `tests/test_menu_configuracoes.py`
+foi ajustado pro novo comportamento (Configurações visível pra todo mundo, "Operação" também
+recolhível) e `tests/test_menu_favorito.py` (novo, 6 testes) cobre: tela de preferências acessível por
+qualquer papel; salvar um favorito válido persiste no usuário; favorito inválido é recusado sem
+alterar nada; limpar o favorito (enviar vazio) volta pra `None`; marcar "Governança de carteira" como
+favorita faz ela aparecer `expandido` mesmo estando numa página de "Operação"; e sem favorito nenhum,
+um grupo fora da página atual continua começando fechado (`recolhido`).
 
 ## -97. Menu lateral reorganizado — "Configurações" (Gestão + Plataforma) e grupos recolhíveis
 

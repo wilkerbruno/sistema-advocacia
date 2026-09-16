@@ -93,6 +93,7 @@ def create_app(config_class=Config):
     from app.routes.integracoes import integracoes_bp
     from app.routes.agente_local import agente_local_bp
     from app.routes.agente_local_api import agente_local_api_bp
+    from app.routes.conta import conta_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -112,6 +113,7 @@ def create_app(config_class=Config):
     app.register_blueprint(integracoes_bp)
     app.register_blueprint(agente_local_bp)
     app.register_blueprint(agente_local_api_bp, url_prefix="/api/agente-local")
+    app.register_blueprint(conta_bp)
 
     # A API de integração (/api/v1/*) é autenticada por token Bearer, não
     # por cookie de sessão — CSRF protege contra um navegador enviar um

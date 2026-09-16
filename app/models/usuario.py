@@ -49,6 +49,18 @@ class Usuario(db.Model, UserMixin):
     # suporta DEFAULT em ALTER TABLE; None é tratado como False em todo
     # lugar que lê este campo.
     acesso_financeiro = db.Column(db.Boolean, default=False, nullable=True)
+    # Grupo do menu lateral que ESTE usuário marcou como "favorito" — pedido
+    # explícito ("quero [...] uma opção de favoritos em configurações para o
+    # cliente selecionar uma categoria desse menu como favorito e ele já
+    # aparecer aberto igual o 'operação'", PENDENCIAS.md). É preferência
+    # PESSOAL (cada usuário tem a própria, não é por empresa) — ver
+    # app/routes/conta.py. Valores possíveis: um dos data-grupo de
+    # app/templates/base.html ("operacao", "governanca" ou "config") ou None
+    # (nenhum favorito escolhido — cada grupo só abre sozinho quando a
+    # página atual está dentro dele, comportamento padrão). Nullable pelo
+    # mesmo motivo de `acesso_financeiro`: sincronizar_schema.py não aplica
+    # DEFAULT em ALTER TABLE.
+    menu_grupo_favorito = db.Column(db.String(20), nullable=True)
     ativo = db.Column(db.Boolean, default=True, nullable=False)
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
     ultimo_login = db.Column(db.DateTime)

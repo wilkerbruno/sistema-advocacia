@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block titulo %}Preferências do menu — JusControl{% endblock %}
+{% block eyebrow %}Minha conta{% endblock %}
+{% block cabecalho %}Preferências do menu{% endblock %}
+
+{% block conteudo %}
+<div class="row g-4">
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4">
+      <h4 class="mb-1" style="font-size:1rem;">Categoria favorita</h4>
+      <p class="small text-muted-doc mb-3">
+        Escolha uma categoria do menu lateral para ela já aparecer <strong>aberta</strong> assim que você
+        entra no sistema — do jeito que "Operação" sempre funcionou. As outras continuam abrindo sozinhas
+        só quando você está numa página dentro delas.
+      </p>
+
+      <form method="post" action="{{ url_for('conta.salvar_favorito') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="grupo_favorito" id="favorito-nenhum" value=""
+                 {{ "checked" if not grupo_favorito }}>
+          <label class="form-check-label small" for="favorito-nenhum">
+            <strong>Nenhuma (padrão)</strong> — cada categoria abre sozinha só na página dela.
+          </label>
+        </div>
+
+        {% for grupo in grupos %}
+        <div class="form-check mb-2">
+          <input class="form-check-input" type="radio" name="grupo_favorito" id="favorito-{{ grupo }}"
+                 value="{{ grupo }}" {{ "checked" if grupo_favorito == grupo }}>
+          <label class="form-check-label small" for="favorito-{{ grupo }}">
+            <strong>{{ nomes_grupos[grupo] }}</strong>
+          </label>
+        </div>
+        {% endfor %}
+
+        <button type="submit" class="btn btn-brass btn-sm mt-2">Salvar preferência</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

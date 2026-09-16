@@ -26,51 +26,71 @@
     </div>
 
     <nav class="sidebar-nav">
-      <div class="grupo-titulo">Operação</div>
-      <a class="nav-item {{ 'active' if request.endpoint == 'dashboard.index' }}" href="{{ url_for('dashboard.index') }}">
-        <span class="tab-index">01</span> Painel
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('processos.') }}" href="{{ url_for('processos.listar') }}">
-        <span class="tab-index">02</span> Processos
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('clientes.') }}" href="{{ url_for('clientes.listar') }}">
-        <span class="tab-index">03</span> Clientes
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('tarefas.') }}" href="{{ url_for('tarefas.listar') }}">
-        <span class="tab-index">04</span> Tarefas
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint == 'agenda.index' }}" href="{{ url_for('agenda.index') }}">
-        <span class="tab-index">AG</span> Agenda
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('timesheet.') }}" href="{{ url_for('timesheet.listar') }}">
-        <span class="tab-index">TS</span> Horas (timesheet)
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_ia.') }}" href="{{ url_for('agente_ia.index') }}">
-        <span class="tab-index">IA</span> Agente de IA
-      </a>
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_local.') }}" href="{{ url_for('agente_local.meu_agente') }}">
-        <span class="tab-index">AL</span> Meu agente local
-      </a>
-      {% if current_user.pode_ver_financeiro %}
-      <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('financeiro.') }}" href="{{ url_for('financeiro.listar') }}">
-        <span class="tab-index">05</span> Financeiro
-      </a>
-      {% endif %}
-
-      {# Governança de carteira e Configurações são GRUPOS RECOLHÍVEIS (ver
-         estilo.css) — o menu ficava comprido demais pra quem é admin (até
-         ~20 links de uma vez), o que passa impressão de sistema poluído
-         pro cliente. Cada grupo abre sozinho quando a página atual está
-         dentro dele (`class="expandido"` calculado no Jinja, nunca
-         escondendo onde o usuário está); fora isso, o JS no fim da página
-         lembra a última escolha (localStorage) ou começa fechado por
-         padrão. "Operação" continua sempre visível (é uso diário). #}
+      {# Os três grupos do menu (Operação, Governança de carteira,
+         Configurações) são GRUPOS RECOLHÍVEIS (ver estilo.css) — o menu
+         ficava comprido demais pra quem é admin (até ~20 links de uma vez),
+         o que passa impressão de sistema poluído pro cliente. Cada grupo
+         abre sozinho quando a página atual está dentro dele (`class=
+         "expandido"` calculado no Jinja, nunca escondendo onde o usuário
+         está) OU quando o usuário marcou aquele grupo como favorito em
+         "Minha conta > Preferências do menu" (ver app/routes/conta.py — a
+         pedido explícito: "quero [...] uma opção de favoritos [...] pra
+         selecionar uma categoria [...] e ele já aparecer aberto igual o
+         'operação'"). Fora isso, o JS no fim da página lembra a última
+         escolha (localStorage) ou começa fechado por padrão. Antes desta
+         rodada "Operação" era o único grupo sempre fixo/aberto — virou
+         recolhível igual aos outros dois a pedido explícito também. #}
+      {% set prefixos_operacao = ['processos', 'clientes', 'tarefas', 'timesheet', 'agente_ia', 'agente_local', 'financeiro'] %}
+      {% set esta_em_operacao = request.endpoint and (request.endpoint in ['dashboard.index', 'agenda.index'] or request.endpoint.split('.')[0] in prefixos_operacao) %}
       {% set esta_em_governanca = request.endpoint and (request.endpoint.startswith('governanca.')) %}
-      <div class="grupo-colapsavel {{ 'expandido' if esta_em_governanca }}" data-grupo="governanca">
+      {% set esta_em_config = request.endpoint and request.endpoint.split('.')[0] in ['admin', 'licenciamento', 'integracoes', 'plataforma', 'conta'] %}
+      {% set favorito = current_user.menu_grupo_favorito if current_user.is_authenticated else None %}
+      {% set operacao_aberto = esta_em_operacao or favorito == 'operacao' %}
+      {% set governanca_aberto = esta_em_governanca or favorito == 'governanca' %}
+      {% set config_aberto = esta_em_config or favorito == 'config' %}
+
+      <div class="grupo-colapsavel {{ 'expandido' if operacao_aberto }}" data-grupo="operacao">
+        <button type="button" class="grupo-titulo grupo-toggle">
+          <span>Operação</span> <span class="grupo-chevron">▾</span>
+        </button>
+        <div class="grupo-itens {{ '' if operacao_aberto else 'recolhido' }}">
+          <a class="nav-item {{ 'active' if request.endpoint == 'dashboard.index' }}" href="{{ url_for('dashboard.index') }}">
+            <span class="tab-index">01</span> Painel
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('processos.') }}" href="{{ url_for('processos.listar') }}">
+            <span class="tab-index">02</span> Processos
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('clientes.') }}" href="{{ url_for('clientes.listar') }}">
+            <span class="tab-index">03</span> Clientes
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('tarefas.') }}" href="{{ url_for('tarefas.listar') }}">
+            <span class="tab-index">04</span> Tarefas
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint == 'agenda.index' }}" href="{{ url_for('agenda.index') }}">
+            <span class="tab-index">AG</span> Agenda
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('timesheet.') }}" href="{{ url_for('timesheet.listar') }}">
+            <span class="tab-index">TS</span> Horas (timesheet)
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_ia.') }}" href="{{ url_for('agente_ia.index') }}">
+            <span class="tab-index">IA</span> Agente de IA
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('agente_local.') }}" href="{{ url_for('agente_local.meu_agente') }}">
+            <span class="tab-index">AL</span> Meu agente local
+          </a>
+          {% if current_user.pode_ver_financeiro %}
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('financeiro.') }}" href="{{ url_for('financeiro.listar') }}">
+            <span class="tab-index">05</span> Financeiro
+          </a>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="grupo-colapsavel {{ 'expandido' if governanca_aberto }}" data-grupo="governanca">
         <button type="button" class="grupo-titulo grupo-toggle">
           <span>Governança de carteira</span> <span class="grupo-chevron">▾</span>
         </button>
-        <div class="grupo-itens {{ '' if esta_em_governanca else 'recolhido' }}">
+        <div class="grupo-itens {{ '' if governanca_aberto else 'recolhido' }}">
           <a class="nav-item {{ 'active' if request.endpoint == 'governanca.painel' }}" href="{{ url_for('governanca.painel') }}">
             <span class="tab-index">G1</span> Painel de governança
           </a>
@@ -109,14 +129,23 @@
         </div>
       </div>
 
-      {% set mostra_config = current_user.is_authenticated and (current_user.pode_gerenciar_usuarios() or current_user.is_admin_desenvolvedor) %}
+      {# Configurações agora é visível pra TODO usuário autenticado (não só
+         quem gerencia empresa/plataforma), porque o subgrupo "Minha conta"
+         abaixo (preferência de menu favorito) é pessoal e vale pra
+         qualquer papel — só os subgrupos "Minha empresa" e "Plataforma" é
+         que continuam restritos como sempre foram. #}
+      {% set mostra_config = current_user.is_authenticated %}
       {% if mostra_config %}
-      {% set esta_em_config = request.endpoint and request.endpoint.split('.')[0] in ['admin', 'licenciamento', 'integracoes', 'plataforma'] %}
-      <div class="grupo-colapsavel {{ 'expandido' if esta_em_config }}" data-grupo="config">
+      <div class="grupo-colapsavel {{ 'expandido' if config_aberto }}" data-grupo="config">
         <button type="button" class="grupo-titulo grupo-toggle">
           <span>Configurações</span> <span class="grupo-chevron">▾</span>
         </button>
-        <div class="grupo-itens {{ '' if esta_em_config else 'recolhido' }}">
+        <div class="grupo-itens {{ '' if config_aberto else 'recolhido' }}">
+          <div class="subgrupo-titulo">Minha conta</div>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('conta.') }}" href="{{ url_for('conta.preferencias') }}">
+            <span class="tab-index">PR</span> Preferências do menu
+          </a>
+
           {% if current_user.pode_gerenciar_usuarios() %}
           <div class="subgrupo-titulo">Minha empresa</div>
           {% if current_user.is_admin %}
@@ -336,15 +365,18 @@
 {% endif %}
 
 <script>
-// Grupos recolhíveis do menu lateral (Governança de carteira,
+// Grupos recolhíveis do menu lateral (Operação, Governança de carteira,
 // Configurações — ver estilo.css e o comentário no <nav> acima). O Jinja
 // já decide se o grupo começa aberto quando a página atual está dentro
-// dele (classe "expandido" no wrapper); aqui só cuida do CLIQUE pra
-// abrir/fechar e lembra a escolha em localStorage — nunca no servidor,
-// é só conveniência de navegação por navegador, não precisa sincronizar
-// entre dispositivos. Se localStorage não estiver disponível (aba
-// anônima, política do navegador etc.), o menu simplesmente não lembra a
-// escolha entre uma página e outra — nunca quebra a navegação em si.
+// dele OU quando é o favorito do usuário (classe "expandido" no wrapper);
+// aqui só cuida do CLIQUE pra abrir/fechar e lembra a escolha em
+// localStorage — nunca no servidor, é só conveniência de navegação por
+// navegador, não precisa sincronizar entre dispositivos (quem quer que a
+// escolha valha em todo lugar usa o favorito salvo no servidor, em "Minha
+// conta > Preferências do menu", não isto aqui). Se localStorage não
+// estiver disponível (aba anônima, política do navegador etc.), o menu
+// simplesmente não lembra a escolha entre uma página e outra — nunca
+// quebra a navegação em si.
 (function () {
   document.querySelectorAll(".grupo-colapsavel").forEach(function (grupo) {
     var nomeGrupo = grupo.dataset.grupo;
