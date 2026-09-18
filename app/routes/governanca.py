@@ -24,7 +24,9 @@ from sqlalchemy import func, or_
 from app.extensions import db
 from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, Decisao,
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
-                         MapaEstadoTPU, RegraProximaAcao, AgenteLocalPareado, SolicitacaoBuscaAutos)
+                         MapaEstadoTPU, RegraProximaAcao, AgenteLocalPareado, SolicitacaoBuscaAutos,
+                         ModeloPeca, TabelaCustas)
+from app.utils.calculo_custas import TABELA_PADRAO_TJSP
 from app.utils.acesso import (aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
                                unidades_do_escopo, usuarios_do_escopo, apenas_admin,
                                checar_acesso_processo_ou_403, filtrar_processos_visiveis)
@@ -1651,6 +1653,220 @@ def alternar_regra_proxima_acao(regra_id):
     db.session.commit()
     flash(f"Regra {'ativada' if regra.ativo else 'desativada'}.", "info")
     return redirect(url_for("governanca.regras_proxima_acao_lista"))
+
+
+# Biblioteca de modelos de peças (item 10 da lista de pipeline de IA jurídica
+# trazida pelo usuário — PENDENCIAS.md, seção -107): "biblioteca de modelos
+# por tipo de peça e área, com estilo e cláusulas do escritório aprendidos
+# das peças anteriores". Mesmo padrão de CRUD admin-only das regras de
+# próxima ação acima, mas escopado por EMPRESA (não é regra global de
+# tribunal, é o jeito de escrever de UM escritório específico — mesma
+# decisão de design do timbrado, ver app/utils/timbrado.py) — cada empresa
+# só vê e edita os próprios modelos, nunca os de outro escritório cliente.
+
+@governanca_bp.route("/modelos-peca")
+@login_required
+@apenas_admin
+def modelos_peca_lista():
+    modelos = (ModeloPeca.query.filter_by(empresa_id=current_user.empresa_id_atual)
+               .order_by(ModeloPeca.ativo.desc(), ModeloPeca.tipo_peca, ModeloPeca.nome).all())
+    return render_template("governanca/modelos_peca_lista.html", modelos=modelos)
+
+
+@governanca_bp.route("/modelos-peca/novo", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def novo_modelo_peca():
+    if request.method == "POST":
+        modelo = ModeloPeca(
+            empresa_id=current_user.empresa_id_atual,
+            nome=request.form["nome"].strip(),
+            tipo_peca=request.form["tipo_peca"].strip().lower().replace(" ", "_"),
+            area_direito=request.form.get("area_direito", "").strip() or None,
+            conteudo=request.form["conteudo"].strip(),
+            criado_por_id=current_user.id,
+            ativo=True,
+        )
+        db.session.add(modelo)
+        registrar_log(current_user, "criou", "ModeloPeca", None, modelo.nome)
+        db.session.commit()
+        flash("Modelo de peça cadastrado — passa a ser aplicado automaticamente nas próximas gerações "
+              "que casarem este tipo de peça e área.", "success")
+        return redirect(url_for("governanca.modelos_peca_lista"))
+
+    return render_template("governanca/modelo_peca_form.html", modelo=None)
+
+
+@governanca_bp.route("/modelos-peca/<int:modelo_id>/editar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def editar_modelo_peca(modelo_id):
+    modelo = db.get_or_404(ModeloPeca, modelo_id)
+    if modelo.empresa_id != current_user.empresa_id_atual:
+        abort(404)
+    if request.method == "POST":
+        modelo.nome = request.form["nome"].strip()
+        modelo.tipo_peca = request.form["tipo_peca"].strip().lower().replace(" ", "_")
+        modelo.area_direito = request.form.get("area_direito", "").strip() or None
+        modelo.conteudo = request.form["conteudo"].strip()
+        registrar_log(current_user, "editou", "ModeloPeca", modelo.id, modelo.nome)
+        db.session.commit()
+        flash("Modelo atualizado.", "success")
+        return redirect(url_for("governanca.modelos_peca_lista"))
+
+    return render_template("governanca/modelo_peca_form.html", modelo=modelo)
+
+
+@governanca_bp.route("/modelos-peca/<int:modelo_id>/alternar-ativo", methods=["POST"])
+@login_required
+@apenas_admin
+def alternar_modelo_peca(modelo_id):
+    modelo = db.get_or_404(ModeloPeca, modelo_id)
+    if modelo.empresa_id != current_user.empresa_id_atual:
+        abort(404)
+    modelo.ativo = not modelo.ativo
+    registrar_log(current_user, "ativou" if modelo.ativo else "desativou", "ModeloPeca", modelo.id, modelo.nome)
+    db.session.commit()
+    flash(f"Modelo {'ativado' if modelo.ativo else 'desativado'}.", "info")
+    return redirect(url_for("governanca.modelos_peca_lista"))
+
+
+@governanca_bp.route("/modelos-peca/<int:modelo_id>/excluir", methods=["POST"])
+@login_required
+@apenas_admin
+def excluir_modelo_peca(modelo_id):
+    modelo = db.get_or_404(ModeloPeca, modelo_id)
+    if modelo.empresa_id != current_user.empresa_id_atual:
+        abort(404)
+    nome = modelo.nome
+    db.session.delete(modelo)
+    registrar_log(current_user, "excluiu", "ModeloPeca", modelo_id, nome)
+    db.session.commit()
+    flash("Modelo excluído.", "info")
+    return redirect(url_for("governanca.modelos_peca_lista"))
+
+
+# Tabela de custas (item 9 da lista de pipeline de IA jurídica trazida pelo
+# usuário — PENDENCIAS.md, seção -108): "Base de cálculo, valor da causa,
+# custas, preparo e guias quando aplicável, com memória de cálculo aberta
+# para conferência." Mesmo padrão de CRUD admin-only GLOBAL (não por
+# empresa) de RegraProximaAcao/MapaEstadoTPU acima — é regra de tribunal
+# (fato objetivo da lei de custas), não estilo do escritório.
+
+@governanca_bp.route("/tabela-custas")
+@login_required
+@apenas_admin
+def tabela_custas_lista():
+    linhas = (TabelaCustas.query
+              .order_by(TabelaCustas.tribunal, TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast())
+              .all())
+    return render_template("governanca/tabela_custas_lista.html", linhas=linhas)
+
+
+@governanca_bp.route("/tabela-custas/carregar-padrao-tjsp", methods=["POST"])
+@login_required
+@apenas_admin
+def carregar_tabela_padrao_tjsp():
+    """
+    Insere o catálogo pronto de TABELA_PADRAO_TJSP (ver
+    app/utils/calculo_custas.py — pesquisado em fonte pública, com data de
+    referência e base legal em cada linha) — idempotente: pula qualquer
+    combinação tribunal+tipo_custa+descricao que já exista, nunca duplica
+    nem sobrescreve uma linha que o admin já tenha editado à mão.
+    """
+    existentes = {(t, tc, d) for (t, tc, d) in
+                  db.session.query(TabelaCustas.tribunal, TabelaCustas.tipo_custa, TabelaCustas.descricao).all()}
+    inseridas = 0
+    for linha in TABELA_PADRAO_TJSP:
+        chave = (linha["tribunal"], linha["tipo_custa"], linha["descricao"])
+        if chave in existentes:
+            continue
+        db.session.add(TabelaCustas(**linha, ativo=True))
+        inseridas += 1
+    if inseridas:
+        registrar_log(current_user, "carregou_tabela_padrao", "TabelaCustas", None, f"TJSP ({inseridas} linhas)")
+        db.session.commit()
+        flash(f"{inseridas} linha(s) da tabela padrão do TJSP carregada(s) — confira os valores e a base legal "
+              "de cada uma antes de usar em cobrança real (UFESP e lei podem ter mudado desde a pesquisa).",
+              "success")
+    else:
+        flash("A tabela padrão do TJSP já estava carregada (nenhuma linha nova).", "info")
+    return redirect(url_for("governanca.tabela_custas_lista"))
+
+
+@governanca_bp.route("/tabela-custas/nova", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def nova_linha_custas():
+    if request.method == "POST":
+        linha = TabelaCustas(
+            tribunal=request.form["tribunal"].strip().upper(),
+            tipo_custa=request.form["tipo_custa"].strip().lower().replace(" ", "_"),
+            descricao=request.form["descricao"].strip(),
+            percentual=Decimal(request.form["percentual"].replace(",", ".")) if request.form.get("percentual") else None,
+            valor_fixo=Decimal(request.form["valor_fixo"].replace(",", ".")) if request.form.get("valor_fixo") else None,
+            valor_minimo=Decimal(request.form["valor_minimo"].replace(",", ".")) if request.form.get("valor_minimo") else None,
+            valor_maximo=Decimal(request.form["valor_maximo"].replace(",", ".")) if request.form.get("valor_maximo") else None,
+            faixa_ate=Decimal(request.form["faixa_ate"].replace(",", ".")) if request.form.get("faixa_ate") else None,
+            observacao=request.form.get("observacao", "").strip() or None,
+            ativo=True,
+        )
+        db.session.add(linha)
+        registrar_log(current_user, "criou", "TabelaCustas", None, f"{linha.tribunal}/{linha.tipo_custa}")
+        db.session.commit()
+        flash("Linha de custas cadastrada.", "success")
+        return redirect(url_for("governanca.tabela_custas_lista"))
+
+    return render_template("governanca/tabela_custas_form.html", linha=None)
+
+
+@governanca_bp.route("/tabela-custas/<int:linha_id>/editar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def editar_linha_custas(linha_id):
+    linha = db.get_or_404(TabelaCustas, linha_id)
+    if request.method == "POST":
+        linha.tribunal = request.form["tribunal"].strip().upper()
+        linha.tipo_custa = request.form["tipo_custa"].strip().lower().replace(" ", "_")
+        linha.descricao = request.form["descricao"].strip()
+        linha.percentual = Decimal(request.form["percentual"].replace(",", ".")) if request.form.get("percentual") else None
+        linha.valor_fixo = Decimal(request.form["valor_fixo"].replace(",", ".")) if request.form.get("valor_fixo") else None
+        linha.valor_minimo = Decimal(request.form["valor_minimo"].replace(",", ".")) if request.form.get("valor_minimo") else None
+        linha.valor_maximo = Decimal(request.form["valor_maximo"].replace(",", ".")) if request.form.get("valor_maximo") else None
+        linha.faixa_ate = Decimal(request.form["faixa_ate"].replace(",", ".")) if request.form.get("faixa_ate") else None
+        linha.observacao = request.form.get("observacao", "").strip() or None
+        registrar_log(current_user, "editou", "TabelaCustas", linha.id, f"{linha.tribunal}/{linha.tipo_custa}")
+        db.session.commit()
+        flash("Linha atualizada.", "success")
+        return redirect(url_for("governanca.tabela_custas_lista"))
+
+    return render_template("governanca/tabela_custas_form.html", linha=linha)
+
+
+@governanca_bp.route("/tabela-custas/<int:linha_id>/alternar-ativo", methods=["POST"])
+@login_required
+@apenas_admin
+def alternar_linha_custas(linha_id):
+    linha = db.get_or_404(TabelaCustas, linha_id)
+    linha.ativo = not linha.ativo
+    registrar_log(current_user, "ativou" if linha.ativo else "desativou", "TabelaCustas", linha.id,
+                  f"{linha.tribunal}/{linha.tipo_custa}")
+    db.session.commit()
+    flash(f"Linha {'ativada' if linha.ativo else 'desativada'}.", "info")
+    return redirect(url_for("governanca.tabela_custas_lista"))
+
+
+@governanca_bp.route("/tabela-custas/<int:linha_id>/excluir", methods=["POST"])
+@login_required
+@apenas_admin
+def excluir_linha_custas(linha_id):
+    linha = db.get_or_404(TabelaCustas, linha_id)
+    rotulo = f"{linha.tribunal}/{linha.tipo_custa}"
+    db.session.delete(linha)
+    registrar_log(current_user, "excluiu", "TabelaCustas", linha_id, rotulo)
+    db.session.commit()
+    flash("Linha excluída.", "info")
+    return redirect(url_for("governanca.tabela_custas_lista"))
 
 
 def fila_triagem_agrupada(limite_processos_por_grupo=5):

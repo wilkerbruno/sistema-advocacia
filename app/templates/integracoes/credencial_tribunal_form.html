@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar credencial" if credencial else "Nova credencial" }} de tribunal — JusControl{% endblock %}
+{% block eyebrow %}Minha empresa{% endblock %}
+{% block cabecalho %}{{ "Editar credencial" if credencial else "Nova credencial" }} de tribunal{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 640px;">
+  <p class="small text-muted-doc">
+    A senha é cifrada antes de ser salva — nunca fica em texto puro no banco, e esta tela nunca a
+    reexibe depois de cadastrada.
+    {% if credencial %}Deixe o campo de senha em branco para manter a senha já cadastrada.{% endif %}
+  </p>
+  <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Sistema *</label>
+        <select name="sistema" class="form-select" required>
+          <option value="">Selecione...</option>
+          {% for s in sistemas %}
+          <option value="{{ s }}" {{ "selected" if credencial and credencial.sistema == s }}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Tribunal *</label>
+        <input type="text" name="tribunal" class="form-control" required
+               placeholder="Ex.: TJSP, TRF3, TRT2"
+               value="{{ credencial.tribunal if credencial else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Usuário/login *</label>
+        <input type="text" name="usuario_login" class="form-control" required
+               placeholder="CPF, e-mail ou usuário de acesso"
+               value="{{ credencial.usuario_login if credencial else '' }}">
+      </div>
+      <div class="col-md-6">
+        <label class="form-label">Senha {{ "(em branco = manter a atual)" if credencial else "*" }}</label>
+        <input type="password" name="senha" class="form-control" autocomplete="new-password"
+               {{ "required" if not credencial }}>
+      </div>
+      <div class="col-12">
+        <label class="form-label">Observação (opcional)</label>
+        <input type="text" name="observacao" class="form-control"
+               placeholder="Ex.: usuário do escritório, renovar certificado em..."
+               value="{{ credencial.observacao if credencial else '' }}">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if credencial else "Cadastrar credencial" }}</button>
+      <a href="{{ url_for('integracoes.credenciais_tribunal') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

@@ -202,6 +202,7 @@
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#governanca-mov" type="button">Governança {% if processo.movimentacoes|selectattr('triagem_pendente')|list|length %}<span class="badge-status badge-pendente">{{ processo.movimentacoes|selectattr('triagem_pendente')|list|length }} em triagem</span>{% endif %}</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#decisoes" type="button">Decisões</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#cofre" type="button">Cofre de senha</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#custas" type="button">Cálculo de custas</button></li>
       <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#analise-ia" type="button">Análise IA</button></li>
     </ul>
 
@@ -698,6 +699,65 @@
         </div>
       </div>
 
+      <!-- CÁLCULO DE CUSTAS -->
+      <div class="tab-pane fade" id="custas">
+        <div class="card-doc tab p-3 mb-3">
+          <p class="small text-muted-doc mb-3">
+            Calcula custas, preparo ou guias a partir da tabela de regras cadastrada (Governança de
+            carteira → Tabela de custas). Cada cálculo fica salvo com a memória completa — o passo a
+            passo de como o valor foi obtido, pronto pra conferir antes de recolher a guia de verdade.
+          </p>
+          {% set tipos_disponiveis = tipos_custas_do_tribunal %}
+          {% if not tipos_disponiveis %}
+          <div class="alert alert-warning py-2 px-3 small mb-0">
+            Nenhuma regra de custas cadastrada ainda para o tribunal deste processo
+            ({{ processo.tribunal or "não informado" }}). Cadastre em
+            <a href="{{ url_for('governanca.tabela_custas_lista') }}">Governança de carteira → Tabela de custas</a>
+            — o botão "Carregar tabela padrão TJSP" já traz um catálogo pronto pra conferir.
+          </div>
+          {% else %}
+          <form method="post" action="{{ url_for('processos.calcular_custas', processo_id=processo.id) }}" class="row g-2 align-items-end">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="col-md-4">
+              <label class="form-label small mb-1">Tipo de custa</label>
+              <select name="tipo_custa" class="form-select form-select-sm" required>
+                {% for chave, descricao in tipos_disponiveis %}
+                <option value="{{ chave }}">{{ descricao }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-md-3">
+              <label class="form-label small mb-1">Valor base (R$)</label>
+              <input type="text" name="valor_base" class="form-control form-control-sm"
+                     value="{{ processo.valor_causa if processo.valor_causa else '' }}"
+                     placeholder="Valor da causa/partilha">
+            </div>
+            <div class="col-md-2">
+              <label class="form-label small mb-1">Quantidade</label>
+              <input type="number" name="quantidade" class="form-control form-control-sm" min="1" value="1">
+            </div>
+            <div class="col-md-3"><button class="btn btn-brass btn-sm w-100">Calcular</button></div>
+          </form>
+          {% endif %}
+        </div>
+
+        {% if calculos_custas %}
+        {% for c in calculos_custas %}
+        <div class="card-doc tab p-3 mb-3">
+          <div class="d-flex justify-content-between align-items-start mb-2">
+            <div>
+              <strong>{{ c.descricao_custa }}</strong> — <span class="font-display">{{ c.valor_calculado|moeda }}</span>
+            </div>
+            <div class="small text-muted-doc">{{ c.criado_em|data_hora_br }} · {{ c.calculado_por.nome if c.calculado_por else "—" }}</div>
+          </div>
+          <div class="small text-muted-doc" style="white-space: pre-line;">{{ c.memoria_calculo }}</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted-doc small">Nenhum cálculo de custas registrado ainda para este processo.</p>
+        {% endif %}
+      </div>
+
       <!-- ANÁLISE COM AGENTE DE IA -->
       <div class="tab-pane fade" id="analise-ia">
         {% if not ia_configurada %}
@@ -743,6 +803,28 @@
                 </div>
               </div>
             </div>
+            <div class="mt-2 p-2" style="border: 1px solid var(--paper-200); border-radius: 6px;">
+              <div class="form-check">
+                <input type="checkbox" class="form-check-input" id="buscar-legislacao" name="buscar_legislacao"
+                       value="1" onchange="document.getElementById('campo-termo-legislacao').style.display = (this.checked ? 'block' : 'none');">
+                <label class="form-check-label small" for="buscar-legislacao">
+                  Buscar legislação real relacionada (LexML — grátis, sem custo)
+                </label>
+              </div>
+              <div id="campo-termo-legislacao" class="mt-2" style="display: none;">
+                <label class="form-label small mb-1">Termo de busca (opcional — na falta, usa a matéria de direito/tese/instrução preenchidas acima)</label>
+                <input type="text" name="termo_legislacao" class="form-control form-control-sm"
+                       placeholder="Ex.: vício do produto código de defesa do consumidor">
+                <div class="small text-muted-doc mt-1">
+                  Pesquisa no LexML (Senado/STF/CNJ, base pública de legislação federal e estadual) e injeta
+                  o resultado (título, ementa e link) nos dados reais do processo — só cita lei/artigo/súmula
+                  encontrado ali sem precisar do marcador [REVISAR]; qualquer outra citação continua exigindo
+                  conferência normalmente. Cobre só LEGISLAÇÃO — jurisprudência (decisões de tribunal) ainda
+                  não tem fonte real integrada. Se o LexML estiver fora do ar, a geração segue normalmente,
+                  só sem esse bloco, com um aviso.
+                </div>
+              </div>
+            </div>
             <div id="campo-tipo-peca" class="mt-2" style="display: none;">
               <label class="form-label small mb-1">Tipo de peça (opcional — monta um dossiê mínimo específico)</label>
               <select name="tipo_peca" class="form-select form-select-sm">
@@ -754,7 +836,10 @@
               <div class="small text-muted-doc mt-1">
                 Quando informado, prioriza no digest o que essa peça costuma exigir (petição inicial,
                 decisão relevante, laudos, últimos atos), em vez do corte genérico "os mais recentes de
-                cada categoria".
+                cada categoria". Se o escritório já tiver um modelo cadastrado (Governança de carteira →
+                Modelos de peças) para este tipo — de preferência para a área "{{ processo.area_direito }}"
+                deste processo — ele é aplicado automaticamente no rascunho, sem precisar escolher nada
+                aqui.
               </div>
             </div>
             <div id="campo-delimitacao-objeto" class="mt-3 p-2" style="display: none; border: 1px solid var(--paper-200); border-radius: 6px;">
@@ -831,6 +916,7 @@
               {% if a.digest_truncado %}<span class="badge-status badge-pendente ms-1">histórico truncado</span>{% endif %}
               {% if a.documento_referencia %}<span class="badge-status badge-normal ms-1">estilo de "{{ a.documento_referencia.nome_original }}"</span>{% endif %}
               {% if a.tipo_peca %}<span class="badge-status badge-normal ms-1">dossiê: {{ nomes_tipos_peca.get(a.tipo_peca, a.tipo_peca) }}</span>{% endif %}
+              {% if a.modelo_peca %}<span class="badge-status badge-normal ms-1">modelo do escritório: "{{ a.modelo_peca.nome }}"</span>{% endif %}
             </div>
             <form method="post" action="{{ url_for('processos.excluir_analise_ia', analise_id=a.id) }}"
                   onsubmit="return confirm('Excluir esta análise?');">

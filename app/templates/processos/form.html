@@ -230,6 +230,17 @@
         </div>
       </div>
 
+      <div class="col-12">
+        <div class="form-check">
+          <input class="form-check-input" type="checkbox" name="prazo_em_dobro" id="prazo_dobro" {{ "checked" if processo and processo.prazo_em_dobro }}>
+          <label class="form-check-label small" for="prazo_dobro">Prerrogativa de prazo em dobro (Fazenda Pública, MP, Defensoria, litisconsórcio com procuradores distintos)</label>
+        </div>
+        <div class="small text-muted-doc mt-1">
+          Quando marcado, os prazos calculados automaticamente pelo motor de próxima ação para este
+          processo saem em dobro. Não afeta prazos digitados manualmente.
+        </div>
+      </div>
+
       {% if processo and current_user.is_admin %}
       <div class="col-12">
         <label class="form-label">Quem mais pode ver este processo (além de admin/responsável/quem cadastrou)</label>

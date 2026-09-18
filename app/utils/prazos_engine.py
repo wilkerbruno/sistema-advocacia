@@ -137,6 +137,53 @@ def calcular_data_seguranca(data_vencimento, dias_seguranca=None, tribunal=None,
     return d
 
 
+# Status de Prazo que ainda estão "correndo" — usados por
+# `empurrar_prazos_por_suspensao` abaixo. Deliberadamente NÃO inclui
+# "cumprido", "perdido" nem "historico_anterior": um prazo já fechado (bem
+# ou mal) não deve mudar de data só porque o processo foi suspenso depois
+# disso ter acontecido.
+STATUS_PRAZO_ABERTOS = ("pendente", "em_elaboracao", "protocolado_aguardando_evidencia")
+
+
+def empurrar_prazos_por_suspensao(processo, dias):
+    """
+    Suspensão de prazo (item 6 — PENDENCIAS.md, seção -106): quando um
+    processo fica suspenso (por decisão, convenção das partes, etc.), o
+    tempo parado não deveria "comer" o prazo de quem está esperando o
+    processo voltar a tramitar. Chamada por
+    `app/routes/processos.py::editar` quando o status sai de "suspenso"
+    para outro — `dias` é quantos dias (corridos, a duração real da
+    suspensão) o processo ficou parado, e cada prazo AINDA EM ABERTO
+    (`STATUS_PRAZO_ABERTOS` acima) deste processo é empurrado pra frente
+    exatamente esse tanto, tanto a data de vencimento quanto a data de
+    segurança (que anda junto, pra manter a mesma margem em dias úteis que
+    tinha antes).
+
+    `dias <= 0` (suspenso e reativado no mesmo instante, ou uma correção de
+    cadastro) não empurra nada e devolve lista vazia — nunca gera um "prazo
+    empurrado em 0 dias" confuso no histórico.
+
+    Não comita (quem chama decide o commit, junto com a própria mudança de
+    status) e devolve a lista de prazos afetados, pra quem chamou poder
+    avisar o usuário quantos foram e registrar no log de auditoria.
+    """
+    if not dias or dias <= 0:
+        return []
+
+    afetados = []
+    delta = timedelta(days=dias)
+    for prazo in processo.prazos:
+        if prazo.status not in STATUS_PRAZO_ABERTOS:
+            continue
+        prazo.data_vencimento = prazo.data_vencimento + delta
+        if prazo.data_seguranca:
+            prazo.data_seguranca = prazo.data_seguranca + delta
+        nota = f"Prazo empurrado em {dias} dia(s) — processo ficou suspenso nesse período."
+        prazo.observacoes = f"{prazo.observacoes}\n{nota}" if prazo.observacoes else nota
+        afetados.append(prazo)
+    return afetados
+
+
 def _encontrar_regra(codigo_tpu, texto):
     """Compartilhado por `aplicar_regra_proxima_acao` (Movimentacao) e
     `aplicar_regra_a_publicacao` (Publicacao, item 1 — PENDENCIAS.md, seção
@@ -161,8 +208,15 @@ def _montar_prazo(processo, regra, data_inicial, tipo_ato_fallback, publicacao_i
     que gera o prazo genérico de "análise necessária" — seção 7.1: "ato
     sem regra cadastrada gera tarefa genérica de análise, nunca é
     ignorado")."""
+    dobro = getattr(processo, "prazo_em_dobro", False) is True
+
     if regra is None:
-        data_vencimento = data_inicial + timedelta(days=5)  # prazo provisório curto, sempre editável
+        # Provisório e sempre editável mesmo assim — mas se o processo tem
+        # prerrogativa de prazo em dobro, é mais seguro já sugerir o dobro
+        # do que deixar 5 dias curtos demais até alguém revisar (item 6 —
+        # PENDENCIAS.md, seção -106).
+        dias_fallback = 10 if dobro else 5
+        data_vencimento = data_inicial + timedelta(days=dias_fallback)
         return Prazo(
             processo_id=processo.id,
             publicacao_id=publicacao_id,
@@ -187,6 +241,7 @@ def _montar_prazo(processo, regra, data_inicial, tipo_ato_fallback, publicacao_i
         data_vencimento = calcular_data_fatal(
             data_inicial, regra.prazo_base_dias,
             tribunal=processo.tribunal, unidade_prazo=regra.unidade_prazo,
+            prazo_em_dobro=dobro,
         )
         calculo_automatico = True
 

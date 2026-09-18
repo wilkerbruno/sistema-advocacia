@@ -224,6 +224,21 @@
       {% endif %}
     </div>
   </div>
+
+  <!-- ---------------- Credenciais de tribunal ---------------- -->
+  <div class="col-lg-6">
+    <div class="card-doc tab p-4 h-100">
+      <h4 class="mb-1" style="font-size:1rem;">Credenciais de tribunal</h4>
+      <p class="small text-muted-doc mb-3">
+        Cofre de login/senha do escritório para eproc, Projudi, e-SAJ e PJe — senha sempre cifrada,
+        nunca reexibida. Ainda não faz login/download automatizado (ver aviso na tela de cadastro).
+      </p>
+      <div class="small text-muted-doc mb-3">
+        {{ credenciais_tribunal_count }} credencial(is) cadastrada(s).
+      </div>
+      <a href="{{ url_for('integracoes.credenciais_tribunal') }}" class="btn btn-outline-doc btn-sm">Gerenciar credenciais</a>
+    </div>
+  </div>
 </div>
 
 <script>

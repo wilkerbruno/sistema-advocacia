@@ -38,6 +38,13 @@ _PADRAO_CITACAO_LEGAL = re.compile(
     r"(?:lei\s+n[ºo°.]?\s*[\d./-]+|artigo\s+\d+|art\.?\s*\d+|súmula\s+n?[ºo°.]?\s*\d+)",
     re.IGNORECASE,
 )
+# Âncora de evento (item 10 — PENDENCIAS.md, seção -107): "[mov#123]",
+# "[dec#45]", "[andamento#9]", "[doc#12]", "[prazo#7]" — ou a variante com
+# vários ids agrupados por uma movimentação repetida colapsada, "[mov#12,13]"
+# (ver _agrupar_movimentacoes_repetidas acima). Mesmo padrão usado tanto para
+# escrever a âncora no digest quanto para reconhecê-la de volta no texto
+# gerado (ver _checar_ancoras abaixo).
+_PADRAO_ANCORA_EVENTO = re.compile(r"\[(mov|dec|andamento|doc|prazo)#([\d,]+)\]")
 
 
 def _normalizar_valor_monetario(texto_valor):
@@ -153,12 +160,73 @@ def _checar_grounding(resultado, digest):
     for citacao in _PADRAO_CITACAO_LEGAL.finditer(resultado):
         inicio, fim = citacao.span()
         vizinhanca = resultado[max(0, inicio - 60):fim + 15]
-        if "[REVISAR" not in vizinhanca:
-            avisos.append(f"O rascunho cita \"{citacao.group().strip()}\" como se fosse certeza, sem o marcador "
-                           "[REVISAR: ...] pedido — confira se essa citação legal está correta antes de usar; "
-                           "modelos pequenos podem inventar número de lei/artigo/súmula.")
+        if "[REVISAR" in vizinhanca:
+            continue
+        # Item 8 (pesquisa vinculada — PENDENCIAS.md, seção -108): quando o
+        # bloco de legislação REAL pesquisada no LexML está no digest (ver
+        # `_montar_bloco_legislacao_relacionada` abaixo), uma citação que
+        # aparece literalmente ali dentro já foi confirmada contra uma base
+        # real — não precisa do marcador [REVISAR] pra não gerar aviso
+        # falso-positivo toda vez que o modelo cita corretamente algo que a
+        # própria pesquisa trouxe. Continua tudo igual (citação sem
+        # confirmação nenhuma, sempre exige [REVISAR]) quando não há
+        # pesquisa de legislação nesta geração.
+        if citacao.group().strip().lower() in digest.lower():
+            continue
+        avisos.append(f"O rascunho cita \"{citacao.group().strip()}\" como se fosse certeza, sem o marcador "
+                       "[REVISAR: ...] pedido e sem bater com nenhuma legislação pesquisada de verdade — confira "
+                       "se essa citação legal está correta antes de usar; modelos pequenos podem inventar "
+                       "número de lei/artigo/súmula.")
 
     return avisos
+
+
+def _extrair_ancoras(texto):
+    """Devolve o conjunto de âncoras individuais '<tipo>#<id>' presentes em
+    `texto` — cada ocorrência '[mov#12,13]' vira duas âncoras separadas
+    ('mov#12' e 'mov#13'), já que cada id ali referencia um evento distinto."""
+    ancoras = set()
+    for tipo, ids in _PADRAO_ANCORA_EVENTO.findall(texto):
+        for id_str in ids.split(","):
+            if id_str:
+                ancoras.add(f"{tipo}#{id_str}")
+    return ancoras
+
+
+def _checar_ancoras(resultado, digest):
+    """
+    Checagem mecânica (mesmo espírito de `_checar_grounding` acima, mesma
+    limitação honesta: compara texto, não semântica) do item 10 da lista de
+    pipeline de IA jurídica (PENDENCIAS.md, seção -107): "cada afirmação
+    carrega a âncora do evento que a sustenta".
+
+    `montar_digest_processo` grava, ao lado de cada movimentação/decisão/
+    andamento/documento/prazo citado no contexto, uma âncora `[tipo#id]`
+    (ver `_agrupar_movimentacoes_repetidas` e `_montar_dossie_tipo_peca`
+    acima). O prompt (RASCUNHO_SYSTEM) pede pro modelo repetir essa âncora,
+    literalmente, ao final de cada frase que afirma um fato do processo.
+
+    Esta função só confere se toda âncora que aparece no RESULTADO também
+    aparece no DIGEST — uma âncora que não bate com nenhuma do digest só
+    pode ser: (a) inventada pelo modelo (o número não existe de verdade),
+    ou (b) copiada errada (dígito trocado). As duas hipóteses são igualmente
+    graves pro objetivo de "âncora confiável" — por isso qualquer uma vira
+    aviso, sem tentar adivinhar qual das duas aconteceu.
+
+    Não verifica o inverso (fato do digest SEM âncora no resultado) — texto
+    gerado por modelo pequeno nem sempre segue a instrução de ancorar tudo à
+    risca, e cobrar isso geraria ruído demais sem trazer risco real (fato
+    sem âncora não é fato inventado, só é menos rastreável).
+    """
+    ancoras_digest = _extrair_ancoras(digest)
+    ancoras_resultado = _extrair_ancoras(resultado)
+    invalidas = sorted(ancoras_resultado - ancoras_digest)
+    if not invalidas:
+        return []
+    lista = ", ".join(f"[{a}]" for a in invalidas)
+    return [f"O rascunho usa a(s) âncora(s) {lista} — não encontrei esse evento nos dados reais "
+            "injetados no contexto. Pode ser um número inventado ou copiado errado; confira antes de "
+            "confiar na referência."]
 
 
 def _agrupar_movimentacoes_repetidas(movs):
@@ -180,6 +248,13 @@ def _agrupar_movimentacoes_repetidas(movs):
     mantém essa ordem, só colapsa repetições ADJACENTES (não reordena nem
     agrupa ocorrências que não são seguidas uma da outra, pra não perder o
     "esse ato aconteceu de novo bem depois" como sinal).
+
+    Cada linha carrega uma âncora `[mov#<id>]` (ou `[mov#<id1>,<id2>,...]`
+    quando várias movimentações foram agrupadas numa linha só) — item 10
+    da lista de pipeline de IA jurídica (PENDENCIAS.md, seção -107): "cada
+    afirmação carrega a âncora do evento que a sustenta". É o que permite
+    ao modelo (e à checagem mecânica `_checar_ancoras` abaixo) referenciar
+    de volta o registro real de onde veio cada fato citado no rascunho.
     """
     linhas = []
     i = 0
@@ -192,11 +267,12 @@ def _agrupar_movimentacoes_repetidas(movs):
             j += 1
 
         if len(grupo) == 1:
-            linhas.append(f"- {movs[i].data.strftime('%d/%m/%Y')}: {texto}")
+            linhas.append(f"- [mov#{movs[i].id}] {movs[i].data.strftime('%d/%m/%Y')}: {texto}")
         else:
             data_mais_recente = grupo[0].data.strftime("%d/%m/%Y")
             data_mais_antiga = grupo[-1].data.strftime("%d/%m/%Y")
-            linhas.append(f"- {texto} — {len(grupo)} ocorrências entre {data_mais_antiga} e {data_mais_recente}")
+            ids = ",".join(str(m.id) for m in grupo)
+            linhas.append(f"- [mov#{ids}] {texto} — {len(grupo)} ocorrências entre {data_mais_antiga} e {data_mais_recente}")
         i = j
     return linhas
 
@@ -253,6 +329,12 @@ RASCUNHO_SYSTEM = (
     "7. Ao final, OBRIGATORIAMENTE uma seção separada por uma linha '---' com o título "
     "'PONTOS QUE PRECISAM DE REVISÃO HUMANA ANTES DE PROTOCOLAR', listando em poucas linhas cada "
     "'[REVISAR: ...]' usado acima, para o advogado bater o olho rápido sem precisar reler tudo.\n\n"
+    "Âncora de evento (obrigatório): cada frase que afirmar um FATO específico deste processo — uma "
+    "data, um valor, o conteúdo de uma movimentação, decisão, andamento, documento ou prazo — retirado "
+    "do bloco 'Dados do processo' abaixo deve terminar com a âncora entre colchetes que acompanha "
+    "aquele dado no contexto (ex.: algo como '[dec#42]' ou '[mov#17]'), copiada EXATAMENTE como "
+    "aparece nos dados, nunca inventada nem alterada. Frases genéricas (transição, fecho padrão, "
+    "enunciado do pedido) não precisam de âncora nenhuma — só frases que afirmam um fato do processo.\n\n"
     "Regra mais importante de todas: nunca invente citação, número de lei, jurisprudência, data ou "
     "fato que não esteja nos dados fornecidos — marcar como [REVISAR: ...] é sempre melhor do que "
     "parecer completo e estar errado. Isso vale IGUALMENTE para qualquer valor em R$ (avaliação de "
@@ -281,6 +363,23 @@ INSTRUCAO_REFERENCIA_ESTILO = (
     "estiver ilegível, incompleto ou não fizer sentido como petição, ignore-o e escreva o rascunho "
     "normalmente, só com base nos dados do processo.\n\n"
     "Trecho de referência (só estilo/estrutura, nunca fato):\n"
+)
+
+# Biblioteca de modelos do escritório (item 10 — PENDENCIAS.md, seção -107):
+# igual ao INSTRUCAO_REFERENCIA_ESTILO acima (mesmo motivo, mesma regra —
+# nunca entra no "digest" usado por _checar_grounding/_checar_ancoras), mas
+# aplicado SOZINHO pelo sistema (ver ModeloPeca.resolver_modelo_peca) quando
+# o escritório já cadastrou um modelo pra este tipo de peça/área, em vez de
+# escolhido manualmente a cada geração como o documento de referência avulso.
+INSTRUCAO_MODELO_ESCRITORIO = (
+    "\n\nAbaixo, o modelo/esqueleto de peça que ESTE escritório usa para este tipo de peça — cadastrado "
+    "pelo próprio escritório como padrão de estilo, organização de seções e cláusulas costumeiras. "
+    "Use-o SÓ como referência de ESTILO E ESTRUTURA (forma de organizar, cláusulas de praxe, jeito de "
+    "escrever) — é PROIBIDO copiar dele qualquer fato, nome de parte, número de processo, valor em R$, "
+    "data ou fundamentação jurídica específica de outro caso; todo o CONTEÚDO do rascunho novo vem "
+    "exclusivamente dos \"Dados do processo\" informados acima. Se este modelo estiver incompleto ou "
+    "não fizer sentido para o pedido atual, use-o só no que couber e escreva o resto normalmente.\n\n"
+    "Modelo do escritório (só estilo/estrutura/cláusulas de praxe, nunca fato):\n"
 )
 
 # Tipos de peça com dossiê dedicado (item 4 da lista de pipeline de IA
@@ -324,6 +423,31 @@ def _montar_bloco_delimitacao_objeto(delimitacao):
     return BLOCO_DELIMITACAO_OBJETO_CABECALHO + "\n".join(linhas)
 
 
+def _montar_bloco_legislacao_relacionada(legislacao_relacionada):
+    """
+    Item 8 (pesquisa vinculada — PENDENCIAS.md, seção -108): diferente do
+    texto_referencia/modelo_peca (que são "nunca fato", ficam fora do
+    digest de propósito), o resultado de uma busca real de legislação É um
+    dado real igual a uma movimentação/decisão — por isso entra dentro do
+    próprio digest (ver chamada em `montar_digest_processo` abaixo), e
+    `_checar_grounding` passa a considerar uma citação legal "confirmada"
+    (sem exigir [REVISAR]) quando o texto dela aparece aqui.
+
+    `legislacao_relacionada` é uma lista de dicts já buscados por
+    app/utils/lexml.py::buscar_legislacao ANTES de chegar aqui (esta
+    função nunca faz chamada de rede — mesmo motivo de sempre: manter
+    `montar_digest_processo`/`gerar_analise` determinísticos e testáveis
+    sem mock de HTTP). Lista vazia/None não gera bloco nenhum.
+    """
+    if not legislacao_relacionada:
+        return None
+    linhas = []
+    for item in legislacao_relacionada:
+        linhas.append(f"- {item.get('titulo', '—')} ({item.get('data') or 'data não informada'}): "
+                       f"{(item.get('ementa') or 'sem ementa')[:300]} — {item.get('link', '—')}")
+    return linhas
+
+
 def _montar_dossie_tipo_peca(processo, tipo_peca):
     """
     Dossiê mínimo suficiente por tipo de peça (item 4): em vez da seleção
@@ -353,29 +477,29 @@ def _montar_dossie_tipo_peca(processo, tipo_peca):
     if tipo_peca == "contestacao":
         if peticoes:
             inicial = peticoes[0]
-            linhas.append(f"- Petição inicial (documento anexado mais antigo com categoria \"Petição\"): "
-                           f"\"{inicial.nome_original}\", enviado em "
+            linhas.append(f"- [doc#{inicial.id}] Petição inicial (documento anexado mais antigo com "
+                           f"categoria \"Petição\"): \"{inicial.nome_original}\", enviado em "
                            f"{inicial.enviado_em.strftime('%d/%m/%Y') if inicial.enviado_em else '—'}.")
         else:
             linhas.append("- Petição inicial: nenhum documento com categoria \"Petição\" anexado ao "
                            "processo — anexe na aba Documentos para o dossiê incluir.")
         if decisoes:
             d = decisoes[0]
-            linhas.append(f"- Decisão mais recente registrada (proxy para \"decisão que abriu o prazo\" — "
-                           f"confira se é a certa): {d.data.strftime('%d/%m/%Y') if d.data else '—'} "
+            linhas.append(f"- [dec#{d.id}] Decisão mais recente registrada (proxy para \"decisão que abriu "
+                           f"o prazo\" — confira se é a certa): {d.data.strftime('%d/%m/%Y') if d.data else '—'} "
                            f"({d.tipo or 'decisão'}) — {(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}")
         else:
             linhas.append("- Nenhuma decisão registrada no sistema para este processo.")
         if laudos:
             for laudo in laudos:
-                linhas.append(f"- Laudo anexado: \"{laudo.nome_original}\".")
+                linhas.append(f"- [doc#{laudo.id}] Laudo anexado: \"{laudo.nome_original}\".")
         else:
             linhas.append("- Nenhum laudo anexado (categoria \"Laudo\").")
 
     elif tipo_peca == "recurso":
         if decisoes:
             d = decisoes[0]
-            linhas.append(f"- Decisão recorrida (mais recente registrada): "
+            linhas.append(f"- [dec#{d.id}] Decisão recorrida (mais recente registrada): "
                            f"{d.data.strftime('%d/%m/%Y') if d.data else '—'} ({d.tipo or 'decisão'}) — "
                            f"{(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}")
             if d.resultado:
@@ -392,7 +516,7 @@ def _montar_dossie_tipo_peca(processo, tipo_peca):
     if movs:
         linhas.append("- Últimos 3 atos do processo:")
         for m in movs:
-            linhas.append(f"  · {m.data.strftime('%d/%m/%Y')}: {m.texto_integral[:150]}")
+            linhas.append(f"  · [mov#{m.id}] {m.data.strftime('%d/%m/%Y')}: {m.texto_integral[:150]}")
 
     return "\n".join(linhas)
 
@@ -422,9 +546,18 @@ def _montar_bloco_trechos_relevantes(processo, consulta_semantica):
 
 
 def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_ITENS,
-                            limite_chars=LIMITE_PADRAO_CHARS, consulta_semantica=None):
+                            limite_chars=LIMITE_PADRAO_CHARS, consulta_semantica=None,
+                            legislacao_relacionada=None):
     """Monta o texto de contexto real do processo injetado no prompt. Devolve
     (texto, truncado) — truncado=True quando o histórico teve que ser cortado.
+
+    `legislacao_relacionada` (item 8 — PENDENCIAS.md, seção -108): lista já
+    buscada por app/utils/lexml.py::buscar_legislacao (nunca busca sozinha
+    — esta função continua sem I/O de rede, determinística, testável sem
+    mock). Diferente de texto_referencia/modelo_peca, ENTRA no digest de
+    verdade (é dado real, não "só estilo") — ver `_checar_grounding`, que
+    passa a aceitar uma citação legal sem [REVISAR] quando ela bate com
+    algo deste bloco.
 
     `tipo_peca` (item 4 — PENDENCIAS.md, seção -101): quando informado e
     presente em TIPOS_PECA_COM_DOSSIE, insere um bloco de "dossiê mínimo
@@ -471,8 +604,8 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
     prazos_pendentes = [p for p in processo.prazos
                          if p.status not in ("cumprido", "historico_anterior") and not p.deletado_em]
     if prazos_pendentes:
-        linhas = [f"- {p.descricao} (vence {p.data_vencimento.strftime('%d/%m/%Y')}, status: {p.status})"
-                  for p in prazos_pendentes[:10]]
+        linhas = [f"- [prazo#{p.id}] {p.descricao} (vence {p.data_vencimento.strftime('%d/%m/%Y')}, "
+                  f"status: {p.status})" for p in prazos_pendentes[:10]]
         # Nome deliberadamente diferente do título da seção "PRAZOS PENDENTES"
         # pedida no system prompt (RESUMO_SYSTEM) — o modelo local (pequeno)
         # tende a "copiar" de volta um bloco do contexto quando o rótulo bate
@@ -486,6 +619,12 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
             blocos_dinamicos.append(("Trechos relevantes de documentos anexados e indexados (busca por "
                                       "similaridade — use como contexto adicional, mas confira o "
                                       "documento original antes de citar como fato certo):", linhas_trechos))
+
+    linhas_legislacao = _montar_bloco_legislacao_relacionada(legislacao_relacionada)
+    if linhas_legislacao:
+        blocos_dinamicos.append(("Legislação real encontrada na pesquisa (LexML) — só cite lei/artigo/súmula "
+                                  "daqui sem precisar de [REVISAR]; qualquer outra citação continua exigindo "
+                                  "o marcador [REVISAR: ...] normalmente:", linhas_legislacao))
 
     movs = [m for m in processo.movimentacoes if not m.deletado_em][:limite_itens]
     if movs:
@@ -503,13 +642,14 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
 
     decisoes = list(processo.decisoes)[:limite_itens]
     if decisoes:
-        linhas = [f"- {d.data.strftime('%d/%m/%Y') if d.data else '—'} ({d.tipo or 'decisão'}): "
+        linhas = [f"- [dec#{d.id}] {d.data.strftime('%d/%m/%Y') if d.data else '—'} ({d.tipo or 'decisão'}): "
                   f"{(d.tese or d.inteiro_teor or '(sem teor registrado)')[:400]}" for d in decisoes]
         blocos_dinamicos.append(("Decisões:", linhas))
 
     andamentos = list(processo.andamentos)[:limite_itens]
     if andamentos:
-        linhas = [f"- {a.data.strftime('%d/%m/%Y')} ({a.tipo}): {a.descricao}" for a in andamentos]
+        linhas = [f"- [andamento#{a.id}] {a.data.strftime('%d/%m/%Y')} ({a.tipo}): {a.descricao}"
+                  for a in andamentos]
         blocos_dinamicos.append(("Andamentos registrados pela equipe:", linhas))
 
     texto = "\n\n".join(partes_fixas)
@@ -546,7 +686,8 @@ def montar_digest_processo(processo, tipo_peca=None, limite_itens=LIMITE_PADRAO_
     return texto, truncado
 
 
-def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_peca=None, delimitacao=None):
+def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_peca=None, delimitacao=None,
+                   modelo_peca=None, legislacao_relacionada=None):
     """
     Gera o resumo ou rascunho de petição para `processo`. Levanta ValueError
     para erro de uso (tipo inválido, instrução obrigatória faltando, objeto
@@ -573,12 +714,32 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
     esta aqui é a segunda camada de defesa, mesmo padrão já usado para
     `instrucao` logo abaixo.
 
+    `modelo_peca` (opcional, item 10 — PENDENCIAS.md, seção -107): objeto
+    ModeloPeca já resolvido automaticamente por
+    app/models/modelo_peca.py::resolver_modelo_peca (biblioteca de modelos
+    do escritório) — diferente de `texto_referencia`, que é escolhido
+    manualmente pelo advogado a cada geração, este é aplicado sozinho
+    quando o escritório já cadastrou um modelo pro tipo de peça/área.
+    Ignorado silenciosamente pra tipo="resumo", mesma regra de
+    `texto_referencia`.
+
+    `legislacao_relacionada` (opcional, item 8 — PENDENCIAS.md, seção
+    -108): lista já buscada por app/utils/lexml.py::buscar_legislacao
+    (ver app/routes/processos.py::gerar_analise_ia, que faz a busca
+    síncrona e nunca deixa uma falha do LexML travar a geração). Diferente
+    de `texto_referencia`/`modelo_peca` (que são "nunca fato", só estilo,
+    e por isso ignorados em tipo="resumo"), isto é dado real — igual a uma
+    movimentação ou decisão do próprio processo — então vale pros DOIS
+    tipos, inclusive resumo (um resumo também pode se beneficiar de citar
+    a legislação real encontrada, sem inventar número de lei).
+
     Devolve (resultado_texto, digest_truncado).
     """
     if tipo not in ("resumo", "rascunho_peticao"):
         raise ValueError(f"Tipo de análise desconhecido: {tipo}")
 
     usa_referencia = tipo == "rascunho_peticao" and texto_referencia
+    usa_modelo_escritorio = tipo == "rascunho_peticao" and modelo_peca is not None
 
     # Consulta usada pela busca semântica nos documentos indexados (item 3
     # — PENDENCIAS.md, seção -103, ver montar_digest_processo/
@@ -599,14 +760,22 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
         consulta_semantica = (instrucao or f"{processo.assunto_cnj or ''} {processo.classe_processual or ''} "
                                f"{processo.area_direito or ''}").strip() or None
 
-    # Com referência de estilo, o digest do processo abre mão de parte do
-    # próprio orçamento pra abrir espaço pro trecho de referência dentro da
-    # janela de contexto pequena do modelo local (ver comentário de
-    # max_tokens logo abaixo) — sem isso, um processo com histórico grande
-    # MAIS uma referência de estilo grande estourariam a janela juntos.
+    # Com referência de estilo e/ou modelo do escritório, o digest do
+    # processo abre mão de parte do próprio orçamento pra abrir espaço pro
+    # texto extra dentro da janela de contexto pequena do modelo local (ver
+    # comentário de max_tokens logo abaixo) — sem isso, um processo com
+    # histórico grande MAIS um bloco de estilo grande estourariam a janela
+    # juntos. Com os dois ao mesmo tempo, o orçamento é dividido em três
+    # partes em vez de duas.
+    if usa_referencia and usa_modelo_escritorio:
+        limite_chars = 3000
+    elif usa_referencia or usa_modelo_escritorio:
+        limite_chars = 4000
+    else:
+        limite_chars = LIMITE_PADRAO_CHARS
     digest, truncado = montar_digest_processo(
-        processo, tipo_peca=tipo_peca, limite_chars=4000 if usa_referencia else LIMITE_PADRAO_CHARS,
-        consulta_semantica=consulta_semantica,
+        processo, tipo_peca=tipo_peca, limite_chars=limite_chars, consulta_semantica=consulta_semantica,
+        legislacao_relacionada=legislacao_relacionada,
     )
 
     if tipo == "resumo":
@@ -628,6 +797,8 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
                               "sustentar e resultado pretendido) antes de gerar o rascunho.")
         system = RASCUNHO_SYSTEM + "\n\nDados do processo:\n" + digest
         system += _montar_bloco_delimitacao_objeto(delimitacao)
+        if usa_modelo_escritorio:
+            system += INSTRUCAO_MODELO_ESCRITORIO + modelo_peca.conteudo
         if usa_referencia:
             system += INSTRUCAO_REFERENCIA_ESTILO + texto_referencia
         pedido = instrucao.strip()
@@ -642,7 +813,7 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
     # ou citação sem lastro nos dados reais é igualmente enganoso nos dois,
     # não só na peça (ver docstring de `_checar_grounding` acima: já
     # aconteceu de verdade no resumo também, não só no rascunho).
-    avisos = _checar_grounding(resultado, digest)
+    avisos = _checar_grounding(resultado, digest) + _checar_ancoras(resultado, digest)
     if avisos:
         bloco_aviso = ("⚠️ VERIFICAÇÃO AUTOMÁTICA — possíveis dados não confirmados no texto abaixo "
                         "(checagem mecânica contra os dados reais do processo, não é uma opinião do "

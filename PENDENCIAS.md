@@ -1,4 +1,208 @@
-# Status das pendências do briefing (atualizado em 16/09/2026)
+# Status das pendências do briefing (atualizado em 18/09/2026)
+
+## -108. Itens 9, 8 e 2 da lista de pipeline de IA jurídica: cálculo de custas, pesquisa de legislação (LexML) e cofre de credenciais de tribunal
+
+**Pedido:** avançar simultaneamente nos três itens que ainda restavam da lista de pipeline de IA
+jurídica original (ver seção -101 para a lista completa), a pedido explícito do usuário ("já pode
+avançar nesses" / "já começar também" quando perguntado se item 2 devia esperar itens 8/9) — decisões
+tomadas nesta rodada: tribunal de referência pra tabela de custas = TJSP; pesquisa vinculada = só
+legislação por enquanto (jurisprudência real exige provedor pago não contratado, ex.: Jusbrasil/
+Escavador — fica de fora conscientemente); item 2 = só o cofre de credenciais nesta rodada (ver abaixo).
+
+### Item 9 — Cálculo ("Base de cálculo, valor da causa, custas, preparo e guias quando aplicável, com
+memória de cálculo aberta para conferência")
+
+Motor de cálculo puro (`app/utils/calculo_custas.py::calcular_custa`) que resolve uma regra cadastrada
+em `TabelaCustas` (percentual com mínimo/máximo, valor fixo simples, ou faixas por valor — ex.:
+inventário/partilha) contra um valor base e devolve o valor final JUNTO com a memória de cálculo linha
+a linha, pronta pra quem for recolher a guia de verdade conferir. Nunca inventa um percentual/valor:
+levanta `CustaNaoCadastradaError` quando não há regra ativa pro tribunal+tipo de custa pedido.
+
+`TabelaCustas` é GLOBAL (não por empresa — mesma regra de `RegraProximaAcao`/`MapaEstadoTPU`: é fato
+objetivo da lei de custas do tribunal, não configuração do escritório), gerenciada em Governança de
+carteira → "Tabela de custas" (admin-only). Ships vazia por padrão; um botão "Carregar tabela padrão
+TJSP" insere um catálogo pesquisado em fonte pública (idempotente — nunca duplica nem sobrescreve linha
+já editada à mão): distribuição cível (1,5%), execução de título extrajudicial (2%), preparo de recurso
+(4%, todos com piso/teto de 5/3.000 UFESP), agravo de instrumento (valor fixo, 15 UFESP), porte de
+remessa e retorno (valor fixo por volume, 1,672 UFESP), e inventário/partilha em 5 faixas por valor —
+todos com a base legal e a data de referência da UFESP citadas na própria linha (UFESP e lei mudam;
+confira o vigente antes de cobrar de verdade — o sistema nunca atualiza isso sozinho).
+
+Na tela do processo, nova aba "Cálculo de custas": escolhe o tipo (só os cadastrados pro tribunal do
+processo), informa o valor base (pré-preenchido com o valor da causa) e a quantidade, e grava um
+`CalculoCustas` com o valor E a memória completa — histórico visível na mesma aba, nunca só o número.
+
+**Onde:** `app/models/custas.py` (`TabelaCustas`, `CalculoCustas`), `app/utils/calculo_custas.py`
+(`calcular_custa`, `TABELA_PADRAO_TJSP`), `app/routes/governanca.py` (CRUD `/governanca/tabela-custas`
++ carregar padrão), `app/templates/governanca/tabela_custas_lista.html` + `tabela_custas_form.html`,
+`app/routes/processos.py::calcular_custas` (rota `/processos/<id>/custas`), aba na
+`app/templates/processos/detalhe.html`. Testado em `tests/test_calculo_custas.py` (21 testes: as três
+formas de regra, mínimo/máximo, faixas, erro quando não cadastrada/inativa/outro tribunal, sanidade dos
+dados da tabela padrão, carregamento idempotente, CRUD admin-only e GLOBAL — visível por admin de
+qualquer empresa —, rota calcula e grava a memória, avisa sem bloquear quando falta regra/tribunal/
+valor válido).
+
+### Item 8 — Pesquisa vinculada ("Legislação específica e jurisprudência buscadas em base real, com
+ementa e link. Citação não verificada é bloqueada antes de chegar ao texto")
+
+Escopo desta rodada: só LEGISLAÇÃO (jurisprudência real segue de fora — precisa de provedor pago não
+contratado). Busca via API pública SRU do LexML (Senado/STF/CNJ, gratuita, sem cadastro) —
+`app/utils/lexml.py::buscar_legislacao(termo)` devolve título/ementa/data/link reais; nunca inventa
+resultado, levanta `LexmlIndisponivelError` em falha de rede (nunca testado contra a API real a partir
+deste ambiente de geração — rede de saída restrita; parsing XML tolerante a namespace por precaução,
+mesma ressalva já registrada em `conector_datajud.py`).
+
+Na aba "Análise IA" do processo, novo checkbox "Buscar legislação real relacionada (LexML)" — busca
+síncrona ANTES de enfileirar a geração (mesmo padrão do documento de referência de estilo), nunca
+bloqueia a geração se o LexML estiver fora do ar (só avisa e segue sem o bloco). O resultado entra de
+verdade no digest passado pro modelo (diferente do documento de referência/modelo do escritório, que
+são "nunca fato, só estilo" e ficam fora do digest de propósito) — e a checagem de grounding
+(`_checar_grounding`) passa a considerar uma citação legal "confirmada" (sem exigir o marcador
+`[REVISAR: ...]`) quando ela bate literalmente com esse bloco pesquisado; qualquer outra citação
+continua exigindo o marcador normalmente, exatamente como antes desta rodada. Isto é uma checagem
+MECÂNICA pós-geração (compara texto), não um bloqueio real pré-geração — a arquitetura atual (resposta
+em uma chamada só ao modelo) não comporta um laço verificar-e-regenerar; é o reforço mais forte que essa
+arquitetura permite, mesmo princípio de "avisar, nunca fingir certeza" de toda checagem já existente no
+sistema.
+
+**Onde:** `app/utils/lexml.py` (`buscar_legislacao`, `_parse_resposta_sru`, `_montar_query_cql`),
+`app/utils/analise_processo_ia.py` (`_montar_bloco_legislacao_relacionada`, `montar_digest_processo` e
+`gerar_analise` aceitam `legislacao_relacionada`, ajuste em `_checar_grounding`),
+`app/routes/processos.py::gerar_analise_ia` (busca síncrona + checkbox), `app/jobs/ia_jobs.py`
+(`legislacao_relacionada` repassado ao worker), campo na aba "Análise IA" de
+`app/templates/processos/detalhe.html`. Testado em `tests/test_pesquisa_legislacao.py` (22 testes:
+parsing da query CQL e da resposta SRU — feliz, registro sem urn ignorado, XML malformado —,
+`buscar_legislacao` com termo vazio/sucesso mockado/erro de rede/HTTP, bloco no digest presente só
+quando passado, citação que bate não é mais sinalizada e citação que não bate continua sendo mesmo com
+pesquisa no digest, comportamento de sempre preservado sem pesquisa, integração ponta a ponta com
+`gerar_analise`, rota busca antes de enfileirar/ignora sem o checkbox/nunca bloqueia com o LexML fora
+do ar).
+
+### Item 2 — Download dos autos ("Sessão autenticada do escritório no PJe, eproc, Projudi e ESAJ, com
+certificado ou credencial guardada no cofre já existente")
+
+⚠️ Escopo desta rodada, honesto: SÓ o cofre de credenciais — onde o escritório guarda o login/senha
+(cifrado com o mesmo cofre Fernet já usado pras chaves de API BYOK, `app/utils/cofre.py`, nunca em
+texto puro, nunca reexibido depois de cadastrado) de cada sistema de tribunal que usa (eproc, Projudi,
+e-SAJ, PJe). **NÃO há aqui nenhum conector que efetivamente faça login automatizado nem baixe autos
+sozinho** — decisão consciente: cada tribunal tem proteção própria (CAPTCHA/Cloudflare), o que tornaria
+essa automação tecnicamente frágil (quebra a cada mudança de layout) e juridicamente arriscada (login
+automatizado imitando humano pode violar os termos de uso do próprio sistema do tribunal). A credencial
+fica guardada, pronta pra quando um conector autenticado de verdade existir (ou pra consulta rápida do
+próprio escritório) — o cadastro seguro é a parte que dá pra fazer sem esses riscos, e foi o que esta
+rodada entregou.
+
+Nova tela em "Minhas Integrações" → "Credenciais de tribunal" (admin-only, empresa inteira — mesma
+decisão de `ModeloPeca`): lista de credenciais (uma por sistema+tribunal — ex.: PJe do TRT2 é login
+diferente de PJe do TJSP), cadastro/edição com senha cifrada, senha em branco na edição mantém a já
+cadastrada (mesmo padrão das chaves BYOK de Claude/Gemini/DataJud), listagem nunca mostra a senha (só
+"cadastrada: sim/não"), alternar ativo/excluir.
+
+**Onde:** `app/models/credencial_tribunal.py` (`CredencialTribunal`), `app/routes/integracoes.py`
+(CRUD `/minhas-integracoes/credenciais-tribunal`), `app/templates/integracoes/
+credenciais_tribunal.html` + `credencial_tribunal_form.html`, card com contagem em
+`app/templates/integracoes/minhas_integracoes.html`. Testado em `tests/test_credenciais_tribunal.py`
+(12 testes: cadastro cifra a senha, cadastro sem senha permite salvar em branco, sistema/tribunal/login
+inválido recusado, listagem e formulário de edição nunca reexibem a senha, edição com senha em branco
+mantém a antiga e com senha nova substitui, alternar ativo/excluir, admin-only, isolamento entre
+empresas — outro admin não vê/edita/exclui credencial alheia —, contagem exibida em "Minhas
+Integrações").
+
+### Testes e entrega
+
+Suíte completa (526 testes, incluindo os 55 novos desta rodada) rodada e passando após as três frentes:
+`python3 -m pytest -q` → `526 passed`. Um teste pré-existente
+(`test_referencia_estilo_minuta.py::test_rota_sem_referencia_funciona_como_antes`) precisou de ajuste
+mecânico — não de comportamento — porque `legislacao_relacionada` virou o último argumento posicional
+de `enfileirar(...)` (lista vazia por padrão, não mais `None`), deslocando o que antes era o último
+argumento (`modelo_peca_id`) pra penúltimo.
+
+## -107. Item 10 (minuta no modelo do escritório) — biblioteca de modelos + âncora de evento
+
+**Pedido:** item 10 da lista de pipeline de IA jurídica original ("Minuta no modelo do escritório —
+Biblioteca de modelos por tipo de peça e área, com estilo e cláusulas do escritório aprendidos das
+peças anteriores. Cada afirmação carrega a âncora do evento que a sustenta"). Antes desta rodada, o
+sistema só deixava anexar UM documento de referência de estilo por geração (item avulso, escolhido
+manualmente toda vez); não existia biblioteca nenhuma, nem âncora de evento por afirmação.
+
+**Biblioteca de modelos (`ModeloPeca`):** nova tela em Governança de carteira → "Modelos de peças"
+(admin-only), onde o escritório cadastra o esqueleto/cláusulas de uma peça real já usada — por tipo de
+peça (texto livre, não só contestação/recurso) e, opcionalmente, por área do direito. Escopada por
+EMPRESA inteira (todas as unidades), mesma decisão de design já usada no timbrado — a maioria dos
+escritórios cliente tem um jeito só de escrever, não um por filial. "Aprendidos das peças anteriores"
+aqui quer dizer cadastro deliberado pelo admin (copiar de uma peça real já usada), não aprendizado
+automático por machine learning — isso exigiria treinar um modelo, fora do escopo deste sistema.
+
+**Aplicação automática:** diferente do documento de referência avulso (que o advogado escolhe a cada
+geração), o modelo do escritório é aplicado SOZINHO sempre que existir um `ModeloPeca` ativo cujo tipo
+de peça bate com o escolhido na geração — preferindo um cadastrado especificamente para a área do
+processo, e caindo para um genérico (sem área) na falta desse. Nenhuma escolha manual extra na tela de
+geração; só um aviso ("modelo do escritório: ...") no resultado mostrando qual foi usado. Nunca bloqueia
+a geração quando nada casa. Mesma regra de segurança do documento de referência: o texto do modelo
+nunca entra no "digest" usado pela checagem de grounding — só estilo/estrutura, nunca fato — então
+qualquer dado que vazar dele pro rascunho continua sinalizado como não confiável.
+
+**Âncora de evento:** cada linha do contexto real injetado no prompt (movimentação, decisão, andamento,
+documento do dossiê, prazo) agora carrega uma âncora `[tipo#id]` (ex.: `[dec#42]`, `[mov#17]`), e o
+prompt pede pro modelo repetir essa âncora ao final de cada frase que afirma um fato do processo. Uma
+nova checagem mecânica (`_checar_ancoras`, mesmo espírito de `_checar_grounding`) sinaliza qualquer
+âncora usada no rascunho que não bate com nenhuma âncora real do digest — número inventado ou copiado
+errado, tratados com o mesmo cuidado de um valor em R$ ou citação legal sem lastro.
+
+**Onde:** `app/models/modelo_peca.py` (`ModeloPeca`, `resolver_modelo_peca`), `app/models/agente_ia.py`
+(`AnaliseProcessoIA.modelo_peca_id`), `app/utils/analise_processo_ia.py` (`INSTRUCAO_MODELO_ESCRITORIO`,
+âncoras em `montar_digest_processo`/`_montar_dossie_tipo_peca`/`_agrupar_movimentacoes_repetidas`,
+`_checar_ancoras`), `app/jobs/ia_jobs.py` (`modelo_peca_id` recarregado no worker),
+`app/routes/processos.py::gerar_analise_ia` (resolução automática + `tipo_peca` agora aceita qualquer
+valor que o próprio escritório já tenha cadastrado, não só contestação/recurso),
+`app/routes/governanca.py` (CRUD `/governanca/modelos-peca`), `app/templates/governanca/
+modelos_peca_lista.html` e `modelo_peca_form.html`, nav "GC — Modelos de peças". Testado em
+`tests/test_biblioteca_modelos_peca.py` (21 testes: resolução automática por área/genérico/inativo/
+isolamento entre empresas, texto do modelo nunca vaza pro digest, âncora válida aceita e âncora
+inventada sinalizada, rota resolve e grava o modelo automaticamente, tipo de peça customizado aceito
+quando cadastrado, CRUD admin-only escopado por empresa).
+
+## -106. Item 6 (prazo e data de segurança) — prerrogativa de prazo em dobro e suspensão
+
+**Pedido:** conclusão do item 6 da lista de pipeline de IA jurídica original ("Prazo e data de
+segurança — classificação do ato, artigo aplicável, contagem em dias úteis com calendário do
+tribunal, **suspensões e prerrogativas**, prazo fatal e data de segurança gravados na agenda"). A
+contagem em dias úteis por tribunal, a data fatal e a data de segurança já existiam; faltava
+exatamente a parte de suspensões e prerrogativas.
+
+**Prerrogativa de prazo em dobro (`Processo.prazo_em_dobro`):** cobre as prerrogativas processuais
+que dobram o prazo — Fazenda Pública e Ministério Público (CPC art. 183 e 180), litisconsórcio com
+procuradores de escritórios distintos (CPC art. 229), Defensoria Pública e casos análogos (convênio,
+por exemplo). Igual à marcação de segredo de justiça: é uma **checkbox manual** na ficha do processo
+(cadastro e edição) — o sistema nunca tenta adivinhar sozinho se uma das partes é Fazenda Pública ou
+se os procuradores do litisconsórcio são de escritórios diferentes, porque não dá pra inferir isso
+com segurança só com os dados que o sistema tem. Quando marcada, todo prazo que o motor de próxima
+ação calcula automaticamente para aquele processo sai em dobro — tanto quando existe uma "Regra de
+próxima ação" cadastrada (`app/models/estado_processual.py::RegraProximaAcao`) quanto no prazo
+genérico de "análise necessária" gerado quando nenhuma regra bate (vira 10 dias em vez de 5). Nunca
+se aplica a um prazo digitado manualmente — ali o usuário já escreve a data final que quiser, dobrar
+não faria sentido.
+
+**Suspensão de prazo (`Processo.suspenso_desde`):** quando o status do processo muda para
+"suspenso" (única tela onde isso é setado: editar processo), o sistema grava o instante da mudança.
+Quando o status sai de "suspenso" de volta pra qualquer outro (ativo, arquivado, encerrado), o tempo
+que ficou parado é usado pra empurrar pra frente — tanto a data de vencimento quanto a data de
+segurança, mantendo a mesma folga em dias úteis que tinha antes — todo prazo daquele processo que
+ainda está em aberto (pendente, em elaboração, ou protocolado aguardando evidência). Prazo já
+fechado (cumprido, perdido, ou histórico anterior à adoção do sistema) nunca é tocado. A tela avisa
+quantos prazos foram empurrados e por quantos dias, e isso fica no log de auditoria. Caso de dado
+legado — processo que já estava suspenso antes desta funcionalidade existir, sem
+`suspenso_desde` gravado — reativar não quebra nem inventa uma duração: simplesmente não empurra
+nada, por não ter uma data de início confiável (comportamento seguro por padrão).
+
+**Onde:** `app/models/processo.py` (as duas colunas novas, nullable, sem valor por trás pra migração
+aditiva), `app/utils/prazos_engine.py` (`_montar_prazo` aplicando o dobro,
+`empurrar_prazos_por_suspensao`), `app/routes/processos.py::editar` (único ponto onde
+`Processo.status` é setado a partir do formulário — é ali que a transição suspenso↔outro é
+detectada), `app/templates/processos/form.html` (checkbox nova ao lado da de segredo de justiça).
+Testado em `tests/test_prazo_em_dobro_e_suspensao.py` (10 testes: dobro com regra, dobro no genérico,
+prazo pushado ao reativar, prazos fechados intocados, suspender/reativar no mesmo dia não empurra
+nada, dado legado sem `suspenso_desde` não quebra, checkbox indo e voltando no formulário).
 
 ## -105. Tutorial guiado de primeiro acesso
 

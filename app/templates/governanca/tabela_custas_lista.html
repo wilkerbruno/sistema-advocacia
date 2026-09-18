@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block titulo %}Tabela de custas — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Tabela de custas{% endblock %}
+
+{% block conteudo %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+    Regras de cálculo de custas, preparo e guias por tribunal — usadas na aba "Cálculo de custas" de
+    cada processo (memória de cálculo aberta para conferência, nunca só o número final). Cadastro
+    editável, igual às regras de próxima ação: o sistema nunca inventa um valor sozinho, e nenhuma
+    linha aqui é aplicada às cegas — confira a base legal/observação antes de usar em cobrança real.
+  </p>
+  <div class="d-flex gap-2 ms-auto">
+    <form method="post" action="{{ url_for('governanca.carregar_tabela_padrao_tjsp') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-doc">Carregar tabela padrão TJSP</button>
+    </form>
+    <a href="{{ url_for('governanca.nova_linha_custas') }}" class="btn btn-brass">+ Nova linha</a>
+  </div>
+</div>
+
+<div class="card-doc tab p-0">
+  {% if linhas %}
+  <table class="table-doc mb-0">
+    <thead>
+      <tr>
+        <th>Tribunal</th>
+        <th>Tipo de custa</th>
+        <th>Descrição</th>
+        <th>Regra</th>
+        <th>Status</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for l in linhas %}
+      <tr class="{{ '' if l.ativo else 'text-muted-doc' }}">
+        <td>{{ l.tribunal }}</td>
+        <td>{{ l.tipo_custa }}</td>
+        <td>{{ l.descricao }}</td>
+        <td>
+          {% if l.percentual is not none %}
+            {{ l.percentual }}%{% if l.valor_minimo is not none or l.valor_maximo is not none %} (mín.
+            {{ l.valor_minimo|moeda if l.valor_minimo is not none else "—" }} / máx.
+            {{ l.valor_maximo|moeda if l.valor_maximo is not none else "—" }}){% endif %}
+          {% elif l.valor_fixo is not none %}
+            {{ l.valor_fixo|moeda }}{% if l.faixa_ate is not none %} (até {{ l.faixa_ate|moeda }}){% endif %}
+          {% else %}
+            —
+          {% endif %}
+        </td>
+        <td><span class="badge-status {{ 'badge-concluida' if l.ativo else 'badge-cancelada' }}">{{ "ativa" if l.ativo else "inativa" }}</span></td>
+        <td class="d-flex gap-1">
+          <a href="{{ url_for('governanca.editar_linha_custas', linha_id=l.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+          <form method="post" action="{{ url_for('governanca.alternar_linha_custas', linha_id=l.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if l.ativo else "Ativar" }}</button>
+          </form>
+          <form method="post" action="{{ url_for('governanca.excluir_linha_custas', linha_id=l.id) }}"
+                onsubmit="return confirm('Excluir esta linha?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm text-danger">Excluir</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-state">
+    <div class="font-display">Nenhuma linha cadastrada</div>
+    <p class="mb-0">Use "Carregar tabela padrão TJSP" para começar com um catálogo pronto (pesquisado em
+      fonte pública, com base legal e data de referência em cada linha) e depois ajuste o que precisar
+      — ou cadastre do zero pra outro tribunal.</p>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

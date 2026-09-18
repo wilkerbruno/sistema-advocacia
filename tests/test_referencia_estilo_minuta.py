@@ -277,4 +277,9 @@ def test_rota_sem_referencia_funciona_como_antes(app, client, login, post_csrf, 
     }, get_url=f"/processos/{cenario['processo_id']}")
     assert r.status_code == 200
     assert len(chamadas) == 1
-    assert chamadas[0][-1] is None
+    # último arg agora é legislacao_relacionada (item 8 — PENDENCIAS.md, seção
+    # -108): lista vazia quando o checkbox de pesquisa não foi marcado, nunca
+    # None (ver app/routes/processos.py::gerar_analise_ia). O penúltimo
+    # (modelo_peca_id) continua None nesse cenário sem tipo_peca.
+    assert chamadas[0][-1] == []
+    assert chamadas[0][-2] is None

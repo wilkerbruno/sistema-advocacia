@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar linha" if linha else "Nova linha" }} de custas — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}{{ "Editar linha" if linha else "Nova linha" }} de custas{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 760px;">
+  <p class="small text-muted-doc">
+    Preencha OU um percentual (com mínimo/máximo opcionais) OU um valor fixo — nunca os dois. Pra custas
+    em faixas por valor (ex.: inventário), cadastre uma linha por faixa com o mesmo tribunal e tipo de
+    custa, cada uma com seu próprio "até este valor" (deixe em branco na linha da faixa mais alta, sem
+    teto).
+  </p>
+  <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-3">
+        <label class="form-label">Tribunal *</label>
+        <input type="text" name="tribunal" class="form-control" required placeholder="Ex.: TJSP"
+               value="{{ linha.tribunal if linha else '' }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label">Tipo de custa *</label>
+        <input type="text" name="tipo_custa" class="form-control" required placeholder="Ex.: preparo_recurso"
+               value="{{ linha.tipo_custa if linha else '' }}">
+      </div>
+      <div class="col-md-5">
+        <label class="form-label">Descrição *</label>
+        <input type="text" name="descricao" class="form-control" required
+               placeholder="Ex.: Preparo de recurso (apelação)"
+               value="{{ linha.descricao if linha else '' }}">
+      </div>
+
+      <div class="col-md-3">
+        <label class="form-label">Percentual (%)</label>
+        <input type="text" name="percentual" class="form-control" placeholder="Ex.: 1,5"
+               value="{{ linha.percentual if linha and linha.percentual is not none else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Valor mínimo (R$)</label>
+        <input type="text" name="valor_minimo" class="form-control"
+               value="{{ linha.valor_minimo if linha and linha.valor_minimo is not none else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Valor máximo (R$)</label>
+        <input type="text" name="valor_maximo" class="form-control"
+               value="{{ linha.valor_maximo if linha and linha.valor_maximo is not none else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Valor fixo (R$)</label>
+        <input type="text" name="valor_fixo" class="form-control"
+               value="{{ linha.valor_fixo if linha and linha.valor_fixo is not none else '' }}">
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label">Faixa — aplicável até este valor (R$)</label>
+        <input type="text" name="faixa_ate" class="form-control" placeholder="Em branco = sem teto"
+               value="{{ linha.faixa_ate if linha and linha.faixa_ate is not none else '' }}">
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Base legal / observação</label>
+        <input type="text" name="observacao" class="form-control"
+               placeholder="Ex.: Lei 11.608/2003, art. 4º, I — vigente desde 03/01/2024"
+               value="{{ linha.observacao if linha else '' }}">
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if linha else "Cadastrar linha" }}</button>
+      <a href="{{ url_for('governanca.tabela_custas_lista') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

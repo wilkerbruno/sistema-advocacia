@@ -52,6 +52,37 @@ class Processo(db.Model):
     descricao = db.Column(db.Text)
     segredo_justica = db.Column(db.Boolean, default=False)
 
+    # Prerrogativa de prazo em dobro (item 6 da lista de pipeline de IA
+    # jurídica — PENDENCIAS.md, seção -106): CPC arts. 180 (MP), 183
+    # (Fazenda Pública) e 229 (litisconsórcio com procuradores de
+    # escritórios distintos), além de casos análogos (Defensoria Pública,
+    # convênio). Igual a `segredo_justica`: marcação MANUAL e explícita
+    # feita pelo advogado/admin no cadastro ou na edição — o sistema nunca
+    # tenta adivinhar sozinho se uma das partes é Fazenda Pública ou se os
+    # procuradores do litisconsórcio são de escritórios diferentes (não dá
+    # pra inferir isso com segurança dos dados que o sistema tem). Usado
+    # por `app/utils/prazos_engine.py::_montar_prazo` pra dobrar os dias do
+    # prazo CALCULADO automaticamente pelo motor de próxima ação — nunca
+    # se aplica a um prazo digitado manualmente (o usuário já escreve a
+    # data final que quiser, dobrar não faria sentido ali). Nullable como
+    # toda coluna nova (ver sincronizar_schema.py) — None tratado como
+    # False em todo lugar que lê este campo.
+    prazo_em_dobro = db.Column(db.Boolean, default=False, nullable=True)
+
+    # Suspensão de prazo (mesma seção -106): quando o status muda para
+    # "suspenso" (app/routes/processos.py::editar), guarda o instante da
+    # mudança aqui; quando muda DE VOLTA pra outro status, o tempo
+    # decorrido é usado pra empurrar pra frente a data de vencimento (e a
+    # data de segurança) de todo prazo ainda em aberto deste processo —
+    # ver `app/utils/prazos_engine.py::empurrar_prazos_por_suspensao` — e
+    # o campo volta a ficar nulo. Só tem valor enquanto o processo está
+    # DE FATO suspenso; fora isso é sempre nulo (inclusive em processo
+    # nunca suspenso, ou já suspenso antes desta coluna existir — nesse
+    # caso a primeira reativação não empurra nada, por falta de uma data
+    # de início confiável, o que é o comportamento seguro: nunca inventar
+    # quanto tempo durou uma suspensão que o sistema não presenciou).
+    suspenso_desde = db.Column(db.DateTime, nullable=True)
+
     # Relatório estruturado (item 5 da lista de pipeline de IA jurídica —
     # PENDENCIAS.md, seção -101): "pedidos" e "causa de pedir" são texto
     # livre preenchido pelo advogado, não extraído automaticamente — este

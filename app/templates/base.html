@@ -132,6 +132,12 @@
           <a class="nav-item {{ 'active' if request.endpoint == 'governanca.verificacao_conflitos' }}" href="{{ url_for('governanca.verificacao_conflitos') }}">
             <span class="tab-index">GB</span> Verificação de conflitos
           </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.modelos_peca_lista', 'governanca.novo_modelo_peca', 'governanca.editar_modelo_peca'] }}" href="{{ url_for('governanca.modelos_peca_lista') }}">
+            <span class="tab-index">GC</span> Modelos de peças
+          </a>
+          <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.tabela_custas_lista', 'governanca.nova_linha_custas', 'governanca.editar_linha_custas'] }}" href="{{ url_for('governanca.tabela_custas_lista') }}">
+            <span class="tab-index">GD</span> Tabela de custas
+          </a>
           {% endif %}
         </div>
       </div>

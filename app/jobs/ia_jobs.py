@@ -79,7 +79,8 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, system, mensagens_api,
 
 
 def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, texto_referencia=None,
-                                   tipo_peca=None, delimitacao_id=None):
+                                   tipo_peca=None, delimitacao_id=None, modelo_peca_id=None,
+                                   legislacao_relacionada=None):
     """
     Gera o resumo/rascunho de petição de um processo (ver
     app/utils/analise_processo_ia.py::gerar_analise) e grava direto na
@@ -96,10 +97,24 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, text
     recebe só o id, não o objeto, pelo mesmo motivo de sempre — nada do
     request/sessão web atravessa a fila) e é recarregada aqui dentro do
     app_context do worker.
+
+    `modelo_peca_id` (item 10 — PENDENCIAS.md, seção -107): id do ModeloPeca
+    já resolvido automaticamente pela rota (mesmo padrão de
+    `delimitacao_id` — é só um id de linha do banco, sem I/O de disco
+    nenhum, então recarregar aqui dentro do app_context do worker é
+    suficiente, ao contrário de `texto_referencia` que precisa ser
+    extraído de arquivo ANTES de enfileirar).
+
+    `legislacao_relacionada` (item 8 — PENDENCIAS.md, seção -108): lista de
+    dicts (título/ementa/data/link) já buscada no LexML pela rota, ANTES
+    de enfileirar — mesmo motivo de sempre: o job nunca faz chamada de
+    rede a serviço externo nenhum, só recebe dado já pronto (aqui é uma
+    lista pequena de strings, serializa sem problema pelo RQ, ao contrário
+    de um objeto de modelo do SQLAlchemy).
     """
     app = _obter_app()
     with app.app_context():
-        from app.models import AnaliseProcessoIA, Processo, DelimitacaoObjeto
+        from app.models import AnaliseProcessoIA, Processo, DelimitacaoObjeto, ModeloPeca
         from app.utils import agente_ia_router
         from app.utils.analise_processo_ia import gerar_analise
 
@@ -115,10 +130,13 @@ def processar_analise_processo_ia(analise_id, processo_id, tipo, instrucao, text
             return
 
         delimitacao = db.session.get(DelimitacaoObjeto, delimitacao_id) if delimitacao_id else None
+        modelo_peca = db.session.get(ModeloPeca, modelo_peca_id) if modelo_peca_id else None
 
         try:
             resultado, truncado = gerar_analise(processo, tipo, instrucao, texto_referencia=texto_referencia,
-                                                 tipo_peca=tipo_peca, delimitacao=delimitacao)
+                                                 tipo_peca=tipo_peca, delimitacao=delimitacao,
+                                                 modelo_peca=modelo_peca,
+                                                 legislacao_relacionada=legislacao_relacionada)
             analise.resultado = resultado
             analise.digest_truncado = truncado
         except agente_ia_router.ProvedorIAIndisponivelError as e:

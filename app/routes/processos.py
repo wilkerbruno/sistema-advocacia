@@ -2,7 +2,7 @@ import io
 import os
 import uuid
 from datetime import datetime, date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from flask import (Blueprint, render_template, request, redirect, url_for,
                     flash, current_app, send_from_directory, send_file, abort)
 from flask_login import login_required, current_user
@@ -12,8 +12,10 @@ from sqlalchemy import func
 from app.models import (
     Processo, Cliente, Unidade, Usuario, Andamento, Prazo, Audiencia, Documento,
     Movimentacao, AnaliseProcessoIA, LogCaptura, ProcessoAcessoRestrito, LogAtividade,
-    SolicitacaoBuscaAutos, DelimitacaoObjeto, DocumentoIndexado,
+    SolicitacaoBuscaAutos, DelimitacaoObjeto, DocumentoIndexado, ModeloPeca, TabelaCustas, CalculoCustas,
 )
+from app.models.modelo_peca import resolver_modelo_peca
+from app.utils.calculo_custas import calcular_custa, CustaNaoCadastradaError
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
     unidades_do_escopo, usuarios_do_escopo, checar_acesso_processo_ou_403, filtrar_processos_visiveis,
@@ -32,10 +34,11 @@ from app.utils.conflito_interesse import conflitos_para_parte_contraria
 from app.utils.paginacao import paginar
 from app.utils.rede import resumir_user_agent
 from app.utils.extracao_documento import extrair_texto_documento, ExtracaoNaoSuportadaError
+from app.utils.lexml import buscar_legislacao, LexmlIndisponivelError
 from app.utils.eproc_links import links_eproc_estadual, links_eproc_federal
 from app.utils.projudi_links import links_projudi_estadual
 from app.utils.creta_tucujuris_links import links_outros_estadual, links_outros_federal
-from app.utils.prazos_engine import calcular_data_seguranca
+from app.utils.prazos_engine import calcular_data_seguranca, empurrar_prazos_por_suspensao
 from app.utils.indexacao_documentos import info_ultima_busca_autos
 
 processos_bp = Blueprint("processos", __name__)
@@ -225,6 +228,7 @@ def novo():
             pedidos=request.form.get("pedidos") or None,
             causa_de_pedir=request.form.get("causa_de_pedir") or None,
             segredo_justica=bool(request.form.get("segredo_justica")),
+            prazo_em_dobro=bool(request.form.get("prazo_em_dobro")),
             cliente_id=request.form["cliente_id"],
             responsavel_id=request.form.get("responsavel_id") or current_user.id,
             unidade_id=unidade_id,
@@ -373,7 +377,41 @@ def detalhe(processo_id):
         outros_links = (links_outros_estadual(processo.numero_processo)
                          or links_outros_federal(processo.numero_processo))
 
+    # Biblioteca de modelos do escritório (item 10 — PENDENCIAS.md, seção
+    # -107) — o <select> de "tipo de peça" na aba Análise IA passa a listar
+    # também os tipos que o próprio escritório já cadastrou (além dos dois
+    # com dossiê automático embutido no sistema, contestação/recurso), pra
+    # dar pra escolher um tipo de peça mesmo sem dossiê dedicado só pra
+    # aplicar o modelo do escritório correspondente.
+    empresa_do_processo = processo.unidade.empresa if processo.unidade else None
+    nomes_tipos_peca_completo = dict(NOMES_TIPOS_PECA)
+    if empresa_do_processo:
+        tipos_peca_empresa = (db.session.query(ModeloPeca.tipo_peca)
+                               .filter_by(empresa_id=empresa_do_processo.id, ativo=True).distinct().all())
+        for (t,) in tipos_peca_empresa:
+            nomes_tipos_peca_completo.setdefault(t, t.replace("_", " ").capitalize())
+
+    # Cálculo de custas (item 9 — PENDENCIAS.md, seção -108): lista de
+    # (tipo_custa, descrição) disponíveis pro tribunal deste processo —
+    # tabela GLOBAL (não por empresa, ver TabelaCustas), então só depende
+    # do tribunal informado no cadastro. Quando o tribunal não tem
+    # nenhuma linha cadastrada ainda, o formulário de cálculo nem aparece
+    # (ver detalhe.html) — nunca finge ter uma regra que não existe.
+    tipos_custas_do_tribunal = []
+    if processo.tribunal:
+        linhas_custas = (TabelaCustas.query.filter_by(tribunal=processo.tribunal, ativo=True)
+                          .order_by(TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast()).all())
+        vistos = set()
+        for l in linhas_custas:
+            if l.tipo_custa in vistos:
+                continue
+            vistos.add(l.tipo_custa)
+            tipos_custas_do_tribunal.append((l.tipo_custa, l.descricao))
+    calculos_custas = (CalculoCustas.query.filter_by(processo_id=processo.id)
+                        .order_by(CalculoCustas.criado_em.desc()).all())
+
     return render_template("processos/detalhe.html", processo=processo, hoje=datetime.utcnow().date(),
+                            tipos_custas_do_tribunal=tipos_custas_do_tribunal, calculos_custas=calculos_custas,
                             regras_ativas=regras_ativas, analises_ia=analises_ia,
                             ia_configurada=agente_ia_router.provedor_disponivel(processo.unidade.empresa if processo.unidade else None),
                             tribunais_datajud=tribunais_datajud.TODOS,
@@ -388,7 +426,67 @@ def detalhe(processo_id):
                             eproc_links=eproc_links,
                             projudi_links=projudi_links,
                             outros_links=outros_links,
-                            nomes_tipos_peca=NOMES_TIPOS_PECA)
+                            nomes_tipos_peca=nomes_tipos_peca_completo)
+
+
+@processos_bp.route("/<int:processo_id>/custas", methods=["POST"])
+@login_required
+def calcular_custas(processo_id):
+    """
+    Item 9 da lista de pipeline de IA jurídica trazida pelo usuário
+    (PENDENCIAS.md, seção -108): calcula uma custa/preparo/guia pra este
+    processo usando a regra cadastrada em TabelaCustas pro tribunal dele
+    (ver app/utils/calculo_custas.py::calcular_custa) e salva o resultado
+    JUNTO com a memória de cálculo completa em CalculoCustas — nunca só o
+    número, sempre o caminho até ele.
+    """
+    processo = db.get_or_404(Processo, processo_id)
+    checar_acesso_processo_ou_403(processo)
+
+    tipo_custa = request.form.get("tipo_custa", "").strip()
+    valor_base_bruto = request.form.get("valor_base", "").strip()
+    quantidade = request.form.get("quantidade", type=int) or 1
+
+    if not tipo_custa:
+        flash("Escolha o tipo de custa a calcular.", "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
+    if not processo.tribunal:
+        flash("Este processo não tem tribunal informado — cadastre o tribunal antes de calcular custas.",
+              "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
+
+    valor_base = None
+    if valor_base_bruto:
+        try:
+            valor_base = Decimal(valor_base_bruto.replace(".", "").replace(",", ".")) \
+                if "," in valor_base_bruto else Decimal(valor_base_bruto)
+        except InvalidOperation:
+            flash("Valor base inválido.", "danger")
+            return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
+
+    try:
+        resultado = calcular_custa(processo.tribunal, tipo_custa, valor_base=valor_base, quantidade=quantidade)
+    except CustaNaoCadastradaError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
+    except ValueError as e:
+        flash(str(e), "danger")
+        return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
+
+    regra = resultado["tabela_custas"]
+    calculo = CalculoCustas(
+        processo_id=processo.id, tabela_custas_id=regra.id, tribunal=processo.tribunal,
+        tipo_custa=tipo_custa, descricao_custa=regra.descricao, valor_base=valor_base,
+        quantidade=quantidade, valor_calculado=resultado["valor"],
+        memoria_calculo="\n".join(resultado["memoria"]), calculado_por_id=current_user.id,
+    )
+    db.session.add(calculo)
+    registrar_log(current_user, "calculou_custas", "Processo", processo.id, f"{tipo_custa}={resultado['valor']}")
+    db.session.commit()
+
+    flash(f"Custa calculada: R$ {resultado['valor']:,.2f} — confira a memória de cálculo antes de recolher "
+          "a guia de verdade.".replace(",", "X").replace(".", ",").replace("X", "."), "success")
+    return redirect(url_for("processos.detalhe", processo_id=processo.id) + "#custas")
 
 
 @processos_bp.route("/<int:processo_id>/relatorio")
@@ -456,6 +554,7 @@ def editar(processo_id):
 
     if request.method == "POST":
         numero_anterior = processo.numero_processo
+        status_anterior = processo.status
         processo.numero_processo = request.form.get("numero_processo")
         processo.numero_interno = request.form.get("numero_interno")
         processo.area_direito = request.form["area_direito"]
@@ -467,6 +566,22 @@ def editar(processo_id):
         processo.tribunal = request.form.get("tribunal")
         processo.tribunal_datajud = request.form.get("tribunal_datajud") or None
         processo.status = request.form.get("status", processo.status)
+        # Suspensão de prazo (item 6 — PENDENCIAS.md, seção -106): entrando
+        # em "suspenso" agora, guarda o instante; saindo de "suspenso",
+        # empurra pra frente todo prazo ainda em aberto pelo tanto de dias
+        # corridos que o processo ficou parado. Ver
+        # app/utils/prazos_engine.py::empurrar_prazos_por_suspensao.
+        if status_anterior != "suspenso" and processo.status == "suspenso":
+            processo.suspenso_desde = datetime.utcnow()
+        elif status_anterior == "suspenso" and processo.status != "suspenso" and processo.suspenso_desde:
+            dias_suspenso = (date.today() - processo.suspenso_desde.date()).days
+            afetados = empurrar_prazos_por_suspensao(processo, dias_suspenso)
+            if afetados:
+                flash(f"{len(afetados)} prazo(s) em aberto foram empurrados em {dias_suspenso} dia(s) "
+                      f"— tempo em que o processo ficou suspenso.", "info")
+                registrar_log(current_user, "empurrou_prazos_suspensao", "Processo", processo.id,
+                              f"{len(afetados)} prazo(s), {dias_suspenso} dia(s)")
+            processo.suspenso_desde = None
         processo.polo_cliente = request.form.get("polo_cliente")
         processo.parte_contraria = request.form.get("parte_contraria")
         processo.advogado_contrario = request.form.get("advogado_contrario")
@@ -476,6 +591,7 @@ def editar(processo_id):
         processo.pedidos = request.form.get("pedidos") or None
         processo.causa_de_pedir = request.form.get("causa_de_pedir") or None
         processo.segredo_justica = bool(request.form.get("segredo_justica"))
+        processo.prazo_em_dobro = bool(request.form.get("prazo_em_dobro"))
         processo.cliente_id = request.form["cliente_id"]
         processo.responsavel_id = request.form.get("responsavel_id") or processo.responsavel_id
         if current_user.is_admin and request.form.get("unidade_id"):
@@ -1089,12 +1205,20 @@ def gerar_analise_ia(processo_id):
         flash("Descreva o que a petição precisa fazer (ex.: \"contestação alegando decadência\").", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
+    empresa_do_processo = processo.unidade.empresa if processo.unidade else None
+
     # Dossiê por tipo de peça (item 4 — PENDENCIAS.md, seção -101) — opcional,
     # só faz sentido em rascunho_peticao. Valor fora de TIPOS_PECA_COM_DOSSIE
-    # (ex.: "" do <select> quando o advogado não escolhe nenhum) vira None,
-    # que é o comportamento genérico de sempre (nenhuma mudança de digest).
+    # (dossiê automático de documentos) OU fora dos tipos que o próprio
+    # escritório já cadastrou na biblioteca de modelos (item 10 — PENDENCIAS.md,
+    # seção -107; ver ModeloPeca) vira None, que é o comportamento genérico de
+    # sempre (nenhuma mudança de digest, nenhum modelo aplicado).
     tipo_peca = request.form.get("tipo_peca") or None
-    if tipo_peca not in TIPOS_PECA_COM_DOSSIE:
+    tipos_peca_da_empresa = set()
+    if tipo_peca and empresa_do_processo:
+        tipos_peca_da_empresa = {t for (t,) in db.session.query(ModeloPeca.tipo_peca)
+                                  .filter_by(empresa_id=empresa_do_processo.id, ativo=True).distinct()}
+    if tipo_peca not in TIPOS_PECA_COM_DOSSIE and tipo_peca not in tipos_peca_da_empresa:
         tipo_peca = None
 
     # Delimitação do objeto (item 7 — PENDENCIAS.md, seção -101): "a minuta
@@ -1112,7 +1236,6 @@ def gerar_analise_ia(processo_id):
               "pretendido.", "danger")
         return redirect(url_for("processos.detalhe", processo_id=processo.id))
 
-    empresa_do_processo = processo.unidade.empresa if processo.unidade else None
     if not agente_ia_router.provedor_disponivel(empresa_do_processo):
         flash("Agente de IA indisponível para esta empresa no momento (modelo local não baixado, ou "
               "chave da API do Claude não cadastrada — confira em \"Minhas Integrações\").", "danger")
@@ -1137,6 +1260,46 @@ def gerar_analise_ia(processo_id):
             except (ExtracaoNaoSuportadaError, ValueError) as e:
                 flash(f"Não usei \"{doc_referencia.nome_original}\" como referência de estilo: {e}", "warning")
 
+    # Biblioteca de modelos do escritório (item 10 — PENDENCIAS.md, seção
+    # -107) — resolução AUTOMÁTICA (nenhum campo pro advogado escolher,
+    # diferente do documento de referência acima): se o escritório já
+    # cadastrou um ModeloPeca pra este tipo_peca (e, de preferência, pra
+    # esta área do direito específica), é aplicado sozinho. Só faz sentido
+    # em rascunho_peticao, e nunca bloqueia a geração quando nada casa.
+    modelo_peca = None
+    if tipo == "rascunho_peticao" and tipo_peca and empresa_do_processo:
+        modelo_peca = resolver_modelo_peca(empresa_do_processo.id, tipo_peca, processo.area_direito)
+
+    # Pesquisa de legislação real (item 8 — PENDENCIAS.md, seção -108) —
+    # opcional (checkbox), disponível pros dois tipos (ver docstring de
+    # `gerar_analise`: diferente de texto_referencia/modelo_peca, isto é
+    # dado real, não "só estilo"). A busca acontece AQUI, síncrona, porque
+    # é uma chamada de rede rápida (timeout curto, ver app/utils/lexml.py)
+    # e assim já dá pra avisar na hora se o LexML estiver fora do ar —
+    # igual ao princípio já usado pra extração de texto_referencia acima:
+    # nunca deixa uma falha de fonte opcional bloquear a geração, só segue
+    # sem o bloco de legislação, com um aviso claro do motivo.
+    legislacao_relacionada = []
+    if request.form.get("buscar_legislacao"):
+        termo_legislacao = request.form.get("termo_legislacao", "").strip()
+        if not termo_legislacao:
+            termo_legislacao = " ".join(filter(None, [
+                materia_direito, tese_a_sustentar, instrucao,
+                processo.assunto_cnj, processo.classe_processual,
+            ])).strip()
+        if termo_legislacao:
+            try:
+                legislacao_relacionada = buscar_legislacao(termo_legislacao)
+                if not legislacao_relacionada:
+                    flash("Busca de legislação no LexML não encontrou nada para o termo usado — a "
+                          "geração segue normalmente, sem esse bloco.", "warning")
+            except LexmlIndisponivelError as e:
+                flash(f"Não consegui consultar o LexML agora ({e}) — a geração segue sem o bloco de "
+                      "legislação pesquisada.", "warning")
+        else:
+            flash("Pesquisa de legislação pedida, mas não há texto suficiente (matéria de direito, tese "
+                  "ou instrução) para montar a busca — a geração segue sem esse bloco.", "warning")
+
     # A geração em si (chamada ao modelo, pode levar minutos) roda em
     # segundo plano — ver app/jobs/ia_jobs.py e PENDENCIAS.md, seção -32.
     # Aqui só cria o registro como "processando" e devolve a tela na hora;
@@ -1149,6 +1312,7 @@ def gerar_analise_ia(processo_id):
         # do que mostrar "baseado no estilo de X" pra algo que não influenciou
         # a geração de verdade.
         documento_referencia_id=(doc_referencia.id if texto_referencia else None),
+        modelo_peca_id=(modelo_peca.id if modelo_peca else None),
     )
     db.session.add(analise)
     db.session.flush()  # precisa de analise.id pra linkar a delimitação abaixo
@@ -1169,7 +1333,8 @@ def gerar_analise_ia(processo_id):
     db.session.commit()
 
     enfileirar("app.jobs.ia_jobs.processar_analise_processo_ia", analise.id, processo.id, tipo, instrucao,
-               texto_referencia, tipo_peca, delimitacao_id)
+               texto_referencia, tipo_peca, delimitacao_id, modelo_peca.id if modelo_peca else None,
+               legislacao_relacionada)
 
     flash("Gerando análise em segundo plano — acompanhe na aba \"Análise IA\" (atualiza sozinha; "
           "pode levar alguns minutos no modelo local). É sempre um rascunho para conferência humana.",

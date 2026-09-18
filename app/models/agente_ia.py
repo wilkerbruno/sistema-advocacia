@@ -112,6 +112,15 @@ class AnaliseProcessoIA(db.Model):
     # (segue o comportamento genérico anterior a esta funcionalidade).
     tipo_peca = db.Column(db.String(20), nullable=True)
 
+    # Biblioteca de modelos do escritório (item 10 — PENDENCIAS.md, seção
+    # -107): qual ModeloPeca foi aplicado automaticamente nesta geração
+    # (ver app/models/modelo_peca.py::resolver_modelo_peca), só pra exibir
+    # de forma transparente qual modelo influenciou o texto — NULL quando
+    # nenhum modelo do escritório casou tipo_peca/área no momento da
+    # geração (a geração nunca é bloqueada por falta de modelo).
+    modelo_peca_id = db.Column(db.Integer, db.ForeignKey("modelos_peca.id"), nullable=True)
+    modelo_peca = db.relationship("ModeloPeca")
+
     # Delimitação do objeto (item 7 da mesma lista — PENDENCIAS.md, seção
     # -101): "a minuta só começa depois disso resolvido". Obrigatório para
     # rascunho_peticao (ver validação em app/routes/processos.py::

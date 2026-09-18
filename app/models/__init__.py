@@ -22,6 +22,9 @@ from .token_integracao import TokenIntegracao
 from .agente_local import AgenteLocalPareado, SolicitacaoBuscaAutos
 from .captacao_oab import OabMonitorada, IntimacaoCapturada
 from .indexacao import DocumentoIndexado
+from .modelo_peca import ModeloPeca
+from .custas import TabelaCustas, CalculoCustas
+from .credencial_tribunal import CredencialTribunal
 
 __all__ = [
     "Empresa",
@@ -66,4 +69,8 @@ __all__ = [
     "OabMonitorada",
     "IntimacaoCapturada",
     "DocumentoIndexado",
+    "ModeloPeca",
+    "TabelaCustas",
+    "CalculoCustas",
+    "CredencialTribunal",
 ]

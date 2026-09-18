@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block titulo %}{{ "Editar modelo" if modelo else "Novo modelo" }} de peça — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}{{ "Editar modelo" if modelo else "Novo modelo" }} de peça{% endblock %}
+
+{% block conteudo %}
+<div class="card-doc tab p-4" style="max-width: 760px;">
+  <p class="small text-muted-doc">
+    Cole ou escreva o esqueleto/cláusulas que o escritório costuma usar para este tipo de peça — a IA
+    usa isso só como referência de ESTILO E ESTRUTURA ao gerar um rascunho novo; nenhum fato, nome,
+    valor ou número de processo daqui é copiado para o rascunho gerado (esses sempre vêm dos dados
+    reais do processo em questão).
+  </p>
+  <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <label class="form-label">Nome do modelo *</label>
+        <input type="text" name="nome" class="form-control" required
+               placeholder="Ex.: Contestação cível padrão"
+               value="{{ modelo.nome if modelo else '' }}">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Tipo de peça *</label>
+        <input type="text" name="tipo_peca" class="form-control" required
+               placeholder="Ex.: contestacao"
+               value="{{ modelo.tipo_peca if modelo else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Texto livre (vira minúsculo, espaço vira "_"). Use o mesmo texto ao gerar o rascunho para que
+          o modelo seja encontrado automaticamente.
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Área do direito (opcional)</label>
+        <input type="text" name="area_direito" class="form-control"
+               placeholder="Ex.: Cível"
+               value="{{ modelo.area_direito if modelo else '' }}">
+        <div class="small text-muted-doc mt-1">
+          Em branco = serve para qualquer área. Quando existir mais de um modelo do mesmo tipo de peça,
+          um específico para a área do processo tem prioridade sobre um genérico.
+        </div>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Esqueleto / cláusulas do escritório *</label>
+        <textarea name="conteudo" class="form-control" rows="14" required
+                  placeholder="Cole aqui o texto de uma peça real já usada pelo escritório (ou escreva do zero), com as seções e cláusulas de praxe que costumam se repetir.">{{ modelo.conteudo if modelo else '' }}</textarea>
+      </div>
+    </div>
+
+    <div class="d-flex gap-2 mt-4">
+      <button type="submit" class="btn btn-brass">{{ "Salvar alterações" if modelo else "Cadastrar modelo" }}</button>
+      <a href="{{ url_for('governanca.modelos_peca_lista') }}" class="btn btn-outline-doc">Cancelar</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

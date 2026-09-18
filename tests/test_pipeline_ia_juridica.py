@@ -285,13 +285,19 @@ def test_digest_com_limite_generoso_nao_trunca(app, cenario):
 def test_digest_com_limite_apertado_trunca_e_nunca_corta_linha_no_meio(app, cenario):
     from datetime import datetime, timedelta
     processo = db.session.get(Processo, cenario["processo_id"])
-    linhas_esperadas = []
     for i in range(20):
         texto_mov = f"Movimentação número {i:02d} do processo, com um pouco mais de texto para preencher espaço."
         db.session.add(Movimentacao(processo_id=processo.id, data=datetime.utcnow() - timedelta(days=i),
                                      texto_integral=texto_mov, hash_dedup=f"hd-apertado-{i}"))
-        linhas_esperadas.append(f"- {(datetime.utcnow() - timedelta(days=i)).strftime('%d/%m/%Y')}: {texto_mov}")
     db.session.commit()
+
+    # As linhas esperadas precisam do id real de cada movimentação (âncora de
+    # evento — item 10, PENDENCIAS.md seção -107), só conhecido depois do
+    # commit acima — reconsulta na mesma ordem que o digest usa (mais
+    # recente primeiro) para montar o texto exato de cada linha esperada.
+    movs_ordenadas = (Movimentacao.query.filter_by(processo_id=processo.id)
+                       .order_by(Movimentacao.data.desc()).all())
+    linhas_esperadas = [f"- [mov#{m.id}] {m.data.strftime('%d/%m/%Y')}: {m.texto_integral}" for m in movs_ordenadas]
 
     # Orçamento pequeno o bastante pra caber só o cabeçalho fixo + poucas
     # movimentações (a mais recente primeiro) — força o truncamento sem

@@ -46,7 +46,7 @@ from flask import Blueprint, render_template, redirect, url_for, flash, request,
 from flask_login import login_required, current_user
 
 from app.extensions import db
-from app.models import Empresa
+from app.models import Empresa, CredencialTribunal
 from app.utils.acesso import apenas_admin
 from app.utils.notificacoes import registrar_log
 from app.utils import cofre, claude_api, gemini_api, whatsapp, timbrado
@@ -99,6 +99,7 @@ def minhas_integracoes():
         whatsapp_numero=whatsapp_numero,
         whatsapp_erro=whatsapp_erro,
         logo_configurada=bool(timbrado.caminho_logo(current_app.config["UPLOAD_FOLDER"], empresa)),
+        credenciais_tribunal_count=CredencialTribunal.query.filter_by(empresa_id=empresa.id).count(),
     )
 
 
@@ -399,3 +400,159 @@ def imagem_timbrado():
     with open(caminho, "rb") as f:
         conteudo = f.read()
     return Response(conteudo, mimetype=mimetype, headers={"Cache-Control": "no-store"})
+
+
+# ---------------------------------------------------------------------------
+# Credenciais de tribunal (item 2 — PENDENCIAS.md, seção -108): "Download dos
+# autos — Sessão autenticada do escritório no PJe, eproc, Projudi e ESAJ, com
+# certificado ou credencial guardada no cofre já existente." Ver aviso
+# completo em app/models/credencial_tribunal.py sobre o escopo desta rodada
+# (SÓ o cofre — nenhum conector de login/download automatizado ainda).
+# Empresa inteira (não por unidade), lista (várias credenciais por
+# empresa — uma por sistema+tribunal), senha nunca volta em texto puro pra
+# tela nenhuma depois de cadastrada (só "tem credencial: sim/não").
+# ---------------------------------------------------------------------------
+
+@integracoes_bp.route("/minhas-integracoes/credenciais-tribunal")
+@login_required
+@apenas_admin
+def credenciais_tribunal():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    credenciais = (CredencialTribunal.query.filter_by(empresa_id=empresa.id)
+                   .order_by(CredencialTribunal.sistema, CredencialTribunal.tribunal).all())
+    return render_template("integracoes/credenciais_tribunal.html", credenciais=credenciais,
+                            sistemas=CredencialTribunal.SISTEMAS)
+
+
+@integracoes_bp.route("/minhas-integracoes/credenciais-tribunal/nova", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def nova_credencial_tribunal():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+
+    if request.method == "POST":
+        sistema = request.form.get("sistema", "").strip()
+        tribunal = request.form.get("tribunal", "").strip().upper()
+        usuario_login = request.form.get("usuario_login", "").strip()
+        senha = request.form.get("senha", "")
+        observacao = request.form.get("observacao", "").strip() or None
+
+        if sistema not in CredencialTribunal.SISTEMAS:
+            flash("Selecione um sistema de tribunal válido.", "danger")
+            return redirect(url_for("integracoes.nova_credencial_tribunal"))
+        if not tribunal or not usuario_login:
+            flash("Informe o tribunal (ex.: TJSP, TRF3) e o usuário/login.", "danger")
+            return redirect(url_for("integracoes.nova_credencial_tribunal"))
+
+        senha_cifrada = None
+        if senha:
+            try:
+                senha_cifrada = cofre.cifrar_segredo(senha)
+            except cofre.CofreNaoConfiguradoError as e:
+                flash(str(e), "danger")
+                return redirect(url_for("integracoes.nova_credencial_tribunal"))
+
+        credencial = CredencialTribunal(
+            empresa_id=empresa.id, sistema=sistema, tribunal=tribunal, usuario_login=usuario_login,
+            senha_cifrada=senha_cifrada, observacao=observacao, ativo=True, criado_por_id=current_user.id,
+        )
+        db.session.add(credencial)
+        registrar_log(current_user, "cadastrou_credencial_tribunal", "CredencialTribunal", None,
+                       f"{sistema}/{tribunal}")
+        db.session.commit()
+        flash("Credencial cadastrada — guardada cifrada no cofre; nunca é exibida em texto puro de novo.",
+              "success")
+        return redirect(url_for("integracoes.credenciais_tribunal"))
+
+    return render_template("integracoes/credencial_tribunal_form.html", credencial=None,
+                            sistemas=CredencialTribunal.SISTEMAS)
+
+
+@integracoes_bp.route("/minhas-integracoes/credenciais-tribunal/<int:credencial_id>/editar", methods=["GET", "POST"])
+@login_required
+@apenas_admin
+def editar_credencial_tribunal(credencial_id):
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    credencial = db.get_or_404(CredencialTribunal, credencial_id)
+    if credencial.empresa_id != empresa.id:
+        abort(404)
+
+    if request.method == "POST":
+        sistema = request.form.get("sistema", "").strip()
+        tribunal = request.form.get("tribunal", "").strip().upper()
+        usuario_login = request.form.get("usuario_login", "").strip()
+        senha = request.form.get("senha", "")
+        observacao = request.form.get("observacao", "").strip() or None
+
+        if sistema not in CredencialTribunal.SISTEMAS:
+            flash("Selecione um sistema de tribunal válido.", "danger")
+            return redirect(url_for("integracoes.editar_credencial_tribunal", credencial_id=credencial.id))
+        if not tribunal or not usuario_login:
+            flash("Informe o tribunal (ex.: TJSP, TRF3) e o usuário/login.", "danger")
+            return redirect(url_for("integracoes.editar_credencial_tribunal", credencial_id=credencial.id))
+
+        # Senha em branco no formulário de edição = mantém a já cadastrada
+        # (mesmo padrão de salvar_ia/salvar_datajud acima) — nunca apaga a
+        # senha por acidente só porque o campo veio vazio na tela.
+        if senha:
+            try:
+                credencial.senha_cifrada = cofre.cifrar_segredo(senha)
+            except cofre.CofreNaoConfiguradoError as e:
+                flash(str(e), "danger")
+                return redirect(url_for("integracoes.editar_credencial_tribunal", credencial_id=credencial.id))
+
+        credencial.sistema = sistema
+        credencial.tribunal = tribunal
+        credencial.usuario_login = usuario_login
+        credencial.observacao = observacao
+        registrar_log(current_user, "editou_credencial_tribunal", "CredencialTribunal", credencial.id,
+                       f"{sistema}/{tribunal}")
+        db.session.commit()
+        flash("Credencial atualizada.", "success")
+        return redirect(url_for("integracoes.credenciais_tribunal"))
+
+    return render_template("integracoes/credencial_tribunal_form.html", credencial=credencial,
+                            sistemas=CredencialTribunal.SISTEMAS)
+
+
+@integracoes_bp.route("/minhas-integracoes/credenciais-tribunal/<int:credencial_id>/alternar-ativo",
+                       methods=["POST"])
+@login_required
+@apenas_admin
+def alternar_credencial_tribunal(credencial_id):
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    credencial = db.get_or_404(CredencialTribunal, credencial_id)
+    if credencial.empresa_id != empresa.id:
+        abort(404)
+    credencial.ativo = not credencial.ativo
+    registrar_log(current_user, "ativou_credencial_tribunal" if credencial.ativo else "desativou_credencial_tribunal",
+                   "CredencialTribunal", credencial.id, f"{credencial.sistema}/{credencial.tribunal}")
+    db.session.commit()
+    flash(f"Credencial {'ativada' if credencial.ativo else 'desativada'}.", "info")
+    return redirect(url_for("integracoes.credenciais_tribunal"))
+
+
+@integracoes_bp.route("/minhas-integracoes/credenciais-tribunal/<int:credencial_id>/excluir", methods=["POST"])
+@login_required
+@apenas_admin
+def excluir_credencial_tribunal(credencial_id):
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    credencial = db.get_or_404(CredencialTribunal, credencial_id)
+    if credencial.empresa_id != empresa.id:
+        abort(404)
+    rotulo = f"{credencial.sistema}/{credencial.tribunal}"
+    db.session.delete(credencial)
+    registrar_log(current_user, "excluiu_credencial_tribunal", "CredencialTribunal", credencial_id, rotulo)
+    db.session.commit()
+    flash("Credencial excluída.", "info")
+    return redirect(url_for("integracoes.credenciais_tribunal"))
