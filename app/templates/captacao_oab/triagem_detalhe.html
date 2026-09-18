@@ -65,7 +65,7 @@
       <p class="small mb-2"><strong>Ou cadastrar como processo novo</strong></p>
       <p class="small text-muted-doc mb-2">Se este processo ainda não existe no sistema, cadastre-o pelo número CNJ da própria intimação — o número já vem preenchido.</p>
       <a class="btn btn-outline-doc btn-sm"
-         href="{{ url_for('governanca.novo_por_cnj', numero_cnj=intimacao.numero_processo_mascara or intimacao.numero_processo or '') }}">
+         href="{{ url_for('governanca.entrada_processos', tab='cnj', numero_cnj=intimacao.numero_processo_mascara or intimacao.numero_processo or '') }}">
         Cadastrar processo novo com este número
       </a>
     </div>

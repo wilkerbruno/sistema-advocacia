@@ -9,7 +9,10 @@
     <input type="text" name="q" value="{{ termo }}" class="form-control" placeholder="Buscar por nome ou CPF/CNPJ" style="width: 280px;">
     <button class="btn btn-outline-doc" type="submit">Buscar</button>
   </form>
-  <a href="{{ url_for('clientes.novo') }}" class="btn btn-brass">+ Novo cliente</a>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('leads.kanban') }}" class="btn btn-outline-doc">Ver funil de captação</a>
+    <a href="{{ url_for('clientes.novo') }}" class="btn btn-brass">+ Novo cliente</a>
+  </div>
 </div>
 
 {% if apenas_ativos %}

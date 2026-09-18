@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+{% block titulo %}Entrada de processos — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Entrada de processos{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de entrada de processos — antes eram dois itens separados no
+  menu ("Cadastro por CNJ" e "Captação por OAB"), que faziam coisas
+  relacionadas mas diferentes (uma é um cadastro pontual quando já se sabe
+  o número; a outra liga um monitoramento contínuo por OAB, sem precisar
+  saber o número antes — ver docstring de app/routes/captacao_oab.py).
+  Pedido explícito de simplificação de menu: juntar num botão só, com duas
+  abas para escolher — igual já funciona na ficha do processo (andamentos/
+  prazos/audiências...). Os formulários abaixo continuam enviando para as
+  MESMAS rotas de sempre (governanca.novo_por_cnj e captacao_oab.nova) —
+  nenhuma lógica de negócio mudou aqui, só a navegação. As telas antigas
+  (governanca.novo_por_cnj e captacao_oab.index) continuam existindo e
+  funcionando normalmente para quem chegar direto por um link salvo; só não
+  aparecem mais sozinhas no menu.
+#}
+<p class="small text-muted-doc mb-3" style="max-width: 760px;">
+  Duas portas de entrada para trazer um processo para o sistema: cadastre
+  pelo número CNJ quando você já sabe qual é o processo, ou monitore a OAB
+  do advogado para o sistema descobrir sozinho as intimações novas, sem
+  precisar informar nenhum número antes.
+</p>
+
+<ul class="nav nav-tabs mb-3" id="abasEntrada" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial != 'oab' }}" id="tab-btn-cnj" data-bs-toggle="tab" data-bs-target="#aba-cnj" type="button" role="tab" aria-controls="aba-cnj" aria-selected="{{ 'true' if aba_inicial != 'oab' else 'false' }}">
+      Por número CNJ
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'oab' }}" id="tab-btn-oab" data-bs-toggle="tab" data-bs-target="#aba-oab" type="button" role="tab" aria-controls="aba-oab" aria-selected="{{ 'true' if aba_inicial == 'oab' else 'false' }}">
+      Por OAB (monitoramento contínuo)
+      {% if total_pendente_triagem %}<span class="badge-status badge-perdido" style="margin-left:4px;">{{ total_pendente_triagem }}</span>{% endif %}
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasEntrada">
+
+  <div class="tab-pane fade {{ 'show active' if aba_inicial != 'oab' }}" id="aba-cnj" role="tabpanel" aria-labelledby="tab-btn-cnj">
+    <p class="small text-muted-doc mb-3">
+      Digite ou cole o número CNJ (20 dígitos). O sistema valida o dígito
+      verificador (módulo 97) e busca o processo no DataJud (base pública
+      gratuita do CNJ) antes de cadastrar. Se a captura falhar por qualquer
+      motivo (chave não configurada, tribunal não identificado, processo em
+      segredo de justiça, etc.), o processo é cadastrado mesmo assim, mas
+      marcado como <strong>não monitorável automaticamente</strong> — nunca
+      fica um buraco silencioso na carteira.
+    </p>
+    <div class="row">
+      <div class="col-lg-7">
+        <div class="card-doc tab p-4">
+          <form method="post" id="form-novo-cnj" action="{{ url_for('governanca.novo_por_cnj') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+              <label class="form-label">Número CNJ</label>
+              <input type="text" name="numero_cnj" id="numero_cnj" class="form-control"
+                     placeholder="0000000-00.0000.0.00.0000" required
+                     value="{{ request.args.get('numero_cnj', '') }}">
+              <div class="small text-muted-doc mt-1">
+                Digite o número e aperte <strong>Enter</strong> (sem precisar clicar em
+                "Validar e cadastrar") para já buscar e conferir os dados do processo no
+                DataJud antes de cadastrar.
+              </div>
+              <div id="cnj-preview-status" class="small mt-2"></div>
+              <div id="cnj-preview" class="card-doc p-2 mt-2" style="display:none; font-size: .85rem;">
+                <div><strong>Tribunal:</strong> <span id="cnj-preview-tribunal"></span></div>
+                <div><strong>Classe:</strong> <span id="cnj-preview-classe"></span></div>
+                <div><strong>Assunto:</strong> <span id="cnj-preview-assunto"></span></div>
+                <div><strong>Órgão julgador:</strong> <span id="cnj-preview-orgao"></span></div>
+                <div><strong>Data de ajuizamento:</strong> <span id="cnj-preview-data"></span></div>
+                <div><strong>Movimentações encontradas:</strong> <span id="cnj-preview-movs"></span></div>
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Tribunal (DataJud)</label>
+              <select name="tribunal_datajud" id="tribunal_datajud" class="form-select">
+                <option value="">— (não sei / é da Justiça do Trabalho)</option>
+                {% for slug, rotulo in tribunais_datajud %}
+                <option value="{{ slug }}">{{ rotulo }}</option>
+                {% endfor %}
+              </select>
+              <div class="small text-muted-doc mt-1">
+                Para processos da Justiça do Trabalho (TRT) o sistema identifica o
+                tribunal sozinho pelo próprio número — não precisa escolher aqui.
+                Para os demais (Estadual, Federal, STF, STJ...), também não é mais
+                obrigatório: se deixar em branco, o sistema testa automaticamente
+                os tribunais possíveis até achar o processo (pode demorar alguns
+                segundos a mais). Escolher aqui deixa a busca mais rápida (1
+                consulta só, em vez de várias).
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Cliente</label>
+              <select name="cliente_id" class="form-select" required>
+                <option value="">Selecione...</option>
+                {% for c in clientes %}
+                <option value="{{ c.id }}">{{ c.nome }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Área do direito</label>
+              <input type="text" name="area_direito" id="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
+            </div>
+            {% if unidades %}
+            <div class="mb-3">
+              <label class="form-label">Unidade</label>
+              <select name="unidade_id" class="form-select" required>
+                {% for u in unidades %}
+                <option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+            <div class="form-check mb-3">
+              <input type="checkbox" name="segredo_justica" class="form-check-input" id="segredo">
+              <label class="form-check-label" for="segredo">Segredo de justiça</label>
+            </div>
+            <button class="btn btn-brass">Validar e cadastrar</button>
+          </form>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="card-doc tab p-3">
+          <p class="small mb-1"><strong>Precisa de vários processos de uma vez?</strong></p>
+          <p class="small text-muted-doc">Use a <a href="{{ url_for('governanca.importar_lote') }}">importação em lote (CSV)</a>.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'oab' }}" id="aba-oab" role="tabpanel" aria-labelledby="tab-btn-oab">
+    <p class="small text-muted-doc mb-3" style="max-width: 720px;">
+      Cadastre aqui as OABs do escritório (cada advogado que atua nos processos) —
+      esse é o único dado que o sistema precisa para começar a monitorar
+      intimações automaticamente. Uma captura periódica consulta a
+      <strong>API Comunica do CNJ / DJEN</strong> por essas OABs e traz as
+      intimações sozinha; <strong>não é preciso informar o número do processo
+      antes</strong>.
+    </p>
+
+    {% if total_pendente_triagem %}
+    <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+      <p class="small mb-2">
+        <strong class="text-danger">{{ total_pendente_triagem }} intimação(ões) capturada(s) aguardando triagem</strong> —
+        o número de processo não bateu (ainda) com nenhum processo já cadastrado
+        nesta empresa. Um humano decide: vincular a um processo existente,
+        cadastrar um processo novo a partir do número da intimação, ou ignorar.
+      </p>
+      <a href="{{ url_for('captacao_oab.triagem') }}" class="btn btn-brass btn-sm">Ir para a triagem</a>
+    </div>
+    {% endif %}
+
+    <div class="row">
+      <div class="col-lg-5">
+        <div class="card-doc tab p-4">
+          <p class="small mb-3"><strong>Nova OAB monitorada</strong></p>
+          <form method="post" action="{{ url_for('captacao_oab.nova') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-3">
+              <label class="form-label">Número da OAB</label>
+              <input type="text" name="numero" class="form-control" placeholder="123456" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">UF da OAB</label>
+              <input type="text" name="uf" class="form-control" placeholder="SP" maxlength="2" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Nome do advogado (opcional)</label>
+              <input type="text" name="nome_advogado" class="form-control" placeholder="Para identificar na lista">
+            </div>
+            {% if usuarios %}
+            <div class="mb-3">
+              <label class="form-label">Usuário responsável (opcional)</label>
+              <select name="usuario_id" class="form-select">
+                <option value="">— (nenhum em especial)</option>
+                {% for u in usuarios %}
+                <option value="{{ u.id }}">{{ u.nome }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+            {% if unidades %}
+            <div class="mb-3">
+              <label class="form-label">Unidade</label>
+              <select name="unidade_id" class="form-select" required>
+                {% for u in unidades %}
+                <option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            {% endif %}
+            <button class="btn btn-brass">Cadastrar OAB</button>
+          </form>
+        </div>
+      </div>
+
+      <div class="col-lg-7">
+        <div class="card-doc tab p-0">
+          {% if oabs %}
+          <table class="table-doc mb-0">
+            <thead>
+              <tr>
+                <th>OAB</th><th>Advogado</th><th>Última captura</th><th>Status</th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for oab in oabs %}
+              <tr class="{{ '' if oab.ativo else 'text-muted-doc' }}">
+                <td>{{ oab.numero }}/{{ oab.uf }}</td>
+                <td>{{ oab.nome_advogado or "—" }}</td>
+                <td>
+                  {{ oab.ultima_captura_em|data_hora_br if oab.ultima_captura_em else "nunca capturada ainda" }}
+                  {% if oab.ultimo_erro_captura %}
+                  <br><span class="small text-danger">último erro: {{ oab.ultimo_erro_captura }}</span>
+                  {% endif %}
+                </td>
+                <td><span class="badge-status {{ 'badge-concluida' if oab.ativo else 'badge-cancelada' }}">{{ "ativa" if oab.ativo else "inativa" }}</span></td>
+                <td>
+                  <form method="post" action="{{ url_for('captacao_oab.alternar_ativo', oab_id=oab.id) }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if oab.ativo else "Ativar" }}</button>
+                  </form>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <div class="empty-state">
+            <div class="font-display">Nenhuma OAB monitorada ainda</div>
+            <p class="mb-0">Cadastre a primeira OAB do escritório ao lado — a próxima captura periódica já vai incluí-la, sem precisar informar nenhum número de processo.</p>
+          </div>
+          {% endif %}
+        </div>
+
+        <div class="card-doc tab p-3 mt-3">
+          <p class="small text-muted-doc mb-0">
+            A captura roda periodicamente no servidor (<code>python capturar_intimacoes_oab.py</code>,
+            agendado via cron). O texto das publicações vem direto do Diário de
+            Justiça Eletrônico Nacional (DJEN) — mapeamento de campos best-effort,
+            validado com dados públicos disponíveis no momento da implementação.
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Pré-visualização dos dados do processo (DataJud) ao apertar Enter no
+// número CNJ, sem cadastrar nada ainda — chama GET /governanca/processos/
+// consultar-cnj (ver app/routes/governanca.py). O cadastro em si só
+// acontece de fato quando o usuário clica em "Validar e cadastrar" (POST
+// normal do formulário, que consulta o DataJud de novo e já persiste).
+(function () {
+  const campoNumero = document.getElementById("numero_cnj");
+  const campoTribunal = document.getElementById("tribunal_datajud");
+  const campoArea = document.getElementById("area_direito");
+  const status = document.getElementById("cnj-preview-status");
+  const box = document.getElementById("cnj-preview");
+  if (!campoNumero) return;
+
+  async function buscarPreview() {
+    const numero = campoNumero.value.trim();
+    if (!numero) return;
+
+    status.textContent = "Consultando DataJud...";
+    box.style.display = "none";
+
+    const params = new URLSearchParams({ numero_cnj: numero });
+    if (campoTribunal.value) params.set("tribunal_datajud", campoTribunal.value);
+
+    try {
+      const resp = await fetch(`{{ url_for('governanca.consultar_cnj_preview') }}?${params}`);
+      const dados = await resp.json();
+
+      if (!dados.valido) {
+        status.innerHTML = `<span class="text-danger">Número CNJ inválido: ${dados.motivo}</span>`;
+        return;
+      }
+      if (!dados.encontrado) {
+        status.innerHTML = `<span class="text-warning">Não foi possível buscar automaticamente agora: ${dados.motivo}` +
+          (dados.precisa_tribunal ? " Selecione o tribunal acima e aperte Enter de novo." : "") + `</span>` +
+          ` Você ainda pode clicar em "Validar e cadastrar" — o processo será cadastrado como não monitorável.`;
+        return;
+      }
+
+      status.innerHTML = `<span class="text-success">Processo encontrado no DataJud — confira os dados abaixo antes de cadastrar.</span>` +
+        (dados.aviso_dv ? `<br><span class="text-warning">${dados.aviso_dv}</span>` : "");
+      document.getElementById("cnj-preview-tribunal").textContent = (dados.tribunal_slug || "—").toUpperCase();
+      document.getElementById("cnj-preview-classe").textContent = dados.classe || "—";
+      document.getElementById("cnj-preview-assunto").textContent = dados.assunto || "—";
+      document.getElementById("cnj-preview-orgao").textContent = dados.orgao_julgador || "—";
+      document.getElementById("cnj-preview-data").textContent = dados.data_ajuizamento || "—";
+      document.getElementById("cnj-preview-movs").textContent = dados.qtd_movimentacoes;
+      box.style.display = "block";
+
+      // Se o tribunal foi identificado automaticamente (Justiça do Trabalho),
+      // reflete no <select> mesmo sem o usuário ter escolhido nada.
+      if (dados.tribunal_slug && !campoTribunal.value) {
+        const opcao = Array.from(campoTribunal.options).find(o => o.value === dados.tribunal_slug);
+        if (opcao) campoTribunal.value = dados.tribunal_slug;
+      }
+      // Sugestão de área do direito a partir do assunto/classe do DataJud —
+      // só preenche se o campo ainda estiver vazio, nunca sobrescreve o que
+      // o usuário já digitou.
+      if (campoArea && !campoArea.value && (dados.assunto || dados.classe)) {
+        campoArea.value = dados.assunto || dados.classe;
+      }
+      // O DataJud sinalizou algum nível de sigilo: só MARCA a caixa (nunca
+      // desmarca uma escolha do usuário) — decisão final continua sendo sua.
+      const campoSegredo = document.getElementById("segredo");
+      if (dados.sigilo_sugerido && campoSegredo && !campoSegredo.checked) {
+        campoSegredo.checked = true;
+        status.innerHTML += `<br><span class="text-warning">O DataJud sinaliza sigilo neste processo — marquei "Segredo de justiça" automaticamente; desmarque se não for o caso.</span>`;
+      }
+    } catch (e) {
+      status.innerHTML = `<span class="text-danger">Falha ao consultar o DataJud (verifique sua conexão).</span>`;
+    }
+  }
+
+  campoNumero.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter") {
+      ev.preventDefault(); // não submete/cadastra ainda, só busca a pré-visualização
+      buscarPreview();
+    }
+  });
+})();
+</script>
+{% endblock %}

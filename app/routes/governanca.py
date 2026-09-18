@@ -171,6 +171,50 @@ def novo_por_cnj():
                             tribunais_datajud=tribunais_datajud.TODOS)
 
 
+@governanca_bp.route("/processos/entrada")
+@login_required
+def entrada_processos():
+    """
+    Hub único de entrada de processos (simplificação de menu, a pedido
+    explícito): reúne em duas abas da mesma tela o que antes eram dois
+    itens separados no menu — "Cadastro por CNJ" (ação pontual, processo já
+    com número conhecido) e "Captação por OAB" (monitoramento contínuo, sem
+    precisar saber o número antes). As duas continuam sendo funcionalidades
+    distintas por baixo (ver docstring de app/routes/captacao_oab.py) — só
+    a NAVEGAÇÃO foi unificada; os formulários das duas abas continuam
+    enviando para as mesmas rotas de sempre (governanca.novo_por_cnj via
+    POST e captacao_oab.nova), sem nenhuma mudança na lógica de negócio de
+    nenhuma das duas. As telas antigas (governanca.novo_por_cnj GET e
+    captacao_oab.index) continuam existindo e funcionando normalmente para
+    quem chegar direto por um link salvo — só não aparecem mais sozinhas no
+    menu.
+
+    `?tab=oab` abre direto na aba de OAB (usado por quem clica em "Ver
+    captação por OAB" a partir de outra tela). `?numero_cnj=...` (com ou
+    sem `tab=cnj`) pré-preenche o número na aba de CNJ — é o que o link de
+    "cadastrar processo novo a partir da intimação" da triagem por OAB usa.
+    """
+    from app.models import OabMonitorada, IntimacaoCapturada
+
+    clientes = aplicar_escopo_unidade(Cliente.query, Cliente).filter_by(ativo=True).order_by(Cliente.nome).all()
+    unidades = unidades_do_escopo() if current_user.is_admin else None
+
+    oabs = aplicar_escopo_unidade(OabMonitorada.query, OabMonitorada).order_by(OabMonitorada.criado_em.desc()).all()
+    total_pendente_triagem = aplicar_escopo_unidade(
+        IntimacaoCapturada.query, IntimacaoCapturada
+    ).filter_by(status="pendente_triagem").count()
+    usuarios = usuarios_do_escopo()
+
+    aba_inicial = "oab" if request.args.get("tab") == "oab" else "cnj"
+
+    return render_template(
+        "governanca/entrada_processos.html",
+        clientes=clientes, unidades=unidades, tribunais_datajud=tribunais_datajud.TODOS,
+        oabs=oabs, total_pendente_triagem=total_pendente_triagem, usuarios=usuarios,
+        aba_inicial=aba_inicial,
+    )
+
+
 def _preview_json_encontrado(dados, fonte_rotulo, aviso_dv=None):
     """
     Monta o JSON de "achou" da pré-visualização (usado tanto pelo DataJud
@@ -1220,9 +1264,14 @@ def painel():
 
 # ---------- Métricas de governança (seção 9) ----------
 
-@governanca_bp.route("/metricas")
-@login_required
-def metricas():
+def _contexto_metricas():
+    """
+    Reúne todo o contexto da tela de métricas de governança num dict só —
+    extraído da view `metricas()` para poder ser reaproveitado também pelo
+    hub `painel_metricas()` (fusão de "Métricas" + "Relatório semanal" em
+    abas, simplificação de menu), sem duplicar nenhuma consulta/regra de
+    negócio entre as duas rotas.
+    """
     processos_q = aplicar_escopo_unidade(Processo.query, Processo)
     # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo problema —
     # QUALQUER admin via a taxa de cumprido/perdido somando TODAS as
@@ -1298,8 +1347,7 @@ def metricas():
     ]
     tempo_medio_duracao_dias = sum(duracoes) / len(duracoes) if duracoes else None
 
-    return render_template(
-        "governanca/metricas.html",
+    return dict(
         taxa_cumprimento=taxa_cumprimento, cumpridos=cumpridos, perdidos=perdidos,
         total_prazos_finalizados=total_prazos_finalizados,
         prazos_perdidos_por_processo=prazos_perdidos_por_processo,
@@ -1312,6 +1360,12 @@ def metricas():
         total_com_desfecho_definido=total_com_desfecho_definido,
         tempo_medio_duracao_dias=tempo_medio_duracao_dias,
     )
+
+
+@governanca_bp.route("/metricas")
+@login_required
+def metricas():
+    return render_template("governanca/metricas.html", **_contexto_metricas())
 
 
 # ---------- Produtividade por advogado (item 2 do briefing de paridade) ----------
@@ -1509,9 +1563,11 @@ def exportar_csv(entidade):
 # exatamente o que seria enviado, e serve de base para plugar o envio assim
 # que houver credencial e um agendador (cron/Celery beat) no servidor.
 
-@governanca_bp.route("/relatorio-semanal/preview")
-@login_required
-def relatorio_semanal_preview():
+def _contexto_relatorio_semanal():
+    """
+    Mesma extração de `_contexto_metricas()` acima, para a view do preview
+    do relatório semanal — reaproveitada pelo hub `painel_metricas()`.
+    """
     hoje = date.today()
     inicio_semana = hoje - timedelta(days=hoje.weekday())
     fim_semana = inicio_semana + timedelta(days=6)
@@ -1556,12 +1612,35 @@ def relatorio_semanal_preview():
     )
     movimentacoes_semana = movimentacoes_semana.order_by(Movimentacao.data.desc()).limit(30).all()
 
-    return render_template(
-        "governanca/relatorio_semanal_preview.html",
+    return dict(
         inicio_semana=inicio_semana, fim_semana=fim_semana,
         prazos_da_semana=prazos_da_semana, prazos_perdidos_semana_passada=prazos_perdidos_semana_passada,
         processos_parados=processos_parados, movimentacoes_semana=movimentacoes_semana,
     )
+
+
+@governanca_bp.route("/relatorio-semanal/preview")
+@login_required
+def relatorio_semanal_preview():
+    return render_template("governanca/relatorio_semanal_preview.html", **_contexto_relatorio_semanal())
+
+
+@governanca_bp.route("/metricas-e-relatorio")
+@login_required
+def painel_metricas():
+    """
+    Hub único de "Métricas" + "Relatório semanal (preview)" em duas abas —
+    simplificação de menu, a pedido explícito. Reaproveita o mesmo contexto
+    das duas views originais (_contexto_metricas / _contexto_relatorio_semanal),
+    que continuam existindo e funcionando normalmente sozinhas (nenhuma
+    lógica de negócio mudou, só a navegação).
+    """
+    aba_inicial = "relatorio" if request.args.get("tab") == "relatorio" else "metricas"
+    contexto = {}
+    contexto.update(_contexto_metricas())
+    contexto.update(_contexto_relatorio_semanal())
+    contexto["aba_inicial"] = aba_inicial
+    return render_template("governanca/painel_metricas.html", **contexto)
 
 
 # ---------- Regras de próxima ação (seção 7.1) e mapa código TPU → estado (seção 6) ----------

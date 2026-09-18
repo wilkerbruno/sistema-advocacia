@@ -1,5 +1,62 @@
 # Status das pendências do briefing (atualizado em 18/09/2026)
 
+## -109. Simplificação do menu lateral (5 mudanças, a pedido explícito)
+
+**Pedido:** "quero ver se consigo simplificar um pouco o sistema, principalmente o menu" — o usuário
+notou que "Cadastro por CNJ" e "Captação por OAB" faziam coisas parecidas e perguntou se dava pra
+juntar num botão só com abas, igual já funciona na ficha do processo (andamentos/prazos/audiências);
+pediu o mesmo raciocínio pra "Captação" (tirar do menu principal, botão dentro de Clientes) e perguntou
+se havia mais alguma ideia de simplificação. Resposta: sim, e o usuário escolheu implementar todas as
+5 mudanças identificadas de uma vez ("Implementar tudo").
+
+Nenhuma rota, template antigo ou lógica de negócio foi removida — só a NAVEGAÇÃO mudou. Toda tela antiga
+continua existindo e funcionando normalmente pra quem chegar direto por um link salvo (favoritos,
+histórico do navegador etc.); elas só pararam de aparecer soltas no menu lateral.
+
+**1. "Cadastro por CNJ" + "Captação por OAB" → "Entrada de processos" (duas abas).** As duas telas
+faziam coisas relacionadas mas DIFERENTES (cadastro por CNJ é uma ação pontual — o advogado já sabe o
+número do processo; captação por OAB liga um monitoramento contínuo — o sistema descobre sozinho as
+intimações novas, sem precisar do número antes; ver docstring de `app/routes/captacao_oab.py`) — a
+fusão foi só de NAVEGAÇÃO, cada aba envia pro formulário de sempre (POST em `governanca.novo_por_cnj` e
+`captacao_oab.nova`, sem nenhuma mudança de lógica). Nova rota `governanca.entrada_processos`
+(`/governanca/processos/entrada`, aceita `?tab=cnj|oab` e `?numero_cnj=...` pra pré-preencher) e novo
+template `app/templates/governanca/entrada_processos.html`. O link crítico de
+`captacao_oab/triagem_detalhe.html` ("cadastrar processo novo a partir da intimação") foi atualizado pra
+apontar pro hub novo, preservando o número pré-preenchido.
+
+**2. "Captação" (funil de leads) saiu do menu principal "Operação".** Vira um botão "Ver funil de
+captação" dentro da tela de Clientes (`app/templates/clientes/listar.html`), já que captação de leads e
+captação/cadastro de clientes são conceitos vizinhos — a rota (`leads.kanban`) não mudou.
+
+**3. Grupo "Governança de carteira" ganhou subtítulos internos** — mesmo padrão de subgrupo (classe
+`subgrupo-titulo`) já usado dentro de "Configurações": "Painel e filas" (painel, fila de intimações,
+métricas+relatório, produtividade, contingenciamento), "Entrada de processos" (o hub novo + importação
+em lote) e "Regras e parâmetros" (admin-only: regras de próxima ação, mapa de estado, conflitos, modelos
+de peça, tabela de custas).
+
+**4. "Meu agente local" saiu de "Operação" e foi para "Configurações → Minha conta"** — é configuração
+pessoal do usuário (parear o agente que roda na própria máquina), não uma tela de operação do dia a dia.
+
+**5. "Métricas" + "Relatório semanal (preview)" → "Métricas e relatório semanal" (duas abas).** Mesmo
+tratamento do item 1: nova rota `governanca.painel_metricas` (`/governanca/metricas-e-relatorio`, aceita
+`?tab=metricas|relatorio`) e novo template `app/templates/governanca/painel_metricas.html`. Pra não
+duplicar as consultas/regras de negócio entre a rota nova e as duas antigas, o corpo de
+`governanca.metricas` e `governanca.relatorio_semanal_preview` foi extraído para
+`_contexto_metricas()`/`_contexto_relatorio_semanal()` (funções internas que devolvem um dict de
+contexto) — as três rotas (as duas antigas + a nova) chamam essas funções, sem nenhuma mudança no
+resultado que cada uma já devolvia.
+
+**Onde:** `app/templates/base.html` (menu lateral), `app/routes/governanca.py` (`entrada_processos`,
+`painel_metricas`, `_contexto_metricas`, `_contexto_relatorio_semanal`),
+`app/templates/governanca/entrada_processos.html` e `painel_metricas.html` (novos),
+`app/templates/clientes/listar.html`, `app/templates/captacao_oab/triagem_detalhe.html` e `index.html`
+(links atualizados). Testado em `tests/test_menu_simplificacao.py` (11 testes: as duas telas-hub
+renderizam as duas abas com os formulários/conteúdo intactos, pré-preenchimento e aba inicial por query
+string, as rotas antigas continuam acessíveis diretamente, os itens antigos não aparecem mais soltos no
+menu, os subgrupos de Governança aparecem, "Meu agente local" saiu de Operação) e em
+`tests/test_leads.py` (2 testes: "Captação" não aparece mais em Operação, botão aparece em Clientes) —
+suíte completa (536 testes) passando depois da mudança.
+
 ## -108. Itens 9, 8 e 2 da lista de pipeline de IA jurídica: cálculo de custas, pesquisa de legislação (LexML) e cofre de credenciais de tribunal
 
 **Pedido:** avançar simultaneamente nos três itens que ainda restavam da lista de pipeline de IA

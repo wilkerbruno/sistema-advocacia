@@ -170,11 +170,24 @@ def test_converter_duas_vezes_nao_duplica_cliente(client, login, post_csrf, app)
     assert db.session.get(Lead, lead.id).cliente_id == cliente_id_primeira_vez
 
 
-def test_menu_mostra_item_captacao_dentro_de_operacao(client, login, app):
+def test_captacao_nao_aparece_mais_solta_no_menu_operacao(client, login, app):
+    """Simplificação de menu (PENDENCIAS.md): "Captação" saiu do menu
+    principal "Operação" — o funil de leads agora se acessa por um botão
+    dentro da tela de Clientes (ver test_botao_funil_captacao_na_tela_de_clientes
+    abaixo), não mais por um item solto no menu lateral."""
     _, unidade = _criar_empresa("Escritório H", "H1")
     _criar_usuario_e_logar(unidade.id, "adv8@leadsteste.com", "advogado", login)
 
     html = client.get("/").data.decode("utf-8")
 
-    assert "Captação" in html
+    assert 'href="/leads/"' not in html
+
+
+def test_botao_funil_captacao_na_tela_de_clientes(client, login, app):
+    _, unidade = _criar_empresa("Escritório H2", "H2")
+    _criar_usuario_e_logar(unidade.id, "adv9@leadsteste.com", "advogado", login)
+
+    html = client.get("/clientes/").data.decode("utf-8")
+
+    assert "Ver funil de captação" in html
     assert 'href="/leads/"' in html
