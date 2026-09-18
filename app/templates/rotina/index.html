@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block titulo %}Rotina — JusControl{% endblock %}
+{% block eyebrow %}Operação{% endblock %}
+{% block cabecalho %}Rotina{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único "Rotina" — antes eram três itens soltos no menu "Operação"
+  (Tarefas, Agenda, Horas), reunidos aqui em abas, mesma ideia de
+  "Entrada de processos" e "Minha conta". Cada aba usa a MESMA rota de
+  sempre pros filtros/ações (tarefas.*, agenda.*, timesheet.*) — nenhuma
+  lógica de negócio mudou, só a navegação. As telas antigas (tarefas.
+  listar, agenda.index, timesheet.listar) continuam existindo e
+  funcionando normalmente pra quem chegar direto por um link salvo.
+#}
+<ul class="nav nav-tabs mb-3" id="abasRotina" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'tarefas' }}" id="tab-btn-tarefas" data-bs-toggle="tab" data-bs-target="#aba-tarefas" type="button" role="tab" aria-controls="aba-tarefas">
+      Tarefas
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'agenda' }}" id="tab-btn-agenda" data-bs-toggle="tab" data-bs-target="#aba-agenda" type="button" role="tab" aria-controls="aba-agenda">
+      Agenda
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'horas' }}" id="tab-btn-horas" data-bs-toggle="tab" data-bs-target="#aba-horas" type="button" role="tab" aria-controls="aba-horas">
+      Horas (timesheet)
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasRotina">
+
+  {% set t = tarefas_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'tarefas' }}" id="aba-tarefas" role="tabpanel" aria-labelledby="tab-btn-tarefas">
+    <form method="get" class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <input type="hidden" name="tab" value="tarefas">
+      <select name="status" class="form-select" style="width: 180px;" onchange="this.form.submit()">
+        <option value="">Todos os status</option>
+        {% for s in ["pendente","em_andamento","concluida","cancelada"] %}
+        <option value="{{ s }}" {{ "selected" if t.status == s }}>{{ s|capitalize }}</option>
+        {% endfor %}
+      </select>
+      <div class="form-check d-flex align-items-center gap-1">
+        <input class="form-check-input" type="checkbox" name="minhas" value="1" {{ "checked" if t.somente_minhas }} onchange="this.form.submit()" id="tarefas-minhas">
+        <label class="form-check-label small" for="tarefas-minhas">Somente minhas tarefas</label>
+      </div>
+      <a href="{{ url_for('tarefas.nova') }}" class="btn btn-brass ms-auto">+ Nova tarefa</a>
+    </form>
+
+    <div class="card-doc tab p-0">
+      {% if t.tarefas %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Tarefa</th>
+            <th>Responsável</th>
+            <th>Processo</th>
+            {% if current_user.is_admin %}<th>Unidade</th>{% endif %}
+            <th>Prioridade</th>
+            <th>Vencimento</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tarefa in t.tarefas %}
+          <tr>
+            <td>{{ tarefa.titulo }}</td>
+            <td>{{ tarefa.responsavel.nome if tarefa.responsavel else "—" }}</td>
+            <td>{% if tarefa.processo %}<a class="linha-link" href="{{ url_for('processos.detalhe', processo_id=tarefa.processo_id) }}">{{ tarefa.processo.numero_processo or tarefa.processo.numero_interno }}</a>{% else %}—{% endif %}</td>
+            {% if current_user.is_admin %}<td><span class="pill-unidade">{{ tarefa.unidade.codigo }}</span></td>{% endif %}
+            <td><span class="badge-status badge-{{ tarefa.prioridade }}">{{ tarefa.prioridade }}</span></td>
+            <td class="{% if tarefa.data_vencimento and tarefa.data_vencimento < t.hoje and tarefa.status != 'concluida' %}text-danger fw-semibold{% endif %}">{{ tarefa.data_vencimento|data_br }}</td>
+            <td><span class="badge-status badge-{{ tarefa.status }}">{{ tarefa.status.replace('_',' ') }}</span></td>
+            <td>
+              {% if tarefa.status not in ["concluida","cancelada"] %}
+              <form method="post" action="{{ url_for('tarefas.atualizar_status', tarefa_id=tarefa.id) }}" class="d-flex gap-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if tarefa.status == "pendente" %}<button name="status" value="em_andamento" class="btn btn-outline-doc btn-sm">Iniciar</button>{% endif %}
+                <button name="status" value="concluida" class="btn btn-outline-doc btn-sm">Concluir</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma tarefa encontrada</div>
+        <p class="mb-0">Crie tarefas para organizar o trabalho da equipe.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set a = agenda_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'agenda' }}" id="aba-agenda" role="tabpanel" aria-labelledby="tab-btn-agenda">
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+      <div class="d-flex gap-2">
+        <a class="btn btn-outline-doc btn-sm" href="{{ url_for('rotina.index', tab='agenda', ano=a.ano_mes_anterior, mes=a.mes_anterior) }}">&larr; Mês anterior</a>
+        <a class="btn btn-outline-doc btn-sm" href="{{ url_for('rotina.index', tab='agenda') }}">Hoje</a>
+        <a class="btn btn-outline-doc btn-sm" href="{{ url_for('rotina.index', tab='agenda', ano=a.ano_mes_seguinte, mes=a.mes_seguinte) }}">Mês seguinte &rarr;</a>
+        <a class="btn btn-brass btn-sm" href="{{ url_for('agenda.novo_compromisso') }}">+ Novo compromisso</a>
+      </div>
+      <div class="d-flex gap-3 small text-muted-doc">
+        <span><span class="agenda-dot agenda-dot-prazo"></span> {{ a.total_prazos }} prazo(s)</span>
+        <span><span class="agenda-dot agenda-dot-audiencia"></span> {{ a.total_audiencias }} audiência(s)</span>
+        <span><span class="agenda-dot agenda-dot-tarefa"></span> {{ a.total_tarefas }} tarefa(s)</span>
+        <span><span class="agenda-dot agenda-dot-compromisso"></span> {{ a.total_compromissos }} compromisso(s)</span>
+      </div>
+    </div>
+
+    <p class="small text-muted-doc mb-2">{{ a.nome_mes }} de {{ a.ano }}</p>
+
+    <div class="card-doc tab p-0">
+      <div class="agenda-grid agenda-header">
+        {% for nome in a.dias_semana %}
+        <div class="agenda-weekday">{{ nome }}</div>
+        {% endfor %}
+      </div>
+      {% for semana in a.semanas %}
+      <div class="agenda-grid">
+        {% for dia in semana %}
+        <div class="agenda-day {% if dia.month != a.mes %}agenda-day-fora{% endif %} {% if dia == a.hoje %}agenda-day-hoje{% endif %}">
+          <div class="agenda-day-numero">{{ dia.day }}</div>
+          <div class="agenda-day-eventos">
+            {% for ev in a.eventos_por_dia.get(dia, [])[:4] %}
+            <a href="{{ ev.url }}" class="agenda-event agenda-event-{{ ev.tipo }}" title="{{ ev.titulo }}">{{ ev.titulo }}</a>
+            {% endfor %}
+            {% if a.eventos_por_dia.get(dia, [])|length > 4 %}
+            <div class="agenda-event-mais">+{{ a.eventos_por_dia.get(dia)|length - 4 }} mais</div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+
+    <p class="text-muted-doc small mt-3 mb-0">
+      Prazos vencidos e não cumpridos aparecem em vermelho. Clique em qualquer item para abrir o processo (ou a lista de tarefas).
+    </p>
+  </div>
+
+  {% set h = timesheet_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'horas' }}" id="aba-horas" role="tabpanel" aria-labelledby="tab-btn-horas">
+    <div class="kpi-grid mb-4">
+      <div class="kpi-card">
+        <div class="kpi-label">Total de horas</div>
+        <div class="kpi-value">{{ "%.2f"|format(h.total_horas) }}h</div>
+        <div class="kpi-sub">no filtro atual</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Horas faturáveis</div>
+        <div class="kpi-value">{{ "%.2f"|format(h.total_faturavel) }}h</div>
+        <div class="kpi-sub">{{ "%.1f"|format(h.total_faturavel / h.total_horas * 100) ~ "%" if h.total_horas else "—" }} do total</div>
+      </div>
+    </div>
+
+    <form method="get" class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <input type="hidden" name="tab" value="horas">
+      <input type="date" name="data_inicio" class="form-control" style="width:170px;" value="{{ h.data_inicio or '' }}">
+      <input type="date" name="data_fim" class="form-control" style="width:170px;" value="{{ h.data_fim or '' }}">
+      {% if current_user.is_admin %}
+      <div class="form-check d-flex align-items-center gap-1">
+        <input class="form-check-input" type="checkbox" name="horas_minhas" value="1" {{ "checked" if h.somente_minhas }} id="horas-minhas">
+        <label class="form-check-label small" for="horas-minhas">Somente meus apontamentos</label>
+      </div>
+      {% endif %}
+      <button class="btn btn-outline-doc btn-sm">Filtrar</button>
+      <a href="{{ url_for('timesheet.novo') }}" class="btn btn-brass ms-auto">+ Apontar horas</a>
+    </form>
+
+    <div class="card-doc tab p-0">
+      {% if h.apontamentos %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Data</th>
+            {% if current_user.is_admin %}<th>Usuário</th>{% endif %}
+            <th>Descrição</th>
+            <th>Processo</th>
+            <th>Horas</th>
+            <th>Faturável</th>
+            <th>Cobrança</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ap in h.apontamentos %}
+          <tr>
+            <td>{{ ap.data|data_br }}</td>
+            {% if current_user.is_admin %}<td>{{ ap.usuario.nome }}</td>{% endif %}
+            <td>{{ ap.descricao }}</td>
+            <td>{% if ap.processo %}<a class="linha-link" href="{{ url_for('processos.detalhe', processo_id=ap.processo_id) }}">{{ ap.processo.numero_processo or ap.processo.numero_interno }}</a>{% else %}—{% endif %}</td>
+            <td>{{ "%.2f"|format(ap.horas) }}h</td>
+            <td>{% if ap.faturavel %}<span class="badge-status badge-cumprido">sim</span>{% else %}<span class="badge-status badge-normal">não</span>{% endif %}</td>
+            <td>
+              {% if not ap.faturavel %}
+              <span class="text-muted-doc small">—</span>
+              {% elif ap.lancamento_id %}
+              <span class="badge-status badge-ativo">faturado</span>
+              {% elif ap.processo_id %}
+              <a class="small" href="{{ url_for('financeiro.gerar_cobranca_horas', processo_id=ap.processo_id) }}">gerar cobrança</a>
+              {% else %}
+              <span class="text-muted-doc small">sem processo</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if ap.usuario_id == current_user.id or current_user.is_admin %}
+              <form method="post" action="{{ url_for('timesheet.excluir', apontamento_id=ap.id) }}" onsubmit="return confirm('Excluir este apontamento?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="btn btn-outline-doc btn-sm">Excluir</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum apontamento encontrado</div>
+        <p class="mb-0">Registre as horas trabalhadas no dia a dia dos processos.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}

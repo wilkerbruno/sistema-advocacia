@@ -53,6 +53,44 @@ def preferencias():
     )
 
 
+@conta_bp.route("/")
+@login_required
+def hub():
+    """
+    Hub único de "Minha conta" (menu simplificado, a pedido explícito):
+    reúne em abas da mesma tela o que antes eram itens soltos no menu —
+    Preferências do menu, Autenticador (2FA, só quando disponível no
+    sistema) e Meu agente local, mesma ideia de
+    app/routes/governanca.py::entrada_processos. Os formulários de cada
+    aba continuam enviando para as MESMAS rotas de sempre (conta.
+    salvar_favorito, conta.confirmar_totp/reconfigurar_totp,
+    agente_local.parear/revogar) — nenhuma lógica de negócio mudou, só a
+    navegação. As telas antigas (conta.preferencias, conta.
+    configurar_totp, agente_local.meu_agente) continuam existindo e
+    funcionando normalmente pra quem chegar direto por um link salvo.
+
+    Importa os helpers de app/routes/agente_local.py em vez de duplicar
+    a consulta de pareamentos — os dois blueprints não se importam um ao
+    outro em nenhum outro lugar, então não há risco de import circular.
+    """
+    from flask import session
+    from app.routes.agente_local import _pareamentos_do_usuario, _instalador_disponivel
+
+    aba_inicial = request.args.get("tab", "preferencias")
+
+    return render_template(
+        "conta/hub.html",
+        grupo_favorito=current_user.menu_grupo_favorito,
+        grupos=GRUPOS_MENU_VALIDOS,
+        nomes_grupos=NOMES_GRUPOS_MENU,
+        contexto_totp=_contexto_totp(),
+        pareamentos=_pareamentos_do_usuario(),
+        instalador_disponivel=_instalador_disponivel(),
+        token_novo=session.pop("agente_local_token_novo", None),
+        aba_inicial=aba_inicial,
+    )
+
+
 @conta_bp.route("/preferencias/favorito", methods=["POST"])
 @login_required
 def salvar_favorito():
@@ -96,15 +134,23 @@ def tutorial_concluir():
 # app/__init__.py::exigir_autenticador_configurado, não esta rota; aqui só
 # existe o formulário em si.
 
-@conta_bp.route("/autenticador", methods=["GET"])
-@login_required
-def configurar_totp():
+def _contexto_totp():
+    """
+    Reúne o contexto da tela de autenticador (2FA) num dict — extraído de
+    `configurar_totp()` pra ser reaproveitado pelo hub `conta.hub()` (menu
+    simplificado: "Minha conta" virou uma tela só com abas, mesma ideia de
+    app/routes/governanca.py::entrada_processos). Devolve `None` quando o
+    2FA não está disponível no sistema — quem chama decide o que fazer
+    (a rota antiga redireciona pro painel com um aviso; o hub simplesmente
+    não mostra a aba). Mantém o mesmo efeito colateral de sempre (gera e
+    PERSISTE um segredo pendente na primeira visita, reaproveita depois) —
+    chamar isso mais de uma vez na mesma visita nunca gera um QR novo.
+    """
     if not totp_utils.totp_disponivel():
-        flash("A autenticação em duas etapas não está disponível neste sistema no momento.", "warning")
-        return redirect(url_for("dashboard.index"))
+        return None
 
     if current_user.totp_configurado:
-        return render_template("conta/configurar_totp.html", ja_configurado=True)
+        return dict(ja_configurado=True)
 
     # Reaproveita um segredo PENDENTE já gerado antes (ex.: o usuário saiu
     # da tela sem confirmar e voltou depois) em vez de trocar o QR a cada
@@ -117,11 +163,21 @@ def configurar_totp():
         db.session.commit()
 
     uri = totp_utils.construir_provisioning_uri(current_user, secret)
-    return render_template(
-        "conta/configurar_totp.html", ja_configurado=False,
+    return dict(
+        ja_configurado=False,
         qrcode_data_uri=totp_utils.gerar_qrcode_data_uri(uri),
         secret_formatado=totp_utils.secret_formatado_para_digitar(secret),
     )
+
+
+@conta_bp.route("/autenticador", methods=["GET"])
+@login_required
+def configurar_totp():
+    contexto = _contexto_totp()
+    if contexto is None:
+        flash("A autenticação em duas etapas não está disponível neste sistema no momento.", "warning")
+        return redirect(url_for("dashboard.index"))
+    return render_template("conta/configurar_totp.html", **contexto)
 
 
 @conta_bp.route("/autenticador/confirmar", methods=["POST"])

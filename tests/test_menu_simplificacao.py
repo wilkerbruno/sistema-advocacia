@@ -5,7 +5,7 @@ menu" — juntando itens relacionados numa tela só, com abas, e movendo
 itens periféricos pra dentro de onde fazem mais sentido:
 
   1. "Cadastro por CNJ" + "Captação por OAB" viraram um item só, "Entrada
-     de processos" (governanca.entrada_processos), com duas abas — mesmo
+     de processos" (governanca.entrada_processos), com abas — mesmo
      mecanismo de abas já usado na ficha do processo. Os formulários de
      cada aba continuam enviando para as MESMAS rotas de sempre
      (governanca.novo_por_cnj via POST e captacao_oab.nova) — nenhuma
@@ -15,9 +15,8 @@ itens periféricos pra dentro de onde fazem mais sentido:
   2. "Captação" (funil de leads) saiu do menu principal "Operação" — vira
      um botão "Ver funil de captação" dentro da tela de Clientes (ver
      tests/test_leads.py, que cobre esta parte).
-  3. O grupo "Governança de carteira" ganhou subtítulos internos ("Painel
-     e filas", "Entrada de processos", "Regras e parâmetros") — mesmo
-     padrão de subgrupo já usado em "Configurações".
+  3. O grupo "Governança de carteira" ganhou um subtítulo interno ("Painel
+     e filas") — mesmo padrão de subgrupo já usado em "Configurações".
   4. "Meu agente local" saiu de "Operação" e foi para "Configurações >
      Minha conta".
   5. "Métricas" + "Relatório semanal (preview)" viraram um item só,
@@ -25,6 +24,27 @@ itens periféricos pra dentro de onde fazem mais sentido:
      com duas abas — mesmo mecanismo, mesmas rotas antigas reaproveitadas
      por baixo (governanca.metricas e governanca.relatorio_semanal_preview
      continuam existindo e funcionando sozinhas).
+
+CORREÇÃO (terceira rodada, mesma sessão, pedido explícito do usuário: "não
+eu pedi para fazer igual foi feito em entrada de processos [...] inclusive
+em 'entrada de processos', poderia incluir o importar em lotes lá dentro
+também"): o mesmo padrão de hub-com-abas de "Entrada de processos" se
+estendeu para mais dois lugares —
+
+  6. "Entrada de processos" ganhou uma TERCEIRA aba, "Importar em lote
+     (CSV)" — antes um item solto (G5) no menu, agora reaproveita o mesmo
+     formulário de sempre (POST pra governanca.importar_lote), só que
+     dentro do hub. A tela antiga (GET governanca.importar_lote) continua
+     existindo e funcionando pra quem chegar direto por um link salvo.
+  7. "Operação > Tarefas/Agenda/Horas" viraram um hub só, "Rotina"
+     (rotina.index), com três abas — mesma ideia. "Configurações > Minha
+     conta" também: Preferências do menu, Autenticador (2FA, condicional)
+     e Meu agente local viraram abas do hub conta.hub, com "Rever
+     tutorial" como link à parte (não é uma configuração, é uma ação).
+     Nos dois casos as rotas/telas antigas soltas continuam existindo e
+     funcionando; só o link do menu lateral mudou pra apontar pro hub. Ver
+     tests/test_hub_rotina_e_minha_conta.py para a cobertura detalhada
+     desses dois hubs.
 
 Estes testes cobrem só a ESTRUTURA do menu e das novas telas-hub — as
 regras de negócio de cadastro por CNJ, captação por OAB e métricas já têm
@@ -62,7 +82,7 @@ def _criar_usuario_e_logar(unidade_id, email, papel, login):
 
 # ---------------------- Hub "Entrada de processos" (CNJ + OAB) ----------------------
 
-def test_entrada_processos_renderiza_as_duas_abas_com_formularios_intactos(client, login, app):
+def test_entrada_processos_renderiza_as_tres_abas_com_formularios_intactos(client, login, app):
     _, unidade = _montar_empresa()
     _criar_usuario_e_logar(unidade.id, "adv@menusimpl.com", "advogado", login)
 
@@ -72,9 +92,35 @@ def test_entrada_processos_renderiza_as_duas_abas_com_formularios_intactos(clien
 
     assert "Por número CNJ" in html
     assert "Por OAB (monitoramento contínuo)" in html
+    assert "Importar em lote (CSV)" in html
     # os formulários de cada aba continuam enviando para as rotas de sempre:
     assert 'action="/governanca/processos/novo-por-cnj"' in html
     assert 'action="/captacao-oab/nova"' in html
+    assert 'action="/governanca/processos/importar-lote"' in html
+
+
+def test_entrada_processos_aba_lote_via_query_string(client, login, app):
+    _, unidade = _montar_empresa()
+    _criar_usuario_e_logar(unidade.id, "adv2b@menusimpl.com", "advogado", login)
+
+    r = client.get("/governanca/processos/entrada?tab=lote")
+    assert r.status_code == 200
+    html = r.data.decode("utf-8")
+    idx_botao = html.index('id="tab-btn-lote"')
+    trecho = html[max(0, idx_botao - 30):idx_botao + 30]
+    assert "active" in trecho
+    idx_painel = html.index('id="aba-lote"')
+    trecho_painel = html[max(0, idx_painel - 30):idx_painel + 30]
+    assert "show active" in trecho_painel
+
+
+def test_rota_antiga_de_importar_lote_continua_acessivel_diretamente(client, login, app):
+    """A tela antiga (fora do menu agora) continua funcionando pra quem
+    chegar direto por um link salvo — nenhuma rota foi removida."""
+    _, unidade = _montar_empresa()
+    _criar_usuario_e_logar(unidade.id, "adv2c@menusimpl.com", "advogado", login)
+
+    assert client.get("/governanca/processos/importar-lote").status_code == 200
 
 
 def test_entrada_processos_prefill_numero_cnj_e_aba_inicial_por_query_string(client, login, app):
@@ -151,10 +197,21 @@ def test_menu_nao_mostra_mais_itens_antigos_soltos(client, login, app):
 
     assert "Entrada de processos" in html
     assert "Métricas e relatório semanal" in html
+    assert "Rotina" in html
+    assert "Minha conta" in html
     # os links diretos que existiam soltos no menu não aparecem mais lá:
     assert 'href="/governanca/processos/novo-por-cnj"' not in html
     assert 'href="/captacao-oab/"' not in html
     assert 'href="/governanca/relatorio-semanal/preview"' not in html
+    assert 'href="/governanca/processos/importar-lote"' not in html
+    assert 'href="/tarefas/"' not in html
+    assert 'href="/agenda/"' not in html
+    assert 'href="/timesheet/"' not in html
+    assert 'href="/agente-local"' not in html
+    assert 'href="/minha-conta/preferencias"' not in html
+    # os links novos que substituem os itens soltos aparecem no lugar:
+    assert 'href="/rotina/"' in html
+    assert 'href="/minha-conta/"' in html
 
 
 def test_governanca_tem_subgrupos(client, login, app):
@@ -164,20 +221,30 @@ def test_governanca_tem_subgrupos(client, login, app):
     html = client.get("/").data.decode("utf-8")
 
     assert 'subgrupo-titulo">Painel e filas' in html
-    assert 'subgrupo-titulo">Entrada de processos' in html
-    assert 'subgrupo-titulo">Regras e parâmetros' in html
+    # "Regras e parâmetros" (5 itens, uso raro) virou um submenu recolhível
+    # de 2º nível em vez de título fixo — ver test_submenus_segundo_nivel.py
+    assert 'data-submenu="regras-parametros"' in html
+    assert "Regras e parâmetros" in html
 
 
 def test_meu_agente_local_saiu_de_operacao_e_foi_para_configuracoes(client, login, app):
+    """"Meu agente local" não é mais um link solto em lugar nenhum do menu
+    — mora dentro do hub "Minha conta" (uma aba, ver
+    tests/test_hub_rotina_e_minha_conta.py). O que este teste garante é
+    que o link pro HUB está em Configurações, não em Operação (onde
+    "Meu agente local" ficava antes da rodada anterior)."""
     _, unidade = _montar_empresa()
     _criar_usuario_e_logar(unidade.id, "adv8@menusimpl.com", "advogado", login)
 
     html = client.get("/").data.decode("utf-8")
 
-    assert 'href="/agente-local"' in html
+    assert 'href="/minha-conta/"' in html
     idx_operacao = html.index('data-grupo="operacao"')
     idx_config = html.index('data-grupo="config"')
-    idx_agente_local = html.index('href="/agente-local"')
-    # o link tem que estar dentro do bloco de Configurações, não mais no de Operação:
-    assert idx_config < idx_agente_local
-    assert not (idx_operacao < idx_agente_local < idx_config)
+    idx_minha_conta = html.index('href="/minha-conta/"')
+    # o link tem que estar dentro do bloco de Configurações, não no de Operação:
+    assert idx_config < idx_minha_conta
+    assert not (idx_operacao < idx_minha_conta < idx_config)
+
+    # e a própria tela do hub, quando visitada, ainda mostra "Meu agente local":
+    assert "Meu agente local" in client.get("/minha-conta/").data.decode("utf-8")

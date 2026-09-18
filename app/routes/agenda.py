@@ -34,12 +34,21 @@ NOMES_MES = [
 DIAS_SEMANA = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
 
-@agenda_bp.route("/")
-@login_required
-def index():
+def _contexto_agenda(ano=None, mes=None):
+    """
+    Mesma extração de `_contexto_tarefas()`/`_contexto_timesheet()` (ver
+    tarefas.py/timesheet.py) — pra reaproveitar em `rotina.index()` (hub
+    "Rotina" = Tarefas + Agenda + Horas, menu simplificado) sem duplicar
+    a montagem do calendário/consultas. `ano`/`mes` vêm explícitos (em
+    vez de ler `request.args` aqui dentro) só pra manter o mesmo padrão
+    das outras duas extrações — na prática o nome do campo é o mesmo
+    "ano"/"mes" em ambas as telas, sem risco de colisão.
+    """
     hoje = date.today()
-    ano = request.args.get("ano", hoje.year, type=int)
-    mes = request.args.get("mes", hoje.month, type=int)
+    if ano is None:
+        ano = hoje.year
+    if mes is None:
+        mes = hoje.month
     if mes < 1:
         mes, ano = 12, ano - 1
     elif mes > 12:
@@ -129,8 +138,7 @@ def index():
     total_tarefas = tarefas_q.count()
     total_compromissos = compromissos_q.count()
 
-    return render_template(
-        "agenda/index.html",
+    return dict(
         semanas=semanas, eventos_por_dia=eventos_por_dia, hoje=hoje,
         ano=ano, mes=mes, nome_mes=NOMES_MES[mes], dias_semana=DIAS_SEMANA,
         mes_anterior=mes_anterior, ano_mes_anterior=ano_mes_anterior,
@@ -138,6 +146,13 @@ def index():
         total_prazos=total_prazos, total_audiencias=total_audiencias,
         total_tarefas=total_tarefas, total_compromissos=total_compromissos,
     )
+
+
+@agenda_bp.route("/")
+@login_required
+def index():
+    contexto = _contexto_agenda(ano=request.args.get("ano", type=int), mes=request.args.get("mes", type=int))
+    return render_template("agenda/index.html", **contexto)
 
 
 # ---------------------- Compromissos (reunião/evento livre) ----------------------

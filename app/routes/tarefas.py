@@ -15,21 +15,33 @@ def _parse_data(valor):
     return datetime.strptime(valor, "%Y-%m-%d").date()
 
 
-@tarefas_bp.route("/")
-@login_required
-def listar():
+def _contexto_tarefas(status=None, somente_minhas=None):
+    """
+    Reúne o contexto da listagem de tarefas num dict — extraído de
+    `listar()` pra ser reaproveitado também pelo hub `rotina.index()`
+    (menu simplificado: Tarefas + Agenda + Horas viraram abas de uma
+    tela só, mesma ideia de app/routes/governanca.py::entrada_processos).
+    Os parâmetros são explícitos (em vez de ler `request.args` direto
+    aqui dentro) justamente pra quem chama poder usar nomes de campo
+    diferentes — o hub usa os mesmos nomes de sempre pra esta aba, mas
+    isso evita qualquer colisão futura com o campo "minhas" da aba de
+    Horas, que é uma tela/formulário diferente.
+    """
     query = aplicar_escopo_unidade(Tarefa.query, Tarefa)
-    status = request.args.get("status")
-    somente_minhas = request.args.get("minhas")
-
     if status:
         query = query.filter(Tarefa.status == status)
     if somente_minhas:
         query = query.filter(Tarefa.responsavel_id == current_user.id)
 
     tarefas = query.order_by(Tarefa.data_vencimento).all()
-    return render_template("tarefas/listar.html", tarefas=tarefas, status=status,
-                            somente_minhas=somente_minhas, hoje=date.today())
+    return dict(tarefas=tarefas, status=status, somente_minhas=somente_minhas, hoje=date.today())
+
+
+@tarefas_bp.route("/")
+@login_required
+def listar():
+    contexto = _contexto_tarefas(status=request.args.get("status"), somente_minhas=request.args.get("minhas"))
+    return render_template("tarefas/listar.html", **contexto)
 
 
 @tarefas_bp.route("/nova", methods=["GET", "POST"])
@@ -84,4 +96,7 @@ def atualizar_status(tarefa_id):
         registrar_log(current_user, "status_tarefa", "Tarefa", tarefa.id, novo_status)
         db.session.commit()
         flash("Status da tarefa atualizado.", "info")
-    return redirect(url_for("tarefas.listar"))
+    # Volta pra onde o clique veio (a lista solta OU a aba "Tarefas" do hub
+    # "Rotina" — ver app/routes/rotina.py) em vez de sempre mandar pra
+    # listagem solta, mesmo padrão já usado em app/routes/leads.py.
+    return redirect(request.referrer or url_for("tarefas.listar"))

@@ -176,23 +176,28 @@ def novo_por_cnj():
 def entrada_processos():
     """
     Hub único de entrada de processos (simplificação de menu, a pedido
-    explícito): reúne em duas abas da mesma tela o que antes eram dois
-    itens separados no menu — "Cadastro por CNJ" (ação pontual, processo já
-    com número conhecido) e "Captação por OAB" (monitoramento contínuo, sem
-    precisar saber o número antes). As duas continuam sendo funcionalidades
-    distintas por baixo (ver docstring de app/routes/captacao_oab.py) — só
-    a NAVEGAÇÃO foi unificada; os formulários das duas abas continuam
-    enviando para as mesmas rotas de sempre (governanca.novo_por_cnj via
-    POST e captacao_oab.nova), sem nenhuma mudança na lógica de negócio de
-    nenhuma das duas. As telas antigas (governanca.novo_por_cnj GET e
-    captacao_oab.index) continuam existindo e funcionando normalmente para
-    quem chegar direto por um link salvo — só não aparecem mais sozinhas no
-    menu.
+    explícito): reúne em três abas da mesma tela o que antes eram itens
+    separados no menu — "Cadastro por CNJ" (ação pontual, processo já com
+    número conhecido), "Captação por OAB" (monitoramento contínuo, sem
+    precisar saber o número antes) e, a pedido explícito também ("inclusive
+    em 'entrada de processos', poderia incluir o importar em lotes lá
+    dentro também"), "Importar em lote" (CSV, vários processos de uma vez).
+    As três continuam sendo funcionalidades distintas por baixo (ver
+    docstring de app/routes/captacao_oab.py e a rota governanca.
+    importar_lote abaixo) — só a NAVEGAÇÃO foi unificada; os formulários
+    das três abas continuam enviando para as mesmas rotas de sempre
+    (governanca.novo_por_cnj via POST, captacao_oab.nova e governanca.
+    importar_lote via POST), sem nenhuma mudança na lógica de negócio de
+    nenhuma delas. As telas antigas (governanca.novo_por_cnj GET,
+    captacao_oab.index e governanca.importar_lote GET) continuam existindo
+    e funcionando normalmente para quem chegar direto por um link salvo —
+    só não aparecem mais sozinhas no menu.
 
     `?tab=oab` abre direto na aba de OAB (usado por quem clica em "Ver
-    captação por OAB" a partir de outra tela). `?numero_cnj=...` (com ou
-    sem `tab=cnj`) pré-preenche o número na aba de CNJ — é o que o link de
-    "cadastrar processo novo a partir da intimação" da triagem por OAB usa.
+    captação por OAB" a partir de outra tela). `?tab=lote` abre direto na
+    aba de importação em lote. `?numero_cnj=...` (com ou sem `tab=cnj`)
+    pré-preenche o número na aba de CNJ — é o que o link de "cadastrar
+    processo novo a partir da intimação" da triagem por OAB usa.
     """
     from app.models import OabMonitorada, IntimacaoCapturada
 
@@ -205,7 +210,8 @@ def entrada_processos():
     ).filter_by(status="pendente_triagem").count()
     usuarios = usuarios_do_escopo()
 
-    aba_inicial = "oab" if request.args.get("tab") == "oab" else "cnj"
+    aba_pedida = request.args.get("tab")
+    aba_inicial = aba_pedida if aba_pedida in ("oab", "lote") else "cnj"
 
     return render_template(
         "governanca/entrada_processos.html",

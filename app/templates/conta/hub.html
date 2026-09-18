@@ -1,0 +1,242 @@
+{% extends "base.html" %}
+{% block titulo %}Minha conta — JusControl{% endblock %}
+{% block eyebrow %}Configurações{% endblock %}
+{% block cabecalho %}Minha conta{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de "Minha conta" — antes eram itens soltos no menu
+  (Preferências do menu, Autenticador, Meu agente local), reunidos aqui em
+  abas, mesma ideia da ficha do processo e de "Entrada de processos". Os
+  formulários continuam enviando para as MESMAS rotas de sempre — nenhuma
+  lógica de negócio mudou, só a navegação. "Rever tutorial" não tem
+  conteúdo próprio (só redireciona pro Painel com o passo a passo) então
+  não virou aba — fica como um link simples aqui embaixo do título.
+#}
+<p class="small text-muted-doc mb-3">
+  <a href="{{ url_for('dashboard.index', tutorial=1) }}">Rever o tutorial guiado de primeiro acesso →</a>
+</p>
+
+<ul class="nav nav-tabs mb-3" id="abasMinhaConta" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial != 'agente-local' and aba_inicial != 'autenticador' }}" id="tab-btn-preferencias" data-bs-toggle="tab" data-bs-target="#aba-preferencias" type="button" role="tab" aria-controls="aba-preferencias">
+      Preferências do menu
+    </button>
+  </li>
+  {% if contexto_totp is not none %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'autenticador' }}" id="tab-btn-autenticador" data-bs-toggle="tab" data-bs-target="#aba-autenticador" type="button" role="tab" aria-controls="aba-autenticador">
+      Autenticador (2FA)
+      {% if not contexto_totp.ja_configurado %}<span class="badge text-bg-danger ms-1">pendente</span>{% endif %}
+    </button>
+  </li>
+  {% endif %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'agente-local' }}" id="tab-btn-agente-local" data-bs-toggle="tab" data-bs-target="#aba-agente-local" type="button" role="tab" aria-controls="aba-agente-local">
+      Meu agente local
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasMinhaConta">
+
+  <div class="tab-pane fade {{ 'show active' if aba_inicial != 'agente-local' and aba_inicial != 'autenticador' }}" id="aba-preferencias" role="tabpanel" aria-labelledby="tab-btn-preferencias">
+    <div class="row g-4">
+      <div class="col-lg-6">
+        <div class="card-doc tab p-4">
+          <h4 class="mb-1" style="font-size:1rem;">Categoria favorita</h4>
+          <p class="small text-muted-doc mb-3">
+            Escolha uma categoria do menu lateral para ela já aparecer <strong>aberta</strong> assim que
+            você entra no sistema — do jeito que "Operação" sempre funcionou. As outras continuam abrindo
+            sozinhas só quando você está numa página dentro delas.
+          </p>
+
+          <form method="post" action="{{ url_for('conta.salvar_favorito') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="grupo_favorito" id="favorito-nenhum" value=""
+                     {{ "checked" if not grupo_favorito }}>
+              <label class="form-check-label small" for="favorito-nenhum">
+                <strong>Nenhuma (padrão)</strong> — cada categoria abre sozinha só na página dela.
+              </label>
+            </div>
+
+            {% for grupo in grupos %}
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="grupo_favorito" id="favorito-{{ grupo }}"
+                     value="{{ grupo }}" {{ "checked" if grupo_favorito == grupo }}>
+              <label class="form-check-label small" for="favorito-{{ grupo }}">
+                <strong>{{ nomes_grupos[grupo] }}</strong>
+              </label>
+            </div>
+            {% endfor %}
+
+            <button type="submit" class="btn btn-brass btn-sm mt-2">Salvar preferência</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {% if contexto_totp is not none %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'autenticador' }}" id="aba-autenticador" role="tabpanel" aria-labelledby="tab-btn-autenticador">
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <div class="card-doc tab p-4">
+
+          {% if contexto_totp.ja_configurado %}
+            <h4 class="mb-1" style="font-size:1rem;">
+              <span class="badge text-bg-success">Configurado</span> Autenticador ativo nesta conta
+            </h4>
+            <p class="small text-muted-doc mb-4">
+              Todo login nesta conta agora exige, além da senha, o código de 6 dígitos gerado pelo seu
+              app autenticador. Se você trocou de celular ou perdeu o acesso ao app, reconfigure abaixo —
+              isso invalida o autenticador atual e mostra um QR code novo para escanear.
+            </p>
+
+            <form method="post" action="{{ url_for('conta.reconfigurar_totp') }}"
+                  onsubmit="return confirm('Isso invalida o autenticador atual configurado nesta conta. Continuar?');">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <div class="mb-3" style="max-width:320px;">
+                <label class="form-label">Confirme sua senha atual para reconfigurar</label>
+                <input type="password" name="senha_atual" class="form-control" required placeholder="••••••••">
+              </div>
+              <button type="submit" class="btn btn-outline-doc btn-sm">Reconfigurar autenticador</button>
+            </form>
+
+          {% else %}
+            <h4 class="mb-1" style="font-size:1rem;">
+              <span class="badge text-bg-warning text-dark">Pendente</span> Configure seu autenticador para continuar
+            </h4>
+            <p class="small text-muted-doc mb-3">
+              Por segurança, toda conta precisa de um autenticador (2FA) configurado. Abra um app como
+              <strong>Google Authenticator</strong>, <strong>Microsoft Authenticator</strong> ou
+              <strong>Authy</strong> no seu celular e escaneie o QR code abaixo.
+            </p>
+
+            <div class="text-center my-4">
+              <img src="{{ contexto_totp.qrcode_data_uri }}" alt="QR code do autenticador" style="max-width:220px; border:1px solid var(--ink-100); border-radius:8px;">
+            </div>
+
+            <p class="small text-muted-doc mb-1">Não consegue escanear? Digite este código manualmente no app:</p>
+            <p class="mb-4"><code style="font-size:1.05rem; letter-spacing:0.08rem;">{{ contexto_totp.secret_formatado }}</code></p>
+
+            <form method="post" action="{{ url_for('conta.confirmar_totp') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="proximo" value="{{ request.args.get('next', '') }}">
+              <div class="mb-3" style="max-width:280px;">
+                <label class="form-label">Digite o código de 6 dígitos exibido no app</label>
+                <input type="text" name="codigo" class="form-control text-center" style="font-size:1.5rem; letter-spacing:0.4rem;"
+                       inputmode="numeric" pattern="[0-9]*" maxlength="6" required placeholder="000000">
+              </div>
+              <button type="submit" class="btn btn-brass">Confirmar e ativar</button>
+            </form>
+          {% endif %}
+
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'agente-local' }}" id="aba-agente-local" role="tabpanel" aria-labelledby="tab-btn-agente-local">
+    <p class="small text-muted-doc mb-4" style="max-width: 720px;">
+      O <strong>Agente Local</strong> é um programa pequeno que você instala no SEU computador para buscar
+      os autos completos (PDF) e o histórico integral de um processo — inclusive processos sigilosos, desde
+      que você seja mesmo advogado(a) daquele processo — usando o SEU certificado digital ou token. O
+      certificado/token nunca sai da sua máquina e nunca é enviado para o servidor da JusControl: o agente
+      local faz o login no tribunal por conta própria, baixa o resultado, e manda só o PDF pronto para cá.
+    </p>
+
+    <div class="alert alert-warning small" style="max-width: 720px;">
+      <strong>Ainda em piloto:</strong> por enquanto só o conector do PJe (via MNI) está implementado, e ele
+      ainda não foi testado contra nenhum tribunal real — só contra um simulador. Antes de usar isso com um
+      processo de verdade, confirme com quem administra o sistema que já houve um teste-piloto bem-sucedido
+      com um certificado de teste.
+    </div>
+
+    <div class="card-doc tab p-3 mt-3 d-flex justify-content-between align-items-center flex-wrap gap-3" style="max-width: 720px;">
+      <div>
+        <strong>Instalar na minha máquina</strong>
+        <div class="small text-muted-doc">
+          {% if instalador_disponivel %}
+          Baixe e rode o instalador — ele pede o token de pareamento (gere um abaixo primeiro) e fica
+          rodando sozinho, com um ícone perto do relógio do Windows, iniciando junto com o computador.
+          {% else %}
+          O instalador com ícone/inicialização automática ainda não foi publicado neste servidor. Enquanto
+          isso, dá pra rodar manualmente — veja <code>agente_local_jc/README.md</code> (na raiz do
+          repositório) para o passo a passo.
+          {% endif %}
+        </div>
+      </div>
+      {% if instalador_disponivel %}
+      <a href="{{ url_for('agente_local.baixar_instalador') }}" class="btn btn-brass btn-sm">Baixar agente local (Windows)</a>
+      {% endif %}
+    </div>
+
+    <div class="card-doc tab p-0 mt-3" style="max-width: 720px;">
+      <div class="p-3 pb-0 d-flex justify-content-between align-items-center flex-wrap gap-2">
+        <div>
+          <strong>Pareamentos</strong>
+          <div class="small text-muted-doc">
+            Cada pareamento é um token de acesso pessoal para UMA instalação do agente local (ex: o seu
+            notebook do escritório). Dá para ter mais de um — um por computador que você usa.
+          </div>
+        </div>
+        <form method="post" action="{{ url_for('agente_local.parear') }}" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="apelido" class="form-control form-control-sm" placeholder="Apelido (ex: Notebook do escritório)" style="width: 260px;">
+          <button type="submit" class="btn btn-brass btn-sm">Parear novo agente</button>
+        </form>
+      </div>
+
+      {% if token_novo %}
+      <div class="p-3">
+        <div class="alert alert-warning py-2 px-3 small">
+          <strong>Copie agora — este valor não vai ser mostrado de novo:</strong>
+          <div class="mt-2" style="word-break: break-all; font-family: monospace; user-select: all;">{{ token_novo }}</div>
+          <div class="mt-2">
+            Cole esse valor no arquivo de configuração do agente local, na sua máquina (ver
+            <code>agente_local_jc/README.md</code>).
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      <table class="table-doc mb-0">
+        <thead><tr><th>Apelido</th><th>Token</th><th>Criado em</th><th>Visto por último</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for p in pareamentos %}
+          <tr>
+            <td>{{ p.apelido }}</td>
+            <td><code>{{ p.prefixo }}…</code></td>
+            <td>{{ p.criado_em|data_hora_br if p.criado_em else "—" }}</td>
+            <td>{{ p.ultimo_contato_em|data_hora_br if p.ultimo_contato_em else "nunca conectou" }}</td>
+            <td>
+              {% if p.ativo %}
+                <span class="badge-status badge-cumprido">ativo</span>
+              {% else %}
+                <span class="badge-status badge-cancelada">revogado</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if p.ativo %}
+              <form method="post" action="{{ url_for('agente_local.revogar', pareamento_id=p.id) }}"
+                    onsubmit="return confirm('Revogar este pareamento? O agente instalado com esse token para de funcionar imediatamente.');">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">Revogar</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="6" class="text-muted-doc small">Nenhum agente pareado ainda.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}

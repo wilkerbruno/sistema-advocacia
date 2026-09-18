@@ -47,8 +47,8 @@
     },
     {
       titulo: "Operação",
-      texto: "Aqui fica o trabalho do dia a dia do escritório: Processos, Clientes, Captação, Tarefas, " +
-        "Agenda, Timesheet, Agente de IA, Meu agente local e, quando você tiver acesso, Financeiro.",
+      texto: "Aqui fica o trabalho do dia a dia do escritório: Processos, Clientes (com o funil de " +
+        "captação), Rotina (Tarefas, Agenda e Horas), Agente de IA e, quando você tiver acesso, Financeiro.",
       selector: '[data-tour="grupo-operacao"] .grupo-toggle',
     },
     {
@@ -65,9 +65,10 @@
       grupo: "operacao",
     },
     {
-      titulo: "Agenda",
-      texto: "Um calendário único, reunindo prazos, audiências, tarefas com vencimento e compromissos.",
-      selector: '[data-tour="menu-agenda"]',
+      titulo: "Rotina",
+      texto: "Tarefas, Agenda (um calendário único reunindo prazos, audiências, tarefas com vencimento e " +
+        "compromissos) e Horas — tudo agrupado numa tela só, em abas.",
+      selector: '[data-tour="menu-rotina"]',
       grupo: "operacao",
     },
     {
@@ -82,10 +83,10 @@
       selector: '[data-tour="grupo-config"] .grupo-toggle',
     },
     {
-      titulo: "Autenticador (2FA)",
-      texto: "Por segurança, o login pede um código de 6 dígitos gerado por um app autenticador no " +
-        "celular. Configure por aqui, escaneando o QR code.",
-      selector: '[data-tour="menu-autenticador"]',
+      titulo: "Minha conta",
+      texto: "Suas preferências pessoais: categoria favorita do menu, autenticador (2FA — por segurança, " +
+        "o login pede um código de 6 dígitos gerado por um app no celular) e o seu agente local.",
+      selector: '[data-tour="menu-minha-conta"]',
       grupo: "config",
     },
     {

@@ -80,13 +80,20 @@ def test_rever_tutorial_forca_inicio_mesmo_ja_tendo_concluido(client, login, emp
     assert "window.TOUR_AUTO_INICIAR = true;" in html
 
 
-def test_link_rever_tutorial_aparece_no_menu(client, login, empresa_basica, criar_usuario):
+def test_link_rever_tutorial_aparece_no_hub_minha_conta(client, login, empresa_basica, criar_usuario):
+    """"Rever tutorial" não é mais um link solto no menu lateral — mora
+    dentro do hub "Minha conta" (app/routes/conta.py::hub, menu
+    simplificado a pedido explícito do usuário). O menu lateral só tem um
+    link pro hub; dentro dele é que aparece "Rever tutorial"."""
     criar_usuario(empresa_basica["unidade_id"], "qualquer@escritorio.com")
     login("qualquer@escritorio.com")
 
-    html = client.get("/").data.decode("utf-8")
-    assert 'href="/?tutorial=1"' in html
-    assert "Rever tutorial" in html
+    html_menu = client.get("/").data.decode("utf-8")
+    assert 'href="/minha-conta/"' in html_menu
+
+    html_hub = client.get("/minha-conta/").data.decode("utf-8")
+    assert 'href="/?tutorial=1"' in html_hub
+    assert "Rever tutorial" in html_hub or "Rever o tutorial guiado" in html_hub
 
 
 def test_rota_concluir_exige_login(client):

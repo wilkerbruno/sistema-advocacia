@@ -11,7 +11,7 @@ gestor) pode gerenciar o(s) próprio(s) pareamento(s) — o certificado
 digital é do advogado, não do escritório, então só ele decide instalar
 o agente e em qual máquina.
 """
-from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, Response
+from flask import Blueprint, render_template, redirect, url_for, flash, request, current_app, Response, session
 from flask_login import login_required, current_user
 
 from app.extensions import db
@@ -47,7 +47,8 @@ def _instalador_disponivel():
 @login_required
 def meu_agente():
     return render_template(
-        "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=None,
+        "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(),
+        token_novo=session.pop("agente_local_token_novo", None),
         instalador_disponivel=_instalador_disponivel(),
     )
 
@@ -109,10 +110,16 @@ def parear():
     db.session.commit()
 
     flash("Agente pareado — copie o token abaixo agora, ele não vai aparecer de novo.", "success")
-    return render_template(
-        "agente_local/meu_agente.html", pareamentos=_pareamentos_do_usuario(), token_novo=valor_puro,
-        instalador_disponivel=_instalador_disponivel(), registro_novo_id=registro.id,
-    )
+    # Guarda o token na SESSION (não na URL nem num redirect com query
+    # string, pra nunca sobrar num histórico de navegador/log de acesso) e
+    # redireciona de volta pra onde o clique veio — a tela solta OU a aba
+    # "Meu agente local" do hub "Minha conta" (ver app/routes/conta.py::hub)
+    # — em vez de sempre renderizar a tela solta direto, que tirava quem
+    # pareou de dentro do hub. `meu_agente()`/`conta.hub()` leem e REMOVEM
+    # (session.pop) esse valor na próxima renderização, então só aparece
+    # nesta primeira vez, igual sempre funcionou.
+    session["agente_local_token_novo"] = valor_puro
+    return redirect(request.referrer or url_for("agente_local.meu_agente"))
 
 
 @agente_local_bp.route("/agente-local/<int:pareamento_id>/revogar", methods=["POST"])

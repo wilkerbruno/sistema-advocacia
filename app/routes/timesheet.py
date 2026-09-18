@@ -28,16 +28,16 @@ def _parse_data(valor):
     return datetime.strptime(valor, "%Y-%m-%d").date()
 
 
-@timesheet_bp.route("/")
-@login_required
-def listar():
+def _contexto_timesheet(somente_minhas=None, data_inicio=None, data_fim=None):
+    """
+    Mesma extração de `_contexto_tarefas()` (ver tarefas.py) — pra
+    reaproveitar em `rotina.index()` (hub "Rotina" = Tarefas + Agenda +
+    Horas, menu simplificado) sem duplicar a query/regra de negócio.
+    """
     query = aplicar_escopo_unidade(Apontamento.query, Apontamento)
-    somente_minhas = request.args.get("minhas")
     if not current_user.is_admin or somente_minhas:
         query = query.filter(Apontamento.usuario_id == current_user.id)
 
-    data_inicio = request.args.get("data_inicio")
-    data_fim = request.args.get("data_fim")
     if data_inicio:
         query = query.filter(Apontamento.data >= _parse_data(data_inicio))
     if data_fim:
@@ -47,11 +47,20 @@ def listar():
     total_horas = sum((a.horas for a in apontamentos), Decimal("0"))
     total_faturavel = sum((a.horas for a in apontamentos if a.faturavel), Decimal("0"))
 
-    return render_template(
-        "timesheet/listar.html", apontamentos=apontamentos,
-        total_horas=total_horas, total_faturavel=total_faturavel,
+    return dict(
+        apontamentos=apontamentos, total_horas=total_horas, total_faturavel=total_faturavel,
         somente_minhas=somente_minhas, data_inicio=data_inicio, data_fim=data_fim,
     )
+
+
+@timesheet_bp.route("/")
+@login_required
+def listar():
+    contexto = _contexto_timesheet(
+        somente_minhas=request.args.get("minhas"),
+        data_inicio=request.args.get("data_inicio"), data_fim=request.args.get("data_fim"),
+    )
+    return render_template("timesheet/listar.html", **contexto)
 
 
 @timesheet_bp.route("/novo", methods=["GET", "POST"])
@@ -104,11 +113,14 @@ def excluir(apontamento_id):
     apontamento = db.get_or_404(Apontamento, apontamento_id)
     if apontamento.usuario_id != current_user.id and not current_user.is_admin:
         flash("Você não pode excluir um apontamento de outra pessoa.", "danger")
-        return redirect(url_for("timesheet.listar"))
+        return redirect(request.referrer or url_for("timesheet.listar"))
     checar_acesso_unidade_ou_403(apontamento.unidade_id)
 
     db.session.delete(apontamento)
     registrar_log(current_user, "excluiu", "Apontamento", apontamento_id)
     db.session.commit()
     flash("Apontamento removido.", "info")
-    return redirect(url_for("timesheet.listar"))
+    # Volta pra onde o clique veio (a lista solta OU a aba "Horas" do hub
+    # "Rotina" — ver app/routes/rotina.py), mesmo padrão de
+    # tarefas.py::atualizar_status.
+    return redirect(request.referrer or url_for("timesheet.listar"))

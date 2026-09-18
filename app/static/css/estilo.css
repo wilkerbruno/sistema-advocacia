@@ -96,7 +96,8 @@ a:hover { color: var(--brass-600); }
   color: var(--ink-300);
   padding: 14px 10px 6px;
 }
-.sidebar-nav a.nav-item {
+.sidebar-nav a.nav-item,
+.sidebar-nav button.nav-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -106,18 +107,57 @@ a:hover { color: var(--brass-600); }
   font-size: 0.87rem;
   margin-bottom: 2px;
 }
-.sidebar-nav a.nav-item:hover { background: rgba(250, 249, 246, 0.06); color: var(--paper-0); }
+.sidebar-nav a.nav-item:hover,
+.sidebar-nav button.nav-item:hover { background: rgba(250, 249, 246, 0.06); color: var(--paper-0); }
 .sidebar-nav a.nav-item.active {
   background: var(--brass-500);
   color: var(--ink-900);
   font-weight: 600;
 }
-.sidebar-nav a.nav-item .tab-index {
+.sidebar-nav a.nav-item .tab-index,
+.sidebar-nav button.nav-item .tab-index {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   opacity: 0.6;
   width: 18px;
 }
+
+/* Submenus de 2º nível (ex.: "Rotina" dentro de Operação, "Minha conta"
+   dentro de Configurações — ver PENDENCIAS.md) — um botão que É um
+   nav-item (mesmo visual: mesmo padding/tamanho de fonte de um link
+   normal), só que abre/fecha um punhadinho de itens relacionados em vez
+   de navegar sozinho. Reseta os estilos padrão de <button> (borda, fundo,
+   largura, alinhamento) pra ficar idêntico a um <a class="nav-item">,
+   mesma ideia do reset em "button.grupo-titulo" logo abaixo. */
+.sidebar-nav button.nav-item.submenu-toggle {
+  justify-content: space-between;
+  width: 100%;
+  background: none;
+  border: none;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-nav button.nav-item.submenu-toggle span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sidebar-nav .submenu-chevron {
+  font-size: 0.6rem;
+  opacity: 0.7;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+  flex-shrink: 0;
+}
+.submenu-colapsavel:not(.expandido) .submenu-chevron { transform: rotate(-90deg); }
+.submenu-colapsavel .submenu-itens.recolhido { display: none; }
+.submenu-colapsavel .submenu-itens {
+  margin: 2px 0 4px 12px;
+  padding-left: 10px;
+  border-left: 1px solid rgba(250, 249, 246, 0.1);
+}
+.submenu-colapsavel .submenu-itens a.nav-item { font-size: 0.83rem; }
 
 /* Grupos recolhíveis do menu (Governança de carteira, Configurações) — só
    pra reduzir o tanto de link visível de uma vez (menu ficava comprido

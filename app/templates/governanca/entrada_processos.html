@@ -5,30 +5,35 @@
 
 {% block conteudo %}
 {#
-  Hub único de entrada de processos — antes eram dois itens separados no
-  menu ("Cadastro por CNJ" e "Captação por OAB"), que faziam coisas
-  relacionadas mas diferentes (uma é um cadastro pontual quando já se sabe
-  o número; a outra liga um monitoramento contínuo por OAB, sem precisar
-  saber o número antes — ver docstring de app/routes/captacao_oab.py).
-  Pedido explícito de simplificação de menu: juntar num botão só, com duas
-  abas para escolher — igual já funciona na ficha do processo (andamentos/
-  prazos/audiências...). Os formulários abaixo continuam enviando para as
-  MESMAS rotas de sempre (governanca.novo_por_cnj e captacao_oab.nova) —
-  nenhuma lógica de negócio mudou aqui, só a navegação. As telas antigas
-  (governanca.novo_por_cnj e captacao_oab.index) continuam existindo e
-  funcionando normalmente para quem chegar direto por um link salvo; só não
-  aparecem mais sozinhas no menu.
+  Hub único de entrada de processos — antes eram itens separados no menu
+  ("Cadastro por CNJ", "Captação por OAB" e "Importar em lote"), que fazem
+  coisas relacionadas mas diferentes (uma é um cadastro pontual quando já
+  se sabe o número; a outra liga um monitoramento contínuo por OAB, sem
+  precisar saber o número antes — ver docstring de
+  app/routes/captacao_oab.py; a terceira cadastra vários processos de uma
+  vez a partir de um CSV). Pedido explícito de simplificação de menu:
+  juntar num botão só, com abas para escolher — igual já funciona na ficha
+  do processo (andamentos/prazos/audiências...), e depois estendido
+  também pra "importar em lote" ("inclusive em 'entrada de processos',
+  poderia incluir o importar em lotes lá dentro também"). Os formulários
+  abaixo continuam enviando para as MESMAS rotas de sempre (governanca.
+  novo_por_cnj, captacao_oab.nova e governanca.importar_lote) — nenhuma
+  lógica de negócio mudou aqui, só a navegação. As telas antigas
+  (governanca.novo_por_cnj, captacao_oab.index e governanca.importar_lote)
+  continuam existindo e funcionando normalmente para quem chegar direto
+  por um link salvo; só não aparecem mais sozinhas no menu.
 #}
 <p class="small text-muted-doc mb-3" style="max-width: 760px;">
-  Duas portas de entrada para trazer um processo para o sistema: cadastre
-  pelo número CNJ quando você já sabe qual é o processo, ou monitore a OAB
-  do advogado para o sistema descobrir sozinho as intimações novas, sem
-  precisar informar nenhum número antes.
+  Três portas de entrada para trazer processos para o sistema: cadastre
+  pelo número CNJ quando você já sabe qual é o processo, monitore a OAB do
+  advogado para o sistema descobrir sozinho as intimações novas sem
+  precisar informar nenhum número antes, ou importe vários processos de
+  uma vez a partir de uma planilha CSV.
 </p>
 
 <ul class="nav nav-tabs mb-3" id="abasEntrada" role="tablist" style="border-color: var(--paper-200);">
   <li class="nav-item" role="presentation">
-    <button class="nav-link {{ 'active' if aba_inicial != 'oab' }}" id="tab-btn-cnj" data-bs-toggle="tab" data-bs-target="#aba-cnj" type="button" role="tab" aria-controls="aba-cnj" aria-selected="{{ 'true' if aba_inicial != 'oab' else 'false' }}">
+    <button class="nav-link {{ 'active' if aba_inicial == 'cnj' }}" id="tab-btn-cnj" data-bs-toggle="tab" data-bs-target="#aba-cnj" type="button" role="tab" aria-controls="aba-cnj" aria-selected="{{ 'true' if aba_inicial == 'cnj' else 'false' }}">
       Por número CNJ
     </button>
   </li>
@@ -38,11 +43,16 @@
       {% if total_pendente_triagem %}<span class="badge-status badge-perdido" style="margin-left:4px;">{{ total_pendente_triagem }}</span>{% endif %}
     </button>
   </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'lote' }}" id="tab-btn-lote" data-bs-toggle="tab" data-bs-target="#aba-lote" type="button" role="tab" aria-controls="aba-lote" aria-selected="{{ 'true' if aba_inicial == 'lote' else 'false' }}">
+      Importar em lote (CSV)
+    </button>
+  </li>
 </ul>
 
 <div class="tab-content" id="conteudoAbasEntrada">
 
-  <div class="tab-pane fade {{ 'show active' if aba_inicial != 'oab' }}" id="aba-cnj" role="tabpanel" aria-labelledby="tab-btn-cnj">
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'cnj' }}" id="aba-cnj" role="tabpanel" aria-labelledby="tab-btn-cnj">
     <p class="small text-muted-doc mb-3">
       Digite ou cole o número CNJ (20 dígitos). O sistema valida o dígito
       verificador (módulo 97) e busca o processo no DataJud (base pública
@@ -129,7 +139,7 @@
       <div class="col-lg-5">
         <div class="card-doc tab p-3">
           <p class="small mb-1"><strong>Precisa de vários processos de uma vez?</strong></p>
-          <p class="small text-muted-doc">Use a <a href="{{ url_for('governanca.importar_lote') }}">importação em lote (CSV)</a>.</p>
+          <p class="small text-muted-doc">Use a aba <a href="#aba-lote" id="link-ir-para-lote">Importar em lote (CSV)</a>.</p>
         </div>
       </div>
     </div>
@@ -252,6 +262,44 @@
     </div>
   </div>
 
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'lote' }}" id="aba-lote" role="tabpanel" aria-labelledby="tab-btn-lote">
+    <div class="card-doc tab p-4" style="max-width:640px;">
+      <p class="small text-muted-doc mb-3">
+        Envie um arquivo <code>.csv</code> com um número CNJ por linha (pode ter
+        cabeçalho). Cada linha é validada (dígito verificador) e cadastrada;
+        números inválidos ou já existentes aparecem no relatório de resultado,
+        nunca são ignorados silenciosamente.
+      </p>
+      <p class="small text-muted-doc mb-3">
+        <strong>Limitação atual:</strong> o processamento é síncrono (sem fila
+        assíncrona provisionada) — para lotes muito grandes a página pode
+        demorar a responder. Para os ~500 processos do briefing, deve funcionar,
+        mas vale testar com um lote pequeno primeiro.
+      </p>
+      <form method="post" enctype="multipart/form-data" action="{{ url_for('governanca.importar_lote') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Arquivo CSV</label>
+          <input type="file" name="arquivo_csv" accept=".csv" class="form-control" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Cliente (aplicado a todos os processos do lote)</label>
+          <select name="cliente_id" class="form-select" required>
+            <option value="">Selecione...</option>
+            {% for c in clientes %}
+            <option value="{{ c.id }}">{{ c.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Área do direito</label>
+          <input type="text" name="area_direito" class="form-control" placeholder="Cível, Trabalhista, Tributário...">
+        </div>
+        <button class="btn btn-brass">Importar</button>
+      </form>
+    </div>
+  </div>
+
 </div>
 {% endblock %}
 
@@ -334,6 +382,20 @@
       ev.preventDefault(); // não submete/cadastra ainda, só busca a pré-visualização
       buscarPreview();
     }
+  });
+})();
+
+// Link "Use a aba Importar em lote" dentro da própria aba de CNJ — troca
+// de aba via Bootstrap em vez de navegar pra outra URL (já está na mesma
+// tela), então usa o próprio componente de tabs do Bootstrap em vez de um
+// href de âncora puro.
+(function () {
+  const link = document.getElementById("link-ir-para-lote");
+  const botaoAbaLote = document.getElementById("tab-btn-lote");
+  if (!link || !botaoAbaLote || typeof bootstrap === "undefined") return;
+  link.addEventListener("click", function (ev) {
+    ev.preventDefault();
+    bootstrap.Tab.getOrCreateInstance(botaoAbaLote).show();
   });
 })();
 </script>

@@ -1,5 +1,109 @@
 # Status das pendências do briefing (atualizado em 18/09/2026)
 
+## -111. Correção da segunda rodada — hub com abas em vez de acordeão (Rotina, Minha conta, Importar em lote)
+
+**Pedido (correção explícita depois da seção -110 abaixo):** "não eu pedi para fazer igual foi feito em
+entrada de processos que incluiu 'por numero CNJ' e 'por OAB', inclusive em 'entrada de processos',
+poderia incluir o importar em lotes lá dentro também." A rodada anterior (-110) tinha implementado
+"Rotina" e "Minha conta" como um ACORDEÃO de 2º nível (`.submenu-colapsavel` — um botão que expande uma
+lista de links). O usuário corrigiu: o padrão certo era o de HUB COM ABAS numa tela só, igual já existia
+em "Entrada de processos" (`governanca.entrada_processos`, duas abas — CNJ e OAB).
+
+Convertido pro padrão de hub:
+- **Operação → "Rotina"**: novo blueprint `app/routes/rotina.py` (`rotina.index`, `GET /rotina/`), template
+  `app/templates/rotina/index.html` com 3 abas (Tarefas / Agenda / Horas). Reaproveita o contexto das
+  três telas antigas via helpers extraídos (`_contexto_tarefas()` em `tarefas.py`, `_contexto_agenda()`
+  em `agenda.py`, `_contexto_timesheet()` em `timesheet.py`) — nenhuma consulta duplicada. As três rotas
+  antigas (`tarefas.listar`, `agenda.index`, `timesheet.listar`) continuam existindo e funcionando pra
+  quem chegar direto por um link salvo.
+- **Configurações → "Minha conta"**: nova rota `conta.hub` (`GET /minha-conta/`), template
+  `app/templates/conta/hub.html` com 3 abas (Preferências do menu / Autenticador — só quando 2FA está
+  disponível / Meu agente local) + um link à parte pra "Rever tutorial" (não é uma preferência, é uma
+  ação). Reaproveita `_contexto_totp()` (extraído de `conta.configurar_totp`) e os helpers já existentes
+  de `agente_local.py`. As telas antigas continuam existindo e funcionando.
+- **Governança → "Entrada de processos"**: ganhou uma TERCEIRA aba, "Importar em lote (CSV)" — o item G5
+  que antes ficava solto no menu ao lado de "Entrada de processos" (2 itens não compensava dividir em
+  acordeão — ver seção -110). Reaproveita o mesmo formulário de sempre, que continua enviando pra
+  `governanca.importar_lote` (POST); a tela antiga (GET) continua acessível direto.
+
+**Problemas identificados e corrigidos durante a conversão (não pedidos explicitamente, mas necessários
+pra não regredir UX):**
+- Colisão de nome de campo: Tarefas e Horas usavam os dois um checkbox chamado `minhas`. Resolvido
+  dando um nome só pro formulário do hub na aba de Horas (`horas_minhas`) — a tela solta de Horas
+  continua usando `minhas` como sempre, sem mudança.
+- Ações de POST feitas a partir de dentro de um hub (concluir tarefa, excluir apontamento, parear agente
+  local) redirecionavam sempre pra tela solta, "ejetando" quem clicou de dentro do hub. Corrigido com
+  `redirect(request.referrer or url_for(...))` — mesmo padrão já usado em `app/routes/leads.py`. O
+  pareamento de agente local em especial precisou passar a guardar o token (que só aparece uma vez) na
+  `session` em vez de renderizar a tela direto, pra poder virar um redirect.
+- Tutorial guiado (`app/static/js/tour_guiado.js`): dois passos apontavam pra seletores que sumiriam do
+  menu (`menu-agenda`, `menu-autenticador`) — renomeados pra `menu-rotina` e `menu-minha-conta`, e o
+  texto do passo "Operação" atualizado pra não citar mais itens que não existem soltos no menu.
+
+**Decidido NÃO converter pro padrão de hub** (mantidos como acordeão da seção -110): "Minha empresa"
+(8 itens), "Plataforma" (4 itens) e "Regras e parâmetros" (5 itens) — cada um é um conjunto de telas de
+CRUD administrativo independentes (lista/criar/editar/excluir, cada uma com sua própria paginação e
+filtros), não "a mesma tarefa vista de formas diferentes" como Tarefas/Agenda/Horas ou
+CNJ/OAB/Importação. Recomprimir esses três num hub de abas seria uma mudança bem maior e provavelmente
+piraria a navegação (o usuário perderia a URL própria de cada tela dentro de uma aba). Não pedido
+explicitamente — fica como sugestão em aberto se o usuário quiser consistência total.
+
+**Onde:** `app/routes/rotina.py` (novo), `app/templates/rotina/index.html` (novo), `app/routes/conta.py`
+(`_contexto_totp()`, rota `hub()`), `app/templates/conta/hub.html` (novo), `app/routes/tarefas.py`
+(`_contexto_tarefas()`, referrer em `atualizar_status`), `app/routes/agenda.py` (`_contexto_agenda()`),
+`app/routes/timesheet.py` (`_contexto_timesheet()`, referrer em `excluir`), `app/routes/agente_local.py`
+(token via `session`, referrer em `parear`), `app/routes/governanca.py` (3ª aba em `entrada_processos`),
+`app/templates/governanca/entrada_processos.html` (aba "Importar em lote"), `app/templates/base.html`
+(links de "Rotina" e "Minha conta" viraram flat em vez de acordeão; "Importar em lote" some do menu
+solto), `app/static/js/tour_guiado.js`. Testado em `tests/test_hub_rotina_e_minha_conta.py` (novo — 9
+testes: as 3 abas de cada hub renderizam com o conteúdo das telas antigas, as rotas antigas continuam
+acessíveis, e as ações de POST feitas de dentro do hub voltam pro hub), com ajustes em
+`tests/test_submenus_segundo_nivel.py` (removidos os testes de "rotina"/"minha-conta" como acordeão),
+`tests/test_menu_simplificacao.py` (3ª aba de "Entrada de processos", novos links flat de Rotina/Minha
+conta) e `tests/test_tour_guiado.py` (link "Rever tutorial" agora só aparece dentro do hub, não em todo
+menu). Suíte completa (551 testes) passando.
+
+## -110. Segunda rodada de simplificação do menu — submenus de 2º nível
+
+**Pedido:** depois da rodada anterior (seção -109 abaixo), o usuário achou que "o menu ainda está muito
+extenso" e deu dois exemplos concretos: "Minha conta" virar "um botão [...] como se fosse um segundo
+menu" reunindo Preferências/Autenticador/Meu agente local/Rever tutorial; e "Tarefas, agenda, horas
+também podem ficar dentro de um item só do menu". Pediu também pra eu verificar se outras opções do menu
+ficariam melhor com o mesmo tratamento.
+
+Introduzido um SEGUNDO NÍVEL de recolhível (classe `.submenu-colapsavel`, em `app/static/css/estilo.css`
+e `app/templates/base.html`) — reaproveita a MESMA mecânica dos 3 grupos principais que já existia
+(`.grupo-colapsavel`: abre sozinho quando a página atual está dentro, senão respeita a última escolha do
+usuário salva em localStorage), só que aninhada DENTRO de um grupo já aberto, pra um punhado de itens
+relacionados. Nenhuma rota mudou — só como os links aparecem agrupados no menu.
+
+Aplicado em:
+- **Operação → "Rotina"**: Tarefas + Agenda + Horas (timesheet) — exatamente o exemplo do usuário.
+- **Configurações → "Minha conta"**: Preferências do menu + Autenticador (2FA) + Meu agente local + Rever
+  tutorial — o outro exemplo do usuário.
+- **Configurações → "Minha empresa"** (8 itens: Unidades, Equipe, Relatórios, Auditoria, Alçada de
+  aprovação, Minha licença, Módulos, Integrações) e **"Plataforma"** (4 itens) — não foram pedidos
+  explicitamente, mas eram os maiores candidatos que sobravam (verificação pedida pelo usuário): convertidos
+  pro mesmo padrão, inclusive por consistência visual dentro do grupo "Configurações" (não fazia sentido
+  só "Minha conta" virar botão e as outras duas seções continuarem como título fixo).
+- **Governança de carteira → "Regras e parâmetros"** (5 itens, só admin, configuração de regras de
+  negócio — não é tela de uso diário): mesmo tratamento.
+
+**Decidido NÃO aplicar** (e por quê, documentado no próprio comentário do Jinja em `base.html`):
+"Painel e filas" (contém Painel de governança e Fila de intimações — telas de uso diário, esconder atrás
+de mais um clique atrapalharia) e "Entrada de processos" (só 2 itens — o clique extra não compensa, e o
+nome do subgrupo bateria com o nome do próprio item lá dentro, confuso).
+
+**Onde:** `app/static/css/estilo.css` (`.submenu-toggle`, `.submenu-itens`, `.submenu-chevron`,
+`.submenu-colapsavel`, e generalização de `.sidebar-nav a.nav-item` para também cobrir
+`button.nav-item`), `app/templates/base.html` (novos `{% set esta_em_* %}`, os 5 blocos de submenu, e a
+função JS `configurarColapsaveis()` — generalizada a partir do código que já existia pros 3 grupos
+principais, chamada duas vezes em vez de duplicar a lógica). Testado em
+`tests/test_submenus_segundo_nivel.py` (11 testes: cada submenu aparece pro papel certo, começa recolhido
+fora dele e expandido automaticamente ao visitar uma página de dentro) e 1 assert ajustado em
+`tests/test_menu_simplificacao.py` (`test_governanca_tem_subgrupos`, pra refletir que "Regras e
+parâmetros" virou submenu). Suíte completa (544 testes) passando.
+
 ## -109. Simplificação do menu lateral (5 mudanças, a pedido explícito)
 
 **Pedido:** "quero ver se consigo simplificar um pouco o sistema, principalmente o menu" — o usuário
