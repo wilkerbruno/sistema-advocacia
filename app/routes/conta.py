@@ -97,7 +97,7 @@ def salvar_favorito():
     grupo = (request.form.get("grupo_favorito") or "").strip() or None
     if grupo is not None and grupo not in GRUPOS_MENU_VALIDOS:
         flash("Selecione uma categoria do menu válida.", "danger")
-        return redirect(url_for("conta.preferencias"))
+        return redirect(request.referrer or url_for("conta.preferencias"))
 
     current_user.menu_grupo_favorito = grupo
     db.session.commit()
@@ -106,7 +106,11 @@ def salvar_favorito():
         flash(f'"{NOMES_GRUPOS_MENU[grupo]}" marcada como favorita — ela já aparece aberta no menu.', "success")
     else:
         flash("Nenhuma categoria favorita — o menu volta a abrir sozinho só a categoria da página atual.", "info")
-    return redirect(url_for("conta.preferencias"))
+    # Volta pra onde o clique veio (a tela solta OU a aba "Preferências" do
+    # hub "Minha conta" — ver conta.hub) — corrigido junto com a rodada do
+    # hub "Minha empresa" (mesmo padrão de app/routes/leads.py), depois de
+    # notar que esse redirect tinha ficado de fora da rodada anterior.
+    return redirect(request.referrer or url_for("conta.preferencias"))
 
 
 # ---------------------- Tutorial guiado de primeiro acesso ----------------------

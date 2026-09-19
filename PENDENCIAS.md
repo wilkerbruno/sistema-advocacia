@@ -1,4 +1,61 @@
-# Status das pendências do briefing (atualizado em 18/09/2026)
+# Status das pendências do briefing (atualizado em 19/09/2026)
+
+## -112. Quarta rodada de simplificação do menu — hub "Minha empresa"
+
+**Pedido:** depois de ver os hubs "Rotina" e "Minha conta" (seção -111 abaixo), o usuário pediu: "otimo,
+agora quero que junte todos os itens de 'minha empresa' tambem." — estender o mesmo padrão de hub-com-abas
+pros 8 itens que ainda ficavam agrupados num acordeão de 2º nível dentro de "Configurações > Minha
+empresa" (ver seção -110): Unidades, Equipe, Relatórios, Auditoria, Alçada de aprovação, Minha licença,
+Módulos e Integrações.
+
+Novo hub `admin.minha_empresa()` (`GET /admin/minha-empresa`), template `app/templates/admin/
+minha_empresa_hub.html`, com uma aba por item. Cada aba reaproveita o contexto já extraído da tela antiga
+via helpers (`_contexto_unidades()`, `_contexto_usuarios()`, `_contexto_relatorios()`,
+`_contexto_auditoria()` e `_contexto_alcada()` em `app/routes/admin.py`; `_contexto_minha_licenca()` e
+`_contexto_modulos()` em `app/routes/licenciamento.py`; `_contexto_minhas_integracoes()` em
+`app/routes/integracoes.py`, os dois últimos módulos importados localmente dentro da rota do hub, mesmo
+padrão de `conta.hub()` importando de `agente_local.py`) — nenhuma consulta/regra de negócio duplicada.
+As oito rotas/telas antigas continuam existindo e funcionando normalmente pra quem chegar direto por um
+link salvo; "+ Nova unidade"/"+ Novo usuário"/"Editar" continuam abrindo uma tela de formulário própria,
+fora do hub (mesmo padrão de "Nova tarefa" dentro do hub "Rotina") — só as LISTAS/painéis viraram abas.
+
+**Particularidade deste hub — visibilidade por ABA, não só da tela toda:** "Equipe" é visível pra admin OU
+gestor (mesmo escopo de sempre — é o único item de "Minha empresa" que não é exclusivo de admin); as
+outras sete exigem admin; "Minha licença" e "Módulos" ficam de fora também pro admin desenvolvedor
+(empresa dona da plataforma não tem licença). Um gestor comum, então, vê o hub com uma única aba
+("Equipe") — a rota (`@login_papel_requerido("admin", "gestor")`) é a menos restritiva das oito, e cada
+aba decide sozinha se aparece a partir do papel de quem está olhando.
+
+**Problemas identificados e corrigidos durante a conversão (mesmo cuidado das rodadas anteriores):**
+- Vários POSTs de ação rápida dentro do que virou a aba "Integrações" (salvar/remover chave de IA e
+  DataJud, conectar/desconectar WhatsApp, salvar/remover timbrado — 23 pontos de redirect em
+  `app/routes/integracoes.py`), a aba "Alçada de aprovação" (`admin.alcada_aprovacao`, 3 pontos) e a aba
+  "Módulos" (`licenciamento.solicitar_modulo`, 4 pontos) redirecionavam sempre pra tela solta,
+  "ejetando" quem clicou de dentro do hub — corrigidos com `redirect(request.referrer or url_for(...))`,
+  mesmo padrão já usado em `app/routes/leads.py` e nas rodadas anteriores.
+- `conta.salvar_favorito()` (formulário da aba "Preferências" do hub "Minha conta") tinha ficado de fora
+  da correção da rodada -111 por descuido — também corrigido pro mesmo padrão agora, junto desta rodada.
+- Auditoria (filtro por usuário/data/IP + paginação) e os links "Ver módulos"/"Voltar para minha licença"
+  precisaram de uma cópia própria de template com os links internos apontando pro HUB (com `?tab=...`) em
+  vez da tela solta — mesma técnica já usada na aba "Agenda" do hub "Rotina" pros links de mês
+  anterior/seguinte. Os dois links entre "Minha licença" e "Módulos" viraram troca de aba via JS
+  (`bootstrap.Tab`), mesmo padrão do link "Importar em lote" dentro de "Entrada de processos".
+- Query strings da aba "Auditoria" (`usuario_id`, `data_inicio`, `data_fim`, `ip`, `dispositivo_id`,
+  `pagina`) não colidem com nenhuma outra aba — não precisou de namespacing como Tarefas/Horas na rodada
+  anterior.
+
+**Onde:** `app/routes/admin.py` (5 helpers `_contexto_*` novos, rota `minha_empresa()`),
+`app/routes/licenciamento.py` (2 helpers novos, referrer em `solicitar_modulo`), `app/routes/
+integracoes.py` (1 helper novo, referrer nos 23 pontos de redirect pra `minhas_integracoes`),
+`app/routes/conta.py` (referrer em `salvar_favorito`, correção retroativa da rodada -111), `app/
+templates/admin/minha_empresa_hub.html` (novo, ~500 linhas — 8 tab-pane), `app/templates/base.html`
+(link de "Minha empresa" virou flat em vez de acordeão de 2º nível; comentário do bloco de submenus
+atualizado). Testado em `tests/test_hub_minha_empresa.py` (novo — 11 testes: visibilidade por papel,
+aba inicial via query string, rotas antigas continuam acessíveis, três ações de POST voltam pro hub),
+com ajustes em `tests/test_submenus_segundo_nivel.py` (removidos os testes de "minha-empresa" como
+acordeão — só "Plataforma" e "Regras e parâmetros" continuam sendo accordion de verdade) e
+`tests/test_menu_configuracoes.py` (dois testes antigos que listavam os 8 itens soltos no menu agora
+checam só o link único pro hub). Suíte completa (561 testes) passando.
 
 ## -111. Correção da segunda rodada — hub com abas em vez de acordeão (Rotina, Minha conta, Importar em lote)
 

@@ -17,15 +17,28 @@ admin_bp = Blueprint("admin", __name__)
 
 # ---------------------- Unidades (somente admin) ----------------------
 
-@admin_bp.route("/unidades")
-@login_required
-@apenas_admin
-def unidades():
+def _contexto_unidades():
+    """
+    Reúne o contexto da listagem de unidades num dict — extraído de
+    `unidades()` pra ser reaproveitado também pelo hub `admin.
+    minha_empresa()` (menu simplificado: "Minha empresa" virou uma tela só
+    com abas, mesma ideia de app/routes/rotina.py e app/routes/conta.py::
+    hub). "+ Nova unidade" e "Editar" continuam abrindo `admin.
+    nova_unidade`/`admin.editar_unidade` — telas de formulário completas,
+    de fora do hub, mesmo padrão de "Nova tarefa" dentro do hub "Rotina".
+    """
     query = Unidade.query
     if not current_user.is_admin_desenvolvedor:
         query = query.filter_by(empresa_id=current_user.empresa_id_atual)
     lista = query.order_by(Unidade.nome).all()
-    return render_template("admin/unidades.html", unidades=lista)
+    return dict(unidades=lista)
+
+
+@admin_bp.route("/unidades")
+@login_required
+@apenas_admin
+def unidades():
+    return render_template("admin/unidades.html", **_contexto_unidades())
 
 
 @admin_bp.route("/unidades/nova", methods=["GET", "POST"])
@@ -83,10 +96,14 @@ def editar_unidade(unidade_id):
 
 # ---------------------- Usuários ----------------------
 
-@admin_bp.route("/usuarios")
-@login_required
-@login_papel_requerido("admin", "gestor")
-def usuarios():
+def _contexto_usuarios():
+    """
+    Mesma extração de `_contexto_unidades()` (ver acima) — pra reaproveitar
+    em `admin.minha_empresa()` sem duplicar a query/regra de negócio. Único
+    item de "Minha empresa" visível pra GESTOR também (não só admin — ver
+    `login_papel_requerido` abaixo), então é o único tab que aparece pra
+    todo mundo que enxerga o hub.
+    """
     query = Usuario.query.join(Unidade)
     if current_user.is_admin_desenvolvedor:
         pass  # vê todos, de todas as empresas
@@ -100,7 +117,14 @@ def usuarios():
         unidades = Unidade.query.filter_by(ativa=True).all()
     else:
         unidades = Unidade.query.filter_by(ativa=True, empresa_id=current_user.empresa_id_atual).all()
-    return render_template("admin/usuarios.html", usuarios=lista, unidades=unidades)
+    return dict(usuarios=lista, unidades=unidades)
+
+
+@admin_bp.route("/usuarios")
+@login_required
+@login_papel_requerido("admin", "gestor")
+def usuarios():
+    return render_template("admin/usuarios.html", **_contexto_usuarios())
 
 
 @admin_bp.route("/usuarios/novo", methods=["GET", "POST"])
@@ -355,10 +379,9 @@ def desligar_usuario(usuario_id):
 
 # ---------------------- Relatórios consolidados (somente admin) ----------------------
 
-@admin_bp.route("/relatorios")
-@login_required
-@apenas_admin
-def relatorios():
+def _contexto_relatorios():
+    """Mesma extração de `_contexto_unidades()` — pra reaproveitar em
+    `admin.minha_empresa()`."""
     query_unidades = Unidade.query
     if not current_user.is_admin_desenvolvedor:
         query_unidades = query_unidades.filter_by(empresa_id=current_user.empresa_id_atual)
@@ -416,21 +439,25 @@ def relatorios():
         elif status == "pendente":
             registro["pendente"] += total
 
-    return render_template("admin/relatorios.html", por_unidade=por_unidade, por_area=por_area,
-                            financeiro_por_area=financeiro_por_area)
+    return dict(por_unidade=por_unidade, por_area=por_area, financeiro_por_area=financeiro_por_area)
 
 
-@admin_bp.route("/auditoria")
+@admin_bp.route("/relatorios")
 @login_required
 @apenas_admin
-def auditoria():
-    pagina = request.args.get("pagina", 1, type=int)
-    usuario_id = request.args.get("usuario_id", type=int)
-    data_inicio = request.args.get("data_inicio")
-    data_fim = request.args.get("data_fim")
-    ip_filtro = request.args.get("ip", "").strip()
-    dispositivo_filtro = request.args.get("dispositivo_id", "").strip()
+def relatorios():
+    return render_template("admin/relatorios.html", **_contexto_relatorios())
 
+
+def _contexto_auditoria(pagina=1, usuario_id=None, data_inicio=None, data_fim=None, ip_filtro="",
+                         dispositivo_filtro=""):
+    """
+    Mesma extração de `_contexto_unidades()` — parâmetros explícitos (em
+    vez de ler `request.args` direto aqui dentro) pelo mesmo motivo de
+    `_contexto_tarefas()` em app/routes/tarefas.py: quem chama escolhe o
+    nome do campo de formulário, sem risco de colisão com outro tab do
+    hub "Minha empresa".
+    """
     query = LogAtividade.query
     if not current_user.is_admin_desenvolvedor:
         # empresa admin só vê auditoria de usuários da própria empresa
@@ -453,11 +480,25 @@ def auditoria():
         usuarios = Usuario.query.order_by(Usuario.nome).all()
     else:
         usuarios = Usuario.query.join(Unidade).filter(Unidade.empresa_id == current_user.empresa_id_atual).order_by(Usuario.nome).all()
-    return render_template(
-        "admin/auditoria.html", logs=logs, usuarios=usuarios,
+    return dict(
+        logs=logs, usuarios=usuarios,
         filtro_usuario_id=usuario_id, filtro_data_inicio=data_inicio, filtro_data_fim=data_fim,
         filtro_ip=ip_filtro, filtro_dispositivo=dispositivo_filtro, resumir_user_agent=resumir_user_agent,
     )
+
+
+@admin_bp.route("/auditoria")
+@login_required
+@apenas_admin
+def auditoria():
+    return render_template("admin/auditoria.html", **_contexto_auditoria(
+        pagina=request.args.get("pagina", 1, type=int),
+        usuario_id=request.args.get("usuario_id", type=int),
+        data_inicio=request.args.get("data_inicio"),
+        data_fim=request.args.get("data_fim"),
+        ip_filtro=request.args.get("ip", "").strip(),
+        dispositivo_filtro=request.args.get("dispositivo_id", "").strip(),
+    ))
 
 
 # ---------------------- Alçada de aprovação (financeiro) ----------------------
@@ -477,6 +518,13 @@ def _parse_decimal_alcada(valor):
         return None
 
 
+def _contexto_alcada():
+    """Contexto (só de leitura) da tela de alçada, pro hub `admin.
+    minha_empresa()` — o formulário em si continua enviando pra rota
+    `admin.alcada_aprovacao` de sempre (única que sabe validar/gravar)."""
+    return dict(empresa=current_user.empresa)
+
+
 @admin_bp.route("/alcada-aprovacao", methods=["GET", "POST"])
 @login_required
 @apenas_admin
@@ -492,10 +540,10 @@ def alcada_aprovacao():
 
         if nivel2 is not None and nivel1 is None:
             flash("Pra configurar o nível 2 (2 aprovações), o nível 1 precisa estar preenchido também.", "danger")
-            return redirect(url_for("admin.alcada_aprovacao"))
+            return redirect(request.referrer or url_for("admin.alcada_aprovacao"))
         if nivel1 is not None and nivel2 is not None and nivel2 <= nivel1:
             flash("O valor do nível 2 precisa ser maior que o do nível 1.", "danger")
-            return redirect(url_for("admin.alcada_aprovacao"))
+            return redirect(request.referrer or url_for("admin.alcada_aprovacao"))
 
         empresa.alcada_nivel1_valor = nivel1
         empresa.alcada_nivel2_valor = nivel2
@@ -506,6 +554,100 @@ def alcada_aprovacao():
             flash("Alçada de aprovação desligada — nenhuma despesa vai precisar de aprovação.", "success")
         else:
             flash("Alçada de aprovação atualizada.", "success")
-        return redirect(url_for("admin.alcada_aprovacao"))
+        return redirect(request.referrer or url_for("admin.alcada_aprovacao"))
 
     return render_template("admin/alcada_aprovacao.html", empresa=empresa)
+
+
+# ---------------------- Hub "Minha empresa" ----------------------
+# Menu simplificado (mesmo pedido explícito do usuário que já resultou nos
+# hubs "Rotina" e "Minha conta" — ver app/routes/rotina.py e
+# app/routes/conta.py::hub, e antes disso "Entrada de processos" em
+# app/routes/governanca.py): reúne em abas de uma tela só os 8 itens que
+# antes ficavam soltos num acordeão de 2º nível (ver PENDENCIAS.md, seção
+# -110) dentro de "Minha empresa" — Unidades, Equipe, Relatórios,
+# Auditoria, Alçada de aprovação, Minha licença, Módulos e Integrações.
+# Cada aba reaproveita o contexto já extraído da tela antiga (helpers
+# `_contexto_*` acima, mais os de app/routes/licenciamento.py e
+# app/routes/integracoes.py, importados localmente — mesmo padrão de
+# `conta.hub()` importando de agente_local.py; nenhum dos três módulos se
+# importa entre si em outro lugar, então não há risco de import circular).
+# Nenhuma consulta/regra de negócio foi duplicada, e as oito telas antigas
+# (admin.unidades, admin.usuarios, admin.relatorios, admin.auditoria,
+# admin.alcada_aprovacao, licenciamento.minha_licenca, licenciamento.
+# modulos, integracoes.minhas_integracoes) continuam existindo e
+# funcionando normalmente pra quem chegar direto por um link salvo — assim
+# como "+ Nova unidade"/"+ Novo usuário"/"Editar"/"Gerenciar credenciais"
+# continuam abrindo uma tela de formulário própria, fora do hub (mesmo
+# padrão de "Nova tarefa" dentro do hub "Rotina") — só as LISTAS/painéis
+# viraram abas.
+#
+# Visibilidade por ABA, não só da tela toda: "Equipe" aparece pra admin OU
+# gestor (mesmo escopo de sempre — é o único item de "Minha empresa" que
+# já não era exclusivo de admin); as outras sete exigem admin; "Minha
+# licença" e "Módulos" ficam de fora também pro admin desenvolvedor
+# (empresa dona da plataforma não tem licença — mesma regra de sempre em
+# licenciamento.py). `abas_visiveis[0]` cobre tanto quem só vê "Equipe"
+# quanto quem vê tudo, então a aba inicial nunca fica em branco.
+
+@admin_bp.route("/minha-empresa")
+@login_required
+@login_papel_requerido("admin", "gestor")
+def minha_empresa():
+    from app.routes.licenciamento import _contexto_minha_licenca, _contexto_modulos
+    from app.routes.integracoes import _contexto_minhas_integracoes
+
+    is_admin = current_user.is_admin
+    is_dev = current_user.is_admin_desenvolvedor
+
+    contexto = {}
+    abas_visiveis = []
+
+    if is_admin:
+        contexto["unidades_ctx"] = _contexto_unidades()
+        abas_visiveis.append("unidades")
+
+    contexto["usuarios_ctx"] = _contexto_usuarios()
+    abas_visiveis.append("equipe")
+
+    if is_admin:
+        contexto["relatorios_ctx"] = _contexto_relatorios()
+        abas_visiveis.append("relatorios")
+
+        contexto["auditoria_ctx"] = _contexto_auditoria(
+            pagina=request.args.get("pagina", 1, type=int),
+            usuario_id=request.args.get("usuario_id", type=int),
+            data_inicio=request.args.get("data_inicio"),
+            data_fim=request.args.get("data_fim"),
+            ip_filtro=request.args.get("ip", "").strip(),
+            dispositivo_filtro=request.args.get("dispositivo_id", "").strip(),
+        )
+        abas_visiveis.append("auditoria")
+
+        contexto["alcada_ctx"] = _contexto_alcada()
+        abas_visiveis.append("alcada")
+
+        if not is_dev:
+            licenca_ctx = _contexto_minha_licenca()
+            if licenca_ctx is not None:
+                contexto["licenca_ctx"] = licenca_ctx
+                abas_visiveis.append("licenca")
+
+            modulos_ctx = _contexto_modulos()
+            if modulos_ctx is not None:
+                contexto["modulos_ctx"] = modulos_ctx
+                abas_visiveis.append("modulos")
+
+        integracoes_ctx = _contexto_minhas_integracoes()
+        if integracoes_ctx is not None:
+            contexto["integracoes_ctx"] = integracoes_ctx
+            abas_visiveis.append("integracoes")
+
+    aba_pedida = request.args.get("tab")
+    aba_inicial = aba_pedida if aba_pedida in abas_visiveis else abas_visiveis[0]
+
+    return render_template(
+        "admin/minha_empresa_hub.html",
+        aba_inicial=aba_inicial, abas_visiveis=abas_visiveis, is_admin=is_admin, is_dev=is_dev,
+        **contexto,
+    )

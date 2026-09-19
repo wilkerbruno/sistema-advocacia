@@ -10,15 +10,13 @@ Introduz um SEGUNDO NÍVEL de recolhível (".submenu-colapsavel" — ver
 app/static/css/estilo.css e o comentário em app/templates/base.html),
 reaproveitando a mesma mecânica de abrir/fechar + localStorage dos 3
 grupos principais (".grupo-colapsavel"), só que pra um punhado de itens
-relacionados DENTRO de um grupo já aberto:
+relacionados DENTRO de um grupo já aberto. Hoje sobram só duas seções
+nesse padrão — as duas são administração de PLATAFORMA/configuração
+jurídica, não "a mesma tarefa vista de formas diferentes":
 
-  - Governança de carteira → "Regras e parâmetros" (que já era um
-    subtítulo fixo desde a rodada anterior, virou recolhível — 5 itens,
-    admin-only, uso pouco frequente no dia a dia).
-  - Configurações → "Minha empresa" (8 itens) e "Plataforma" (4 itens) —
-    ambas eram subtítulos fixos, viraram recolhíveis pela mesma razão:
-    reduzir o tanto de link visível de uma vez sem esconder nada
-    (auto-abre quando a página atual está dentro, igual os grupos).
+  - Governança de carteira → "Regras e parâmetros" (5 itens, admin-only,
+    uso pouco frequente no dia a dia, telas de CRUD independentes).
+  - Configurações → "Plataforma" (4 itens, só admin desenvolvedor).
 
 Continuam como título fixo (sem recolher), de propósito: "Painel e filas"
 (contém Painel e Fila de intimações, telas de uso diário).
@@ -29,11 +27,21 @@ Autenticador + Meu agente local + Rever tutorial) NÃO viraram submenus
 recolhíveis — o usuário corrigiu explicitamente o pedido: "não eu pedi
 para fazer igual foi feito em entrada de processos que incluiu 'por
 numero CNJ' e 'por OAB'", ou seja, o padrão certo é um HUB COM ABAS numa
-tela só (uma rota Flask, várias tab-pane), não um acordeão de links. Os
-testes desse padrão (hub) ficam em test_menu_simplificacao.py, junto dos
-outros hubs (Entrada de processos, Métricas e relatório semanal). Este
-arquivo mantém só os testes dos submenus que continuam sendo acordeão de
-verdade (Minha empresa, Plataforma, Regras e parâmetros).
+tela só (uma rota Flask, várias tab-pane), não um acordeão de links.
+
+QUARTA RODADA (mesma sessão, pedido explícito: "otimo, agora quero que
+junte todos os itens de 'minha empresa' tambem"): "Configurações > Minha
+empresa" (Unidades, Equipe, Relatórios, Auditoria, Alçada de aprovação,
+Minha licença, Módulos, Integrações — 8 itens) também deixou de ser um
+submenu recolhível e virou hub com abas, mesmo padrão de Rotina/Minha
+conta/Entrada de processos.
+
+Os testes desses hubs ficam em test_menu_simplificacao.py (Entrada de
+processos, Métricas e relatório semanal) e
+test_hub_rotina_e_minha_conta.py (Rotina, Minha conta) e
+test_hub_minha_empresa.py (Minha empresa). Este arquivo mantém só os
+testes dos submenus que continuam sendo acordeão de verdade (Plataforma,
+Regras e parâmetros).
 """
 from datetime import date, timedelta
 
@@ -90,37 +98,26 @@ def test_regras_parametros_nao_aparece_para_advogado_comum(client, login, app):
     assert 'data-submenu="regras-parametros"' not in html
 
 
-# ---------------------- Configurações: "Minha empresa" / "Plataforma" ----------------------
+# ---------------------- Configurações: "Plataforma" ----------------------
 
-def test_configuracoes_agrupa_minha_empresa_e_plataforma_em_submenus(client, login, app):
+def test_configuracoes_agrupa_plataforma_em_submenu(client, login, app):
     _, unidade = _montar_empresa(dono_da_plataforma=True)
     _criar_usuario_e_logar(unidade.id, "dev2@submenu.com", "admin", login)
 
     html = client.get("/").data.decode("utf-8")
 
-    assert 'data-submenu="minha-empresa"' in html
     assert 'data-submenu="plataforma"' in html
-    # "Minha conta" não é mais um submenu recolhível — é um link só pro hub
-    # (ver test_menu_simplificacao.py) — não deveria aparecer como acordeão.
+    # "Minha conta" e "Minha empresa" não são mais submenus recolhíveis —
+    # são links só pros respectivos hubs (ver test_menu_simplificacao.py e
+    # test_hub_minha_empresa.py) — não deveriam aparecer como acordeão.
     assert 'data-submenu="minha-conta"' not in html
+    assert 'data-submenu="minha-empresa"' not in html
 
 
-def test_advogado_comum_nao_ve_submenus_de_administracao(client, login, app):
+def test_advogado_comum_nao_ve_submenu_de_plataforma(client, login, app):
     _, unidade = _montar_empresa()
     _criar_usuario_e_logar(unidade.id, "adv4@submenu.com", "advogado", login)
 
     html = client.get("/").data.decode("utf-8")
 
-    assert 'data-submenu="minha-empresa"' not in html
     assert 'data-submenu="plataforma"' not in html
-
-
-def test_visitar_equipe_expande_submenu_minha_empresa(client, login, app):
-    _, unidade = _montar_empresa()
-    _criar_usuario_e_logar(unidade.id, "admin@submenu.com", "admin", login)
-
-    html_fora = client.get("/").data.decode("utf-8")
-    assert "expandido" not in _trecho_do_submenu(html_fora, "minha-empresa")
-
-    html_dentro = client.get("/admin/usuarios").data.decode("utf-8")
-    assert "expandido" in _trecho_do_submenu(html_dentro, "minha-empresa")

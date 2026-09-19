@@ -65,13 +65,21 @@ def _empresa_atual():
     return empresa
 
 
-@integracoes_bp.route("/minhas-integracoes")
-@login_required
-@apenas_admin
-def minhas_integracoes():
-    empresa = _empresa_atual()
+def _contexto_minhas_integracoes():
+    """
+    Reúne o contexto de "Minhas Integrações" num dict — extraído de
+    `minhas_integracoes()` pra ser reaproveitado também pelo hub `admin.
+    minha_empresa()` (menu simplificado). Usa `current_user.empresa`
+    diretamente em vez de `_empresa_atual()` de propósito: aquela função
+    dispara um `flash()` quando não há empresa, e isso duplicaria o aviso
+    se o hub também chamasse — quem monta o hub já decide sozinho se
+    mostra esta aba ou não a partir do retorno `None` daqui, sem precisar
+    de aviso nenhum (mesmo padrão de `conta._contexto_totp()` e
+    `licenciamento._contexto_minha_licenca()`).
+    """
+    empresa = current_user.empresa
     if empresa is None:
-        return redirect(url_for("dashboard.index"))
+        return None
 
     whatsapp_status, whatsapp_numero, whatsapp_erro = None, None, None
     nome_sessao = empresa.whatsapp_sessao_efetiva
@@ -82,8 +90,7 @@ def minhas_integracoes():
         except whatsapp.SessaoWhatsAppError as e:
             whatsapp_erro = str(e)
 
-    return render_template(
-        "integracoes/minhas_integracoes.html",
+    return dict(
         empresa=empresa,
         ia_provedor=empresa.agente_ia_provedor_efetivo,
         ia_tem_chave=bool(empresa.agente_ia_claude_chave_cifrada),
@@ -103,6 +110,16 @@ def minhas_integracoes():
     )
 
 
+@integracoes_bp.route("/minhas-integracoes")
+@login_required
+@apenas_admin
+def minhas_integracoes():
+    empresa = _empresa_atual()
+    if empresa is None:
+        return redirect(url_for("dashboard.index"))
+    return render_template("integracoes/minhas_integracoes.html", **_contexto_minhas_integracoes())
+
+
 @integracoes_bp.route("/minhas-integracoes/ia", methods=["POST"])
 @login_required
 @apenas_admin
@@ -114,7 +131,7 @@ def salvar_ia():
     provedor = request.form.get("provedor")
     if provedor not in (Empresa.PROVEDOR_IA_LOCAL, Empresa.PROVEDOR_IA_CLAUDE_BYOK, Empresa.PROVEDOR_IA_GEMINI_BYOK):
         flash("Selecione um provedor de IA válido.", "danger")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     nova_chave = request.form.get("api_key", "").strip()
     modelo = request.form.get("modelo", "").strip()
@@ -125,16 +142,16 @@ def salvar_ia():
                 claude_api.validar_chave(nova_chave, modelo or None)
             except claude_api.ClaudeIndisponivelError as e:
                 flash(f"Não foi possível validar a chave informada — nada foi salvo: {e}", "danger")
-                return redirect(url_for("integracoes.minhas_integracoes"))
+                return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
             try:
                 empresa.agente_ia_claude_chave_cifrada = cofre.cifrar_segredo(nova_chave)
             except cofre.CofreNaoConfiguradoError as e:
                 flash(str(e), "danger")
-                return redirect(url_for("integracoes.minhas_integracoes"))
+                return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
         elif not empresa.agente_ia_claude_chave_cifrada:
             flash("Cadastre uma chave de API do Claude antes de ativar este provedor — gere uma em "
                   "https://console.anthropic.com/settings/keys.", "danger")
-            return redirect(url_for("integracoes.minhas_integracoes"))
+            return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
         empresa.agente_ia_claude_modelo = modelo or None
 
     if provedor == Empresa.PROVEDOR_IA_GEMINI_BYOK:
@@ -143,23 +160,23 @@ def salvar_ia():
                 gemini_api.validar_chave(nova_chave, modelo or None)
             except gemini_api.GeminiIndisponivelError as e:
                 flash(f"Não foi possível validar a chave informada — nada foi salvo: {e}", "danger")
-                return redirect(url_for("integracoes.minhas_integracoes"))
+                return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
             try:
                 empresa.agente_ia_gemini_chave_cifrada = cofre.cifrar_segredo(nova_chave)
             except cofre.CofreNaoConfiguradoError as e:
                 flash(str(e), "danger")
-                return redirect(url_for("integracoes.minhas_integracoes"))
+                return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
         elif not empresa.agente_ia_gemini_chave_cifrada:
             flash("Cadastre uma chave de API do Gemini (de um projeto com faturamento ativo) antes de "
                   "ativar este provedor — gere uma em https://aistudio.google.com/apikey.", "danger")
-            return redirect(url_for("integracoes.minhas_integracoes"))
+            return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
         empresa.agente_ia_gemini_modelo = modelo or None
 
     empresa.agente_ia_provedor = provedor
     registrar_log(current_user, "configurou_agente_ia", "Empresa", empresa.id, provedor)
     db.session.commit()
     flash("Configuração do Agente de IA atualizada.", "success")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/ia/remover-chave", methods=["POST"])
@@ -174,7 +191,7 @@ def remover_chave_ia():
     registrar_log(current_user, "removeu_chave_claude", "Empresa", empresa.id)
     db.session.commit()
     flash("Chave da API do Claude removida — o Agente de IA voltou a usar o modelo local gratuito.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/ia/remover-chave-gemini", methods=["POST"])
@@ -189,7 +206,7 @@ def remover_chave_gemini():
     registrar_log(current_user, "removeu_chave_gemini", "Empresa", empresa.id)
     db.session.commit()
     flash("Chave da API do Gemini removida — o Agente de IA voltou a usar o modelo local gratuito.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/datajud", methods=["POST"])
@@ -203,7 +220,7 @@ def salvar_datajud():
     provedor = request.form.get("provedor")
     if provedor not in (Empresa.PROVEDOR_DATAJUD_PADRAO, Empresa.PROVEDOR_DATAJUD_CHAVE_PROPRIA):
         flash("Selecione um provedor de captura válido.", "danger")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     nova_chave = request.form.get("api_key", "").strip()
     if provedor == Empresa.PROVEDOR_DATAJUD_CHAVE_PROPRIA:
@@ -212,17 +229,17 @@ def salvar_datajud():
                 empresa.datajud_chave_propria_cifrada = cofre.cifrar_segredo(nova_chave)
             except cofre.CofreNaoConfiguradoError as e:
                 flash(str(e), "danger")
-                return redirect(url_for("integracoes.minhas_integracoes"))
+                return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
         elif not empresa.datajud_chave_propria_cifrada:
             flash("Cadastre sua chave própria do DataJud antes de ativar esta opção — cadastro "
                   "gratuito em https://datajud-wiki.cnj.jus.br/.", "danger")
-            return redirect(url_for("integracoes.minhas_integracoes"))
+            return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     empresa.datajud_provedor = provedor
     registrar_log(current_user, "configurou_datajud", "Empresa", empresa.id, provedor)
     db.session.commit()
     flash("Configuração de captura processual (DataJud) atualizada.", "success")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/datajud/remover-chave", methods=["POST"])
@@ -237,7 +254,7 @@ def remover_chave_datajud():
     registrar_log(current_user, "removeu_chave_datajud", "Empresa", empresa.id)
     db.session.commit()
     flash("Chave própria do DataJud removida — a captura voltou a usar a chave padrão da plataforma.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 # ---------------------- WhatsApp (uma sessão do WAHA por empresa) ----------------------
@@ -252,7 +269,7 @@ def conectar_whatsapp():
 
     if not whatsapp.whatsapp_configurado():
         flash("O recurso de WhatsApp não está configurado neste servidor (WHATSAPP_BRIDGE_URL ausente).", "danger")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     # Primeira conexão desta empresa: gera um nome de sessão próprio e
     # exclusivo dela (nunca reaproveita "default", que é da plataforma).
@@ -263,7 +280,7 @@ def conectar_whatsapp():
         whatsapp.conectar_sessao(nome_sessao)
     except whatsapp.SessaoWhatsAppError as e:
         flash(f"Não foi possível iniciar a conexão com o WAHA: {e}", "danger")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     if empresa.whatsapp_sessao != nome_sessao:
         empresa.whatsapp_sessao = nome_sessao
@@ -271,7 +288,7 @@ def conectar_whatsapp():
         db.session.commit()
 
     flash("Escaneie o QR code abaixo com o WhatsApp que a empresa vai usar pra enviar os lembretes.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/whatsapp/qr")
@@ -332,7 +349,7 @@ def desconectar_whatsapp():
     db.session.commit()
     flash("Número de WhatsApp desconectado. Os lembretes por WhatsApp desta empresa ficam pausados até "
           "conectar outro número.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 # ---------------------- Timbrado do escritório (logo nos PDFs gerados) ----------------------
@@ -352,19 +369,19 @@ def salvar_timbrado():
     arquivo = request.files.get("logo")
     if not arquivo or arquivo.filename == "":
         flash("Selecione uma imagem (PNG ou JPG) para o timbrado.", "warning")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     try:
         nome_salvo = timbrado.salvar_logo(current_app.config["UPLOAD_FOLDER"], empresa, arquivo)
     except timbrado.ArquivoLogoInvalido as e:
         flash(str(e), "danger")
-        return redirect(url_for("integracoes.minhas_integracoes"))
+        return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
     empresa.logo_arquivo = nome_salvo
     registrar_log(current_user, "atualizou_timbrado", "Empresa", empresa.id)
     db.session.commit()
     flash("Timbrado atualizado — a logo já aparece nos próximos PDFs gerados (ex.: recibos).", "success")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/timbrado/remover", methods=["POST"])
@@ -379,7 +396,7 @@ def remover_timbrado():
     registrar_log(current_user, "removeu_timbrado", "Empresa", empresa.id)
     db.session.commit()
     flash("Timbrado removido — os PDFs gerados voltam a usar só o cabeçalho de texto.", "info")
-    return redirect(url_for("integracoes.minhas_integracoes"))
+    return redirect(request.referrer or url_for("integracoes.minhas_integracoes"))
 
 
 @integracoes_bp.route("/minhas-integracoes/timbrado/imagem")

@@ -1,0 +1,766 @@
+{% extends "base.html" %}
+{% block titulo %}Minha empresa — JusControl{% endblock %}
+{% block eyebrow %}Gestão{% endblock %}
+{% block cabecalho %}Minha empresa{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de "Minha empresa" (menu simplificado, a pedido explícito:
+  "quero que junte todos os itens de 'minha empresa' também") — reúne em
+  abas de uma tela só o que antes eram 8 itens soltos num acordeão de 2º
+  nível (ver PENDENCIAS.md, seção -110): Unidades, Equipe, Relatórios,
+  Auditoria, Alçada de aprovação, Minha licença, Módulos e Integrações.
+  Mesma ideia de app/routes/rotina.py e app/routes/conta.py::hub. Os
+  formulários/links de cada aba continuam enviando para as MESMAS rotas de
+  sempre — nenhuma lógica de negócio mudou aqui, só a navegação. As oito
+  telas antigas (admin.unidades, admin.usuarios, admin.relatorios, admin.
+  auditoria, admin.alcada_aprovacao, licenciamento.minha_licenca,
+  licenciamento.modulos, integracoes.minhas_integracoes) continuam
+  existindo e funcionando normalmente para quem chegar direto por um link
+  salvo; "+ Nova unidade"/"+ Novo usuário"/"Editar"/"Gerenciar
+  credenciais" continuam abrindo uma tela de formulário própria, fora do
+  hub (mesmo padrão de "Nova tarefa" dentro do hub "Rotina") — só as
+  LISTAS/painéis viraram abas.
+
+  Nem toda aba aparece pra todo mundo: "Equipe" é visível pra admin OU
+  gestor (mesmo escopo de sempre); as outras sete exigem admin; "Minha
+  licença"/"Módulos" ficam de fora também pro admin desenvolvedor. Ver
+  `abas_visiveis` (calculado em app/routes/admin.py::minha_empresa).
+#}
+<ul class="nav nav-tabs mb-3" id="abasMinhaEmpresa" role="tablist" style="border-color: var(--paper-200);">
+  {% if 'unidades' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'unidades' }}" id="tab-btn-unidades" data-bs-toggle="tab" data-bs-target="#aba-unidades" type="button" role="tab" aria-controls="aba-unidades">
+      Unidades
+    </button>
+  </li>
+  {% endif %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'equipe' }}" id="tab-btn-equipe" data-bs-toggle="tab" data-bs-target="#aba-equipe" type="button" role="tab" aria-controls="aba-equipe">
+      Equipe
+    </button>
+  </li>
+  {% if 'relatorios' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'relatorios' }}" id="tab-btn-relatorios" data-bs-toggle="tab" data-bs-target="#aba-relatorios" type="button" role="tab" aria-controls="aba-relatorios">
+      Relatórios
+    </button>
+  </li>
+  {% endif %}
+  {% if 'auditoria' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'auditoria' }}" id="tab-btn-auditoria" data-bs-toggle="tab" data-bs-target="#aba-auditoria" type="button" role="tab" aria-controls="aba-auditoria">
+      Auditoria
+    </button>
+  </li>
+  {% endif %}
+  {% if 'alcada' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'alcada' }}" id="tab-btn-alcada" data-bs-toggle="tab" data-bs-target="#aba-alcada" type="button" role="tab" aria-controls="aba-alcada">
+      Alçada de aprovação
+    </button>
+  </li>
+  {% endif %}
+  {% if 'licenca' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'licenca' }}" id="tab-btn-licenca" data-bs-toggle="tab" data-bs-target="#aba-licenca" type="button" role="tab" aria-controls="aba-licenca">
+      Minha licença
+    </button>
+  </li>
+  {% endif %}
+  {% if 'modulos' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'modulos' }}" id="tab-btn-modulos" data-bs-toggle="tab" data-bs-target="#aba-modulos" type="button" role="tab" aria-controls="aba-modulos">
+      Módulos
+    </button>
+  </li>
+  {% endif %}
+  {% if 'integracoes' in abas_visiveis %}
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'integracoes' }}" id="tab-btn-integracoes" data-bs-toggle="tab" data-bs-target="#aba-integracoes" type="button" role="tab" aria-controls="aba-integracoes">
+      Integrações
+    </button>
+  </li>
+  {% endif %}
+</ul>
+
+<div class="tab-content" id="conteudoAbasMinhaEmpresa">
+
+  {% if 'unidades' in abas_visiveis %}
+  {% set u_ctx = unidades_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'unidades' }}" id="aba-unidades" role="tabpanel" aria-labelledby="tab-btn-unidades">
+    <div class="d-flex justify-content-end mb-3">
+      <a href="{{ url_for('admin.nova_unidade') }}" class="btn btn-brass">+ Nova unidade</a>
+    </div>
+    <div class="card-doc tab p-0">
+      {% if u_ctx.unidades %}
+      <table class="table-doc mb-0">
+        <thead><tr><th>Código</th><th>Nome</th><th>Cidade/UF</th><th>Responsável</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for u in u_ctx.unidades %}
+          <tr>
+            <td><span class="pill-unidade">{{ u.codigo }}</span></td>
+            <td>{{ u.nome }}</td>
+            <td>{{ u.cidade or "—" }}{% if u.estado %}/{{ u.estado }}{% endif %}</td>
+            <td>{{ u.responsavel or "—" }}</td>
+            <td>{% if u.ativa %}<span class="badge-status badge-ativo">Ativa</span>{% else %}<span class="badge-status badge-arquivado">Inativa</span>{% endif %}</td>
+            <td><a href="{{ url_for('admin.editar_unidade', unidade_id=u.id) }}" class="btn btn-outline-doc btn-sm">Editar</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma unidade cadastrada</div>
+        <p class="mb-0">Cadastre a primeira unidade para começar a organizar a equipe.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% set e_ctx = usuarios_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'equipe' }}" id="aba-equipe" role="tabpanel" aria-labelledby="tab-btn-equipe">
+    <div class="d-flex justify-content-end mb-3">
+      <a href="{{ url_for('admin.novo_usuario') }}" class="btn btn-brass">+ Novo usuário</a>
+    </div>
+    <div class="card-doc tab p-0">
+      {% if e_ctx.usuarios %}
+      <table class="table-doc mb-0">
+        <thead><tr><th>Nome</th><th>E-mail</th><th>Papel</th>{% if current_user.is_admin %}<th>Unidade</th>{% endif %}<th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for u in e_ctx.usuarios %}
+          <tr>
+            <td>{{ u.nome }}{% if u.oab %} <span class="text-muted-doc small">OAB {{ u.oab }}</span>{% endif %}</td>
+            <td>{{ u.email }}</td>
+            <td><span class="badge-status badge-normal">{{ u.papel }}</span></td>
+            {% if current_user.is_admin %}<td>{% if u.unidade %}<span class="pill-unidade">{{ u.unidade.codigo }}</span>{% else %}Todas{% endif %}</td>{% endif %}
+            <td>{% if u.ativo %}<span class="badge-status badge-ativo">Ativo</span>{% else %}<span class="badge-status badge-arquivado">Inativo</span>{% endif %}</td>
+            <td><a href="{{ url_for('admin.editar_usuario', usuario_id=u.id) }}" class="btn btn-outline-doc btn-sm">Editar</a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum usuário cadastrado</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if 'relatorios' in abas_visiveis %}
+  {% set r_ctx = relatorios_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'relatorios' }}" id="aba-relatorios" role="tabpanel" aria-labelledby="tab-btn-relatorios">
+    <div class="card-doc tab p-3 mb-4">
+      <h4 class="mb-3" style="font-size:1rem;">Desempenho por unidade</h4>
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Unidade</th>
+            <th>Processos ativos</th>
+            <th>Processos encerrados</th>
+            <th>Clientes</th>
+            <th>Receita recebida</th>
+            <th>Receita pendente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in r_ctx.por_unidade %}
+          <tr>
+            <td><span class="pill-unidade">{{ r.unidade.codigo }}</span> {{ r.unidade.nome }}</td>
+            <td>{{ r.processos_ativos }}</td>
+            <td>{{ r.processos_encerrados }}</td>
+            <td>{{ r.clientes }}</td>
+            <td style="color: var(--status-ok);">{{ r.receita_recebida|moeda }}</td>
+            <td>{{ r.receita_pendente|moeda }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="card-doc tab p-3">
+      <h4 class="mb-3" style="font-size:1rem;">Processos e financeiro por área do direito (todas as unidades)</h4>
+      <p class="small text-muted-doc mb-3">
+        Receita própria do escritório por área (depósito de terceiros não entra aqui — ver aba
+        "Conta de terceiros" em Financeiro). Só conta lançamento vinculado a um processo.
+      </p>
+      {% if r_ctx.por_area %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Área do direito</th>
+            <th>Processos</th>
+            <th>Receita recebida</th>
+            <th>Receita pendente</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for area, qtd in r_ctx.por_area.items() %}
+          {% set fin = r_ctx.financeiro_por_area.get(area, {"recebido": 0, "pendente": 0}) %}
+          <tr>
+            <td>{{ area }}</td>
+            <td>{{ qtd }}</td>
+            <td style="color: var(--status-ok);">{{ fin.recebido|moeda }}</td>
+            <td>{{ fin.pendente|moeda }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted-doc small mb-0">Nenhum dado disponível ainda.</p>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'auditoria' in abas_visiveis %}
+  {% set a_ctx = auditoria_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'auditoria' }}" id="aba-auditoria" role="tabpanel" aria-labelledby="tab-btn-auditoria">
+    <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
+      <p class="small mb-0">
+        Rastreamento de acesso pela internet é feito por IP e Dispositivo
+        abaixo — esses dois sempre chegam ao servidor, mesmo com o usuário
+        fora da rede local. "Dispositivo" é um identificador salvo num cookie
+        no primeiro acesso de cada navegador: continua igual mesmo se o IP
+        mudar (ex: uso pelo celular fora do wi-fi), então serve pra ver todo o
+        histórico de ações de um mesmo navegador/aparelho ao longo do tempo.
+      </p>
+    </div>
+    <form method="get" action="{{ url_for('admin.minha_empresa') }}" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
+      <input type="hidden" name="tab" value="auditoria">
+      <div class="col-md-3">
+        <label class="form-label small mb-1">Usuário</label>
+        <select name="usuario_id" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for u in a_ctx.usuarios %}
+          <option value="{{ u.id }}" {{ "selected" if a_ctx.filtro_usuario_id == u.id }}>{{ u.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">De</label>
+        <input type="date" name="data_inicio" class="form-control form-control-sm" value="{{ a_ctx.filtro_data_inicio or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">Até</label>
+        <input type="date" name="data_fim" class="form-control form-control-sm" value="{{ a_ctx.filtro_data_fim or '' }}">
+      </div>
+      <div class="col-md-2">
+        <label class="form-label small mb-1">IP</label>
+        <input type="text" name="ip" class="form-control form-control-sm" placeholder="ex: 200.1" value="{{ a_ctx.filtro_ip or '' }}">
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-brass btn-sm w-100">Filtrar</button>
+      </div>
+    </form>
+
+    {% if a_ctx.filtro_dispositivo %}
+    <div class="alert alert-info py-2 px-3 small d-flex justify-content-between align-items-center">
+      <span>Mostrando só o histórico do dispositivo <code>{{ a_ctx.filtro_dispositivo }}</code>.</span>
+      <a href="{{ url_for('admin.minha_empresa', tab='auditoria', usuario_id=a_ctx.filtro_usuario_id, data_inicio=a_ctx.filtro_data_inicio, data_fim=a_ctx.filtro_data_fim, ip=a_ctx.filtro_ip) }}">Limpar este filtro</a>
+    </div>
+    {% endif %}
+
+    <div class="card-doc tab p-0">
+      {% if a_ctx.logs.items %}
+      <table class="table-doc mb-0">
+        <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Entidade</th><th>Detalhes</th><th>IP</th><th>Dispositivo</th></tr></thead>
+        <tbody>
+          {% for l in a_ctx.logs.items %}
+          <tr>
+            <td>{{ l.criado_em|data_hora_br }}</td>
+            <td>{{ l.usuario.nome if l.usuario else "sistema" }}</td>
+            <td>{{ l.acao }}</td>
+            <td>{{ l.entidade }} {% if l.entidade_id %}#{{ l.entidade_id }}{% endif %}</td>
+            <td class="text-muted-doc">{{ l.detalhes or "—" }}</td>
+            <td class="text-muted-doc">{{ l.ip or "—" }}</td>
+            <td class="text-muted-doc">
+              {{ a_ctx.resumir_user_agent(l.user_agent) or "—" }}
+              {% if l.dispositivo_id %}
+              <br><a class="small" href="{{ url_for('admin.minha_empresa', tab='auditoria', dispositivo_id=l.dispositivo_id) }}" title="Ver todo o histórico deste dispositivo">{{ l.dispositivo_id[:8] }}…</a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state"><div class="font-display">Nenhum registro de auditoria ainda</div></div>
+      {% endif %}
+    </div>
+
+    {% if a_ctx.logs.pages > 1 %}
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm">
+        {% for p in range(1, a_ctx.logs.pages + 1) %}
+        <li class="page-item {{ 'active' if p == a_ctx.logs.page }}">
+          <a class="page-link" href="{{ url_for('admin.minha_empresa', tab='auditoria', pagina=p, usuario_id=a_ctx.filtro_usuario_id, data_inicio=a_ctx.filtro_data_inicio, data_fim=a_ctx.filtro_data_fim, ip=a_ctx.filtro_ip, dispositivo_id=a_ctx.filtro_dispositivo) }}">{{ p }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  {% if 'alcada' in abas_visiveis %}
+  {% set al_ctx = alcada_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'alcada' }}" id="aba-alcada" role="tabpanel" aria-labelledby="tab-btn-alcada">
+    <div class="card-doc tab p-4" style="max-width: 700px;">
+      <p class="small text-muted-doc">
+        Controla quando uma <strong>despesa</strong> precisa de aprovação de um admin/gestor antes de
+        poder ser marcada como paga (receita nunca precisa — receber de um cliente não é "gasto"). Deixe
+        os dois campos em branco para desligar a alçada por completo: nenhuma despesa vai precisar de
+        aprovação, exatamente como hoje.
+      </p>
+      <form method="post" action="{{ url_for('admin.alcada_aprovacao') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Nível 1 — acima deste valor, exige 1 aprovação</label>
+            <div class="input-group">
+              <span class="input-group-text">R$</span>
+              <input type="text" name="alcada_nivel1_valor" class="form-control"
+                     value="{{ al_ctx.empresa.alcada_nivel1_valor if al_ctx.empresa.alcada_nivel1_valor is not none else '' }}"
+                     placeholder="ex: 1000,00">
+            </div>
+            <p class="small text-muted-doc mt-1 mb-0">
+              Despesa de valor até este limite (ou se o campo ficar vazio) não precisa de aprovação nenhuma.
+            </p>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Nível 2 — acima deste valor, exige 2 aprovações</label>
+            <div class="input-group">
+              <span class="input-group-text">R$</span>
+              <input type="text" name="alcada_nivel2_valor" class="form-control"
+                     value="{{ al_ctx.empresa.alcada_nivel2_valor if al_ctx.empresa.alcada_nivel2_valor is not none else '' }}"
+                     placeholder="opcional">
+            </div>
+            <p class="small text-muted-doc mt-1 mb-0">
+              Opcional — precisa do Nível 1 preenchido primeiro. Se ficar vazio, toda despesa acima do
+              Nível 1 exige só 1 aprovação, não importa o valor.
+            </p>
+          </div>
+        </div>
+        <p class="small text-muted-doc mt-3 mb-0">
+          As duas aprovações de uma mesma despesa (quando o Nível 2 se aplica) precisam ser de usuários
+          <strong>diferentes</strong> entre si, e nunca de quem lançou a própria despesa — mesma pessoa
+          não pode aprovar duas vezes nem aprovar o que ela mesma cadastrou.
+        </p>
+        <div class="d-flex gap-2 mt-4">
+          <button type="submit" class="btn btn-brass">Salvar</button>
+          <a href="{{ url_for('financeiro.aprovacoes_pendentes') }}" class="btn btn-outline-doc">Ver aprovações pendentes</a>
+        </div>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'licenca' in abas_visiveis %}
+  {% set lc_ctx = licenca_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'licenca' }}" id="aba-licenca" role="tabpanel" aria-labelledby="tab-btn-licenca">
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="card-doc tab p-4">
+          {% if lc_ctx.licenca %}
+            <div class="small text-muted-doc">Plano atual</div>
+            <div class="fs-4 mb-2">{{ lc_ctx.licenca.plano|capitalize }} — {{ lc_ctx.licenca.valor_negociado|moeda }}</div>
+            <div class="mb-3">
+              <span class="badge-status {{ 'badge-cumprido' if lc_ctx.licenca.esta_ativa() else 'badge-pendente' }}">
+                {{ "ativa" if lc_ctx.licenca.esta_ativa() else lc_ctx.licenca.status.replace("_", " ") }}
+              </span>
+              {% if lc_ctx.licenca.data_fim %}
+                <span class="small text-muted-doc ms-2">
+                  {{ "vence em" if lc_ctx.licenca.esta_ativa() else "venceu em" }} {{ lc_ctx.licenca.data_fim|data_br }}
+                </span>
+              {% endif %}
+            </div>
+
+            {% if not lc_ctx.licenca.esta_ativa() %}
+            <form method="post" action="{{ url_for('licenciamento.pagar_licenca') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button type="submit" class="btn btn-brass">Pagar agora (Mercado Pago)</button>
+            </form>
+            {% else %}
+            <p class="small text-muted-doc mb-0">Sua licença está em dia — nada a fazer por agora.</p>
+            {% endif %}
+          {% else %}
+            <p class="text-muted-doc mb-0">Sua empresa ainda não tem um plano definido. Entre em contato com o suporte.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="col-md-6">
+        <div class="card-doc tab p-4">
+          <div class="small text-muted-doc">Módulos contratados</div>
+          <p class="small text-muted-doc">Veja o que sua empresa já tem liberado e peça módulos adicionais.</p>
+          {% if 'modulos' in abas_visiveis %}
+          <a href="#aba-modulos" id="link-ir-para-modulos" class="btn btn-outline-doc">Ver módulos</a>
+          {% else %}
+          <a href="{{ url_for('licenciamento.modulos') }}" class="btn btn-outline-doc">Ver módulos</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'modulos' in abas_visiveis %}
+  {% set m_ctx = modulos_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'modulos' }}" id="aba-modulos" role="tabpanel" aria-labelledby="tab-btn-modulos">
+    <p class="small text-muted-doc mb-3" style="max-width: 640px;">
+      Além do que já vem incluído, você pode solicitar outros módulos a
+      qualquer momento — cada um soma um valor adicional na sua mensalidade,
+      combinado com você antes de ser ativado.
+    </p>
+
+    <div class="card-doc tab p-0">
+      <table class="table-doc mb-0">
+        <thead>
+          <tr><th>Módulo</th><th>Status</th><th style="min-width:160px;"></th></tr>
+        </thead>
+        <tbody>
+          {% for l in m_ctx.linhas %}
+          {% set a = l.associacao %}
+          <tr>
+            <td>
+              <div class="fw-medium">{{ l.modulo.nome }}</div>
+              {% if l.modulo.descricao %}<div class="small text-muted-doc">{{ l.modulo.descricao }}</div>{% endif %}
+            </td>
+            <td>
+              {% if a and a.esta_liberado() %}<span class="badge-status badge-cumprido">ativo</span>
+              {% elif a and a.status == "solicitado" %}<span class="badge-status badge-pendente">pedido em análise</span>
+              {% else %}<span class="badge-status badge-arquivado">não contratado</span>{% endif %}
+            </td>
+            <td>
+              {% if not a or a.status not in ("incluido_inicial", "ativo", "solicitado") %}
+              <form method="post" action="{{ url_for('licenciamento.solicitar_modulo', modulo_id=l.modulo.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-brass btn-sm">Solicitar</button>
+              </form>
+              {% endif %}
+            </td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="text-muted-doc small">Nenhum módulo adicional disponível no momento.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <div class="mt-3">
+      {% if 'licenca' in abas_visiveis %}
+      <a href="#aba-licenca" id="link-voltar-para-licenca" class="linha-link small">← Voltar para minha licença</a>
+      {% else %}
+      <a href="{{ url_for('licenciamento.minha_licenca') }}" class="linha-link small">← Voltar para minha licença</a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+
+  {% if 'integracoes' in abas_visiveis %}
+  {% set i_ctx = integracoes_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'integracoes' }}" id="aba-integracoes" role="tabpanel" aria-labelledby="tab-btn-integracoes">
+    <p class="small text-muted-doc mb-4" style="max-width: 640px;">
+      Escolha, para a sua empresa, qual provedor usar no Agente de IA. Na opção "chave própria", a chave é
+      cifrada antes de ser salva (nunca fica em texto puro no banco) e nunca é reexibida depois — só
+      mostramos se já existe uma cadastrada.
+    </p>
+
+    <div class="row g-4">
+      <!-- ---------------- Agente de IA ---------------- -->
+      <div class="col-lg-6">
+        <div class="card-doc tab p-4 h-100">
+          <h4 class="mb-1" style="font-size:1rem;">Agente de IA</h4>
+          <p class="small text-muted-doc mb-3">
+            Motor usado pelo Agente de IA (Operação/Gestão/Negócios) e pela Análise de processo
+            (resumo dos autos / rascunho de petição).
+          </p>
+
+          <form method="post" action="{{ url_for('integracoes.salvar_ia') }}" id="form-ia">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="provedor" id="hub-ia-local" value="local"
+                     {{ "checked" if i_ctx.ia_provedor == "local" }} onchange="atualizarCamposIAHub()">
+              <label class="form-check-label small" for="hub-ia-local">
+                <strong>Modelo local (grátis)</strong> — roda no próprio servidor, sem chave, sem custo por
+                mensagem, mas modelo menor (pode alucinar mais em casos complexos).
+              </label>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="provedor" id="hub-ia-claude" value="claude_byok"
+                     {{ "checked" if i_ctx.ia_provedor == "claude_byok" }} onchange="atualizarCamposIAHub()">
+              <label class="form-check-label small" for="hub-ia-claude">
+                <strong>API do Claude (chave própria)</strong> — modelo mais robusto; a Anthropic cobra a sua
+                empresa DIRETAMENTE pelo uso, com a sua própria chave. A JusControl não vê nem intermedeia
+                esse consumo/pagamento.
+              </label>
+            </div>
+            <div class="form-check mb-3">
+              <input class="form-check-input" type="radio" name="provedor" id="hub-ia-gemini" value="gemini_byok"
+                     {{ "checked" if i_ctx.ia_provedor == "gemini_byok" }} onchange="atualizarCamposIAHub()">
+              <label class="form-check-label small" for="hub-ia-gemini">
+                <strong>API do Gemini (chave própria)</strong> — modelo mais robusto e barato que o local; o
+                Google cobra a sua empresa DIRETAMENTE pelo uso, com a sua própria chave. Precisa ser uma
+                chave de um projeto do Google AI Studio/Cloud com <strong>faturamento ativo</strong> — o nível
+                gratuito da API do Gemini não é aceito aqui, porque os Termos do Google permitem usar o
+                conteúdo enviado nesse nível para treinar/melhorar produtos e ter revisão humana, incompatível
+                com dado de processo/cliente.
+              </label>
+            </div>
+
+            <div id="hub-campos-ia-claude" class="ps-3 mb-3" style="border-left: 2px solid var(--brass-200); display:none;">
+              <div class="mb-2">
+                <label class="form-label small mb-1">Chave de API do Claude</label>
+                <input type="password" name="api_key" class="form-control form-control-sm"
+                       placeholder="{{ 'Chave cadastrada — deixe em branco para manter' if i_ctx.ia_tem_chave else 'sk-ant-...' }}"
+                       autocomplete="off">
+                <div class="form-text small">
+                  Gere em <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com/settings/keys</a>.
+                  {% if i_ctx.ia_tem_chave %}Já existe uma chave cadastrada — só preencha aqui se quiser trocá-la.{% endif %}
+                </div>
+              </div>
+              <div class="mb-1">
+                <label class="form-label small mb-1">Modelo</label>
+                <input type="text" name="modelo" class="form-control form-control-sm" value="{{ i_ctx.ia_modelo }}">
+                <div class="form-text small">
+                  Identificador exato do modelo (ex.: <code>{{ i_ctx.modelo_claude_padrao }}</code>). Confira o valor
+                  atual em <a href="https://docs.claude.com/en/docs/about-claude/models" target="_blank" rel="noopener">docs.claude.com</a>
+                  antes de trocar.
+                </div>
+              </div>
+            </div>
+
+            <div id="hub-campos-ia-gemini" class="ps-3 mb-3" style="border-left: 2px solid var(--brass-200); display:none;">
+              <div class="mb-2">
+                <label class="form-label small mb-1">Chave de API do Gemini</label>
+                <input type="password" name="api_key" class="form-control form-control-sm"
+                       placeholder="{{ 'Chave cadastrada — deixe em branco para manter' if i_ctx.ia_gemini_tem_chave else 'AIza...' }}"
+                       autocomplete="off">
+                <div class="form-text small">
+                  Gere em <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a>,
+                  num projeto com faturamento ativo (Google Cloud → Billing).
+                  {% if i_ctx.ia_gemini_tem_chave %}Já existe uma chave cadastrada — só preencha aqui se quiser trocá-la.{% endif %}
+                </div>
+              </div>
+              <div class="mb-1">
+                <label class="form-label small mb-1">Modelo</label>
+                <input type="text" name="modelo" class="form-control form-control-sm" value="{{ i_ctx.ia_gemini_modelo }}">
+                <div class="form-text small">
+                  Identificador exato do modelo (ex.: <code>{{ i_ctx.modelo_gemini_padrao }}</code> — bom equilíbrio
+                  custo/qualidade; troque por uma variante "flash-lite" se quiser o menor custo possível).
+                  Confira o valor atual em <a href="https://ai.google.dev/gemini-api/docs/models" target="_blank" rel="noopener">ai.google.dev/gemini-api/docs/models</a>
+                  antes de trocar.
+                </div>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-brass btn-sm">Salvar</button>
+            {% if i_ctx.ia_tem_chave or i_ctx.ia_gemini_tem_chave %}
+            <span class="small text-muted-doc ms-2">
+              ✓ chave{{ "s" if i_ctx.ia_tem_chave and i_ctx.ia_gemini_tem_chave }} cadastrada{{ "s" if i_ctx.ia_tem_chave and i_ctx.ia_gemini_tem_chave }}
+            </span>
+            {% endif %}
+          </form>
+
+          {% if i_ctx.ia_tem_chave %}
+          <form method="post" action="{{ url_for('integracoes.remover_chave_ia') }}" class="mt-2 d-inline-block me-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave do Claude</button>
+          </form>
+          {% endif %}
+          {% if i_ctx.ia_gemini_tem_chave %}
+          <form method="post" action="{{ url_for('integracoes.remover_chave_gemini') }}" class="mt-2 d-inline-block">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Remover chave do Gemini</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ---------------- WhatsApp dos lembretes ---------------- -->
+      <div class="col-lg-6">
+        <div class="card-doc tab p-4 h-100">
+          <h4 class="mb-1" style="font-size:1rem;">WhatsApp dos lembretes</h4>
+          <p class="small text-muted-doc mb-3">
+            Número usado para enviar os lembretes de compromisso da Agenda (pro cliente e pro responsável).
+            Cada empresa conecta o PRÓPRIO número aqui, escaneando um QR code — assim os clientes recebem a
+            mensagem (e conseguem responder dúvidas) de um número da sua própria empresa, não de um número
+            compartilhado com outras empresas da plataforma.
+          </p>
+
+          {% if not i_ctx.whatsapp_bridge_configurado %}
+          <div class="alert alert-warning py-2 px-3 small mb-0">
+            Recurso de WhatsApp não está configurado neste servidor (fale com o administrador da plataforma).
+          </div>
+
+          {% elif i_ctx.whatsapp_erro %}
+          <div class="alert alert-warning py-2 px-3 small">Não foi possível consultar o WAHA agora: {{ i_ctx.whatsapp_erro }}</div>
+          <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Tentar novamente</button>
+          </form>
+
+          {% elif i_ctx.whatsapp_status == "WORKING" %}
+          <div class="small mb-2">
+            <span class="badge-status badge-cumprido">✓ conectado</span>
+            {% if i_ctx.whatsapp_numero %}<span class="text-muted-doc ms-2">{{ i_ctx.whatsapp_numero }}</span>{% endif %}
+            {% if i_ctx.empresa.dono_da_plataforma %}<div class="text-muted-doc mt-1">Sessão padrão da plataforma.</div>{% endif %}
+          </div>
+          <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Desconectar</button>
+          </form>
+
+          {% elif i_ctx.whatsapp_status in ("STARTING", "SCAN_QR_CODE") %}
+          <div class="small text-muted-doc mb-2">
+            Abra o WhatsApp no celular do número que vai ser usado → <strong>Aparelhos conectados</strong> →
+            <strong>Conectar um aparelho</strong> → escaneie o código abaixo.
+          </div>
+          <img id="hub-whatsapp-qr" src="{{ url_for('integracoes.qr_whatsapp') }}" alt="QR code do WhatsApp"
+               style="width:220px; height:220px; border:1px solid var(--brass-200); border-radius:6px;">
+          <div id="hub-whatsapp-status-msg" class="small text-muted-doc mt-2">Aguardando leitura do QR code…</div>
+          <form method="post" action="{{ url_for('integracoes.desconectar_whatsapp') }}" class="mt-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Cancelar</button>
+          </form>
+          <script>iniciarPollingWhatsAppHub();</script>
+
+          {% elif i_ctx.whatsapp_status in ("STOPPED", "FAILED", "NAO_ENCONTRADA") %}
+          <div class="small text-muted-doc mb-2">
+            {{ "Sessão parou/falhou." if i_ctx.whatsapp_status != "NAO_ENCONTRADA" else "A sessão salva não foi encontrada no servidor (pode ter sido removida manualmente)." }}
+          </div>
+          <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-brass btn-sm">Reconectar</button>
+          </form>
+
+          {% else %}
+          <div class="small text-muted-doc mb-2">Nenhum número conectado ainda.</div>
+          <form method="post" action="{{ url_for('integracoes.conectar_whatsapp') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-brass btn-sm">Conectar WhatsApp</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ---------------- Timbrado do escritório ---------------- -->
+      <div class="col-lg-6">
+        <div class="card-doc tab p-4 h-100">
+          <h4 class="mb-1" style="font-size:1rem;">Timbrado do escritório</h4>
+          <p class="small text-muted-doc mb-3">
+            Logo do escritório, usada ao lado do nome/CNPJ/endereço no cabeçalho dos PDFs gerados pelo
+            sistema (hoje: o recibo em PDF do Financeiro). Vale para a empresa inteira — todas as unidades
+            usam a mesma logo.
+          </p>
+
+          {% if i_ctx.logo_configurada %}
+          <div class="mb-3">
+            <img src="{{ url_for('integracoes.imagem_timbrado') }}" alt="Logo do escritório"
+                 style="max-height:70px; max-width:220px; border:1px solid var(--brass-200); border-radius:6px; padding:4px; background:#fff;">
+          </div>
+          {% else %}
+          <div class="small text-muted-doc mb-3">Nenhuma logo cadastrada ainda — os PDFs usam só o cabeçalho de texto.</div>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('integracoes.salvar_timbrado') }}" enctype="multipart/form-data" class="mb-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="mb-2">
+              <input type="file" name="logo" accept=".png,.jpg,.jpeg,image/png,image/jpeg" class="form-control form-control-sm">
+              <div class="form-text small">PNG ou JPG, até 3 MB.</div>
+            </div>
+            <button type="submit" class="btn btn-brass btn-sm">{{ "Trocar logo" if i_ctx.logo_configurada else "Enviar logo" }}</button>
+          </form>
+
+          {% if i_ctx.logo_configurada %}
+          <form method="post" action="{{ url_for('integracoes.remover_timbrado') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-outline-doc btn-sm">Remover logo</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+
+      <!-- ---------------- Credenciais de tribunal ---------------- -->
+      <div class="col-lg-6">
+        <div class="card-doc tab p-4 h-100">
+          <h4 class="mb-1" style="font-size:1rem;">Credenciais de tribunal</h4>
+          <p class="small text-muted-doc mb-3">
+            Cofre de login/senha do escritório para eproc, Projudi, e-SAJ e PJe — senha sempre cifrada,
+            nunca reexibida. Ainda não faz login/download automatizado (ver aviso na tela de cadastro).
+          </p>
+          <div class="small text-muted-doc mb-3">
+            {{ i_ctx.credenciais_tribunal_count }} credencial(is) cadastrada(s).
+          </div>
+          <a href="{{ url_for('integracoes.credenciais_tribunal') }}" class="btn btn-outline-doc btn-sm">Gerenciar credenciais</a>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Mesma lógica de app/templates/integracoes/minhas_integracoes.html,
+// renomeada (sufixo "Hub") só pra nunca colidir se algum dia as duas
+// telas acabarem carregadas juntas — hoje não acontece (uma exclui a
+// outra na navegação), mas custa zero e evita surpresa futura.
+function atualizarCamposIAHub() {
+  var claude = document.getElementById('hub-ia-claude').checked;
+  var gemini = document.getElementById('hub-ia-gemini').checked;
+  document.getElementById('hub-campos-ia-claude').style.display = claude ? 'block' : 'none';
+  document.getElementById('hub-campos-ia-gemini').style.display = gemini ? 'block' : 'none';
+}
+{% if 'integracoes' in abas_visiveis %}
+atualizarCamposIAHub();
+{% endif %}
+
+function iniciarPollingWhatsAppHub() {
+  var statusUrl = "{{ url_for('integracoes.status_whatsapp') }}";
+  var tentativas = 0;
+  var poll = setInterval(function () {
+    tentativas++;
+    fetch(statusUrl).then(function (r) { return r.json(); }).then(function (dados) {
+      if (dados.status === "WORKING") {
+        clearInterval(poll);
+        window.location.reload();
+      } else if (dados.status && dados.status !== "STARTING" && dados.status !== "SCAN_QR_CODE") {
+        clearInterval(poll);
+        window.location.reload();
+      }
+    }).catch(function () {});
+
+    if (tentativas % 5 === 0) {
+      var img = document.getElementById('hub-whatsapp-qr');
+      if (img) img.src = "{{ url_for('integracoes.qr_whatsapp') }}?t=" + Date.now();
+    }
+  }, 3000);
+
+  setTimeout(function () { clearInterval(poll); }, 180000);
+}
+
+// Links "Ver módulos" (aba Minha licença) e "Voltar para minha licença"
+// (aba Módulos) — trocam de aba via Bootstrap em vez de navegar pra outra
+// URL, já que as duas abas estão na mesma tela agora (mesmo padrão do
+// link "Importar em lote" em governanca/entrada_processos.html).
+(function () {
+  function ligarTrocaDeAba(idLink, idBotaoAba) {
+    var link = document.getElementById(idLink);
+    var botao = document.getElementById(idBotaoAba);
+    if (!link || !botao || typeof bootstrap === "undefined") return;
+    link.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      bootstrap.Tab.getOrCreateInstance(botao).show();
+    });
+  }
+  ligarTrocaDeAba("link-ir-para-modulos", "tab-btn-modulos");
+  ligarTrocaDeAba("link-voltar-para-licenca", "tab-btn-licenca");
+})();
+</script>
+{% endblock %}

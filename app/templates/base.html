@@ -52,26 +52,39 @@
       {# Submenus (2º nível, dentro de um grupo) — mesma ideia dos grupos
          recolhíveis acima, só que pra encolher um PUNHADO de itens
          relacionados dentro de um grupo já aberto. Usado hoje só pras
-         seções grandes de administração (Minha empresa, Plataforma,
-         Regras e parâmetros), cada uma com várias telas de CRUD
-         independentes (lista/criar/editar/excluir cada uma) — accordion
-         faz sentido aí porque nenhuma tela sozinha resolve o assunto.
+         duas seções que continuam sendo administração de PLATAFORMA (não
+         da empresa cliente): "Plataforma" (catálogo/licenças entre
+         empresas, só admin desenvolvedor) e "Regras e parâmetros" (5
+         telas de CRUD independentes de configuração jurídica, uso raro no
+         dia a dia) — accordion ainda faz sentido nessas porque nenhuma
+         tela sozinha resolve o assunto e não são "a mesma tarefa vista de
+         formas diferentes".
 
          "Rotina" (Tarefas+Agenda+Horas), "Minha conta" (Preferências+
-         Autenticador+Meu agente local) e "Entrada de processos" (CNJ+OAB+
-         Importar em lote) usam em vez disso o padrão de HUB COM ABAS numa
-         tela só (uma rota Flask, várias tab-pane — ver app/routes/rotina.py,
-         app/routes/conta.py::hub, app/routes/governanca.py::
-         entrada_processos) porque cada uma delas é "a mesma tarefa vista de
-         formas diferentes", então virar uma aba dentro de uma tela só
-         (em vez de um botão que só expande uma lista de links) deixa
-         tudo a um clique de distância — pedido explícito do cliente,
-         inspirado no que já existia em "Entrada de processos". As telas
-         antigas (tarefas.listar, agenda.index, timesheet.listar,
-         conta.preferencias, conta.configurar_totp, agente_local.
-         meu_agente, governanca.novo_por_cnj, governanca.importar_lote)
-         continuam existindo e funcionando pra quem chegar direto por um
-         link salvo — só o menu lateral passou a apontar pro hub.
+         Autenticador+Meu agente local), "Minha empresa" (Unidades+Equipe+
+         Relatórios+Auditoria+Alçada de aprovação+Minha licença+Módulos+
+         Integrações) e "Entrada de processos" (CNJ+OAB+Importar em lote)
+         usam em vez disso o padrão de HUB COM ABAS numa tela só (uma rota
+         Flask, várias tab-pane — ver app/routes/rotina.py, app/routes/
+         conta.py::hub, app/routes/admin.py::minha_empresa, app/routes/
+         governanca.py::entrada_processos) porque cada uma delas reúne
+         telas relacionadas que fazem sentido ver lado a lado, e virar uma
+         aba dentro de uma tela só (em vez de um botão que só expande uma
+         lista de links) deixa tudo a um clique de distância — pedido
+         explícito do cliente ("quero que junte todos os itens de 'minha
+         empresa' também", depois da mesma ideia já aplicada a Rotina e
+         Minha conta), inspirado no que já existia em "Entrada de
+         processos". As telas antigas (tarefas.listar, agenda.index,
+         timesheet.listar, conta.preferencias, conta.configurar_totp,
+         agente_local.meu_agente, admin.unidades, admin.usuarios, admin.
+         relatorios, admin.auditoria, admin.alcada_aprovacao,
+         licenciamento.minha_licenca, licenciamento.modulos, integracoes.
+         minhas_integracoes, governanca.novo_por_cnj, governanca.
+         importar_lote) continuam existindo e funcionando pra quem chegar
+         direto por um link salvo — só o menu lateral passou a apontar pro
+         hub. "+ Nova unidade"/"+ Novo usuário"/"Editar" continuam abrindo
+         uma tela de formulário própria, fora do hub, mesmo padrão de
+         "Nova tarefa" dentro do hub "Rotina".
 
          Mesmo padrão de auto-abrir quando a página atual está dentro
          (nunca esconde onde o usuário está) + localStorage (ver script no
@@ -185,46 +198,9 @@
           </a>
 
           {% if current_user.pode_gerenciar_usuarios() %}
-          <div class="submenu-colapsavel {{ 'expandido' if esta_em_minha_empresa }}" data-submenu="minha-empresa">
-            <button type="button" class="nav-item submenu-toggle">
-              <span>Minha empresa</span>
-              <span class="submenu-chevron">▾</span>
-            </button>
-            <div class="submenu-itens {{ '' if esta_em_minha_empresa else 'recolhido' }}">
-              {% if current_user.is_admin %}
-              <a class="nav-item {{ 'active' if request.endpoint == 'admin.unidades' or request.endpoint == 'admin.nova_unidade' or request.endpoint == 'admin.editar_unidade' }}" href="{{ url_for('admin.unidades') }}">
-                <span class="tab-index">06</span> Unidades
-              </a>
-              {% endif %}
-              <a class="nav-item {{ 'active' if request.endpoint and 'usuario' in request.endpoint }}" href="{{ url_for('admin.usuarios') }}">
-                <span class="tab-index">07</span> Equipe
-              </a>
-              {% if current_user.is_admin %}
-              <a class="nav-item {{ 'active' if request.endpoint == 'admin.relatorios' }}" href="{{ url_for('admin.relatorios') }}">
-                <span class="tab-index">08</span> Relatórios
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint == 'admin.auditoria' }}" href="{{ url_for('admin.auditoria') }}">
-                <span class="tab-index">09</span> Auditoria
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint == 'admin.alcada_aprovacao' }}" href="{{ url_for('admin.alcada_aprovacao') }}">
-                <span class="tab-index">09b</span> Alçada de aprovação
-              </a>
-              {% endif %}
-              {% if current_user.is_admin and not current_user.is_admin_desenvolvedor %}
-              <a class="nav-item {{ 'active' if request.endpoint == 'licenciamento.minha_licenca' or request.endpoint == 'licenciamento.pagamento_retorno' }}" href="{{ url_for('licenciamento.minha_licenca') }}">
-                <span class="tab-index">10</span> Minha licença
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('licenciamento.modulos') or request.endpoint == 'licenciamento.solicitar_modulo' }}" href="{{ url_for('licenciamento.modulos') }}">
-                <span class="tab-index">10b</span> Módulos
-              </a>
-              {% endif %}
-              {% if current_user.is_admin %}
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('integracoes.') }}" href="{{ url_for('integracoes.minhas_integracoes') }}">
-                <span class="tab-index">11</span> Integrações
-              </a>
-              {% endif %}
-            </div>
-          </div>
+          <a class="nav-item {{ 'active' if esta_em_minha_empresa }}" href="{{ url_for('admin.minha_empresa') }}">
+            Minha empresa
+          </a>
           {% endif %}
 
           {% if current_user.is_admin_desenvolvedor %}

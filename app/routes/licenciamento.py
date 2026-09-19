@@ -19,16 +19,32 @@ from app.utils.modulos import catalogo_ativo, solicitar_modulo as solicitar_modu
 licenciamento_bp = Blueprint("licenciamento", __name__)
 
 
+def _contexto_minha_licenca():
+    """
+    Reúne o contexto da tela "Minha licença" num dict — extraído de
+    `minha_licenca()` pra ser reaproveitado também pelo hub `admin.
+    minha_empresa()` (menu simplificado: "Minha empresa" virou uma tela só
+    com abas, mesma ideia de app/routes/rotina.py e app/routes/conta.py::
+    hub). Devolve `None` quando esta área não se aplica (empresa dona da
+    plataforma, ou usuário sem empresa vinculada) — quem chama decide o
+    que fazer (a rota antiga redireciona com um aviso; o hub simplesmente
+    não mostra a aba, mesmo padrão de `conta._contexto_totp()`).
+    """
+    empresa = current_user.empresa
+    if empresa is None or empresa.dono_da_plataforma:
+        return None
+    return dict(empresa=empresa, licenca=empresa.licenca)
+
+
 @licenciamento_bp.route("/minha-licenca")
 @login_required
 @apenas_admin
 def minha_licenca():
-    empresa = current_user.empresa
-    if empresa is None or empresa.dono_da_plataforma:
+    contexto = _contexto_minha_licenca()
+    if contexto is None:
         flash("Esta área é só para empresas clientes.", "warning")
         return redirect(url_for("dashboard.index"))
-    licenca = empresa.licenca
-    return render_template("licenciamento/minha_licenca.html", empresa=empresa, licenca=licenca)
+    return render_template("licenciamento/minha_licenca.html", **contexto)
 
 
 @licenciamento_bp.route("/minha-licenca/pagar", methods=["POST"])
@@ -90,6 +106,24 @@ def pagamento_retorno(status):
     return redirect(url_for("licenciamento.minha_licenca"))
 
 
+def _contexto_modulos():
+    """Mesma extração de `_contexto_minha_licenca()` — pra reaproveitar em
+    `admin.minha_empresa()`. Devolve `None` nos mesmos casos (empresa dona
+    da plataforma, ou sem empresa vinculada)."""
+    empresa = current_user.empresa
+    if empresa is None or empresa.dono_da_plataforma:
+        return None
+
+    associacoes = {a.modulo_id: a for a in EmpresaModulo.query.filter_by(empresa_id=empresa.id).all()}
+    catalogo = catalogo_ativo()
+    linhas = [
+        dict(modulo=m, associacao=associacoes.get(m.id))
+        for m in catalogo
+        if not m.obrigatorio  # obrigatório nem aparece — já vem sempre, não é algo pra "pedir"
+    ]
+    return dict(empresa=empresa, linhas=linhas)
+
+
 @licenciamento_bp.route("/modulos")
 @login_required
 @apenas_admin
@@ -102,19 +136,11 @@ def modulos():
     (mesmo espírito de nunca expor "tabela de preços", ver
     app/models/licenca.py).
     """
-    empresa = current_user.empresa
-    if empresa is None or empresa.dono_da_plataforma:
+    contexto = _contexto_modulos()
+    if contexto is None:
         flash("Esta área é só para empresas clientes.", "warning")
         return redirect(url_for("dashboard.index"))
-
-    associacoes = {a.modulo_id: a for a in EmpresaModulo.query.filter_by(empresa_id=empresa.id).all()}
-    catalogo = catalogo_ativo()
-    linhas = [
-        dict(modulo=m, associacao=associacoes.get(m.id))
-        for m in catalogo
-        if not m.obrigatorio  # obrigatório nem aparece — já vem sempre, não é algo pra "pedir"
-    ]
-    return render_template("licenciamento/modulos.html", empresa=empresa, linhas=linhas)
+    return render_template("licenciamento/modulos.html", **contexto)
 
 
 @licenciamento_bp.route("/modulos/<int:modulo_id>/solicitar", methods=["POST"])
@@ -131,15 +157,15 @@ def solicitar_modulo(modulo_id):
     modulo = db.get_or_404(Modulo, modulo_id)
     if modulo.obrigatorio:
         flash("Esse módulo já está sempre incluído — não precisa solicitar.", "info")
-        return redirect(url_for("licenciamento.modulos"))
+        return redirect(request.referrer or url_for("licenciamento.modulos"))
 
     assoc = EmpresaModulo.query.filter_by(empresa_id=empresa.id, modulo_id=modulo.id).first()
     if assoc is not None and assoc.esta_liberado():
         flash(f"Sua empresa já tem o módulo \"{modulo.nome}\" ativo.", "info")
-        return redirect(url_for("licenciamento.modulos"))
+        return redirect(request.referrer or url_for("licenciamento.modulos"))
     if assoc is not None and assoc.status == "solicitado":
         flash(f"Já existe um pedido em aberto para \"{modulo.nome}\" — aguarde nosso retorno.", "info")
-        return redirect(url_for("licenciamento.modulos"))
+        return redirect(request.referrer or url_for("licenciamento.modulos"))
 
     solicitar_modulo_util(empresa, modulo, solicitado_por=current_user)
     registrar_log(current_user, "solicitou_modulo", "Empresa", empresa.id, modulo.chave)
@@ -163,7 +189,7 @@ def solicitar_modulo(modulo_id):
 
     db.session.commit()
     flash(f"Pedido enviado! Assim que aprovarmos o módulo \"{modulo.nome}\", ele aparece liberado aqui.", "success")
-    return redirect(url_for("licenciamento.modulos"))
+    return redirect(request.referrer or url_for("licenciamento.modulos"))
 
 
 @licenciamento_bp.route("/webhooks/mercadopago", methods=["POST"])
