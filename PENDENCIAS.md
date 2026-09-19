@@ -1,5 +1,47 @@
 # Status das pendências do briefing (atualizado em 19/09/2026)
 
+## -114. Corrigido o erro 500 no hub "Regras e parâmetros" (seção -113) causado pela varredura de conflitos rodando em toda carga de página
+
+**Relato do usuário:** depois de receber a seção -113, testou no ambiente real (carteira de verdade, não
+os dados leves da suíte de testes) e reportou: "otimo, mas agora ao acessar 'regras-e-parametros' ocorre
+o seguinte erro '500 Ocorreu um erro inesperado. Tente novamente em alguns instantes — se persistir, avise
+o suporte.'"
+
+**Meu erro:** a aba "Verificação de conflitos" do hub novo chama `_contexto_verificacao_conflitos()`, que
+por sua vez chama `varrer_conflitos_da_empresa()` (`app/utils/conflito_interesse.py`) — uma varredura
+cruzando TODO cliente da empresa com TODO processo cuja parte contrária bate o nome, em todas as unidades.
+A própria docstring dessa função já avisa: "mais pesada [...] então só deve rodar sob demanda (botão), não
+em toda carga de página." A view antiga (`/governanca/conflitos`) respeitava isso, porque só rodava a
+varredura quando essa tela específica era visitada. O hub novo (seção -113), porém, montava o contexto de
+**todas** as 5 abas de uma vez, incondicionalmente, a cada request — inclusive nos acessos à aba padrão
+("Regras de próxima ação") ou a qualquer uma das outras 4 abas mais leves. Em carteira pequena (dados da
+suíte) isso passa rápido o bastante pra nunca estourar; em carteira real, a varredura ficou pesada demais e
+o request estourou (timeout/erro), e o handler genérico de erro 500 (`app/__init__.py`) escondeu a causa
+real por trás da mensagem genérica que o usuário viu.
+
+**Correção:** `governanca.regras_e_parametros()` agora só calcula `conflitos_ctx` quando a aba pedida
+(`?tab=conflitos`) é de fato "conflitos" — nas outras 4 abas o valor passado ao template é `None`, e a
+varredura pesada nunca roda. Como consequência, o botão "Verificação de conflitos" no template deixou de
+ser uma troca de aba só no client-side (`data-bs-toggle="tab"`, sem recarregar a página) e virou um link de
+verdade (`<a href="...?tab=conflitos">`) que recarrega a página — é a única das 5 abas do hub que funciona
+assim, porque é a única com uma consulta cara por trás; as outras 4 continuam trocando de aba instantaneamente
+no navegador, sem novo request. O corpo da aba no template ganhou uma guarda `{% if c_ctx %}` pra lidar com
+o novo caso em que o contexto vem `None` (quando outra aba foi a pedida).
+
+Nenhuma outra aba deste ou dos outros dois hubs novos (Plataforma, Painel e filas) tinha um aviso
+equivalente de "só rodar sob demanda" no código (conferido com uma busca por "sob demanda" em todo
+`app/`) — não há indício de que a mesma armadilha se repita em outro lugar, mas só o uso real vai confirmar
+isso com certeza.
+
+**Onde:** `app/routes/governanca.py` (`regras_e_parametros()` — `conflitos_ctx` agora condicional),
+`app/templates/governanca/regras_e_parametros_hub.html` (botão da aba "Verificação de conflitos" virou
+link de verdade; corpo da aba envolvido em `{% if c_ctx %}`; comentário no topo do arquivo documentando a
+particularidade). Testado em `tests/test_hub_regras_parametros.py` — 3 testes novos: um confirmando que
+`varrer_conflitos_da_empresa()` NÃO é chamada ao carregar o hub em nenhuma das outras 4 abas (via
+monkeypatch), um confirmando que `?tab=conflitos` continua rodando a varredura e mostrando o resultado
+normalmente, e um confirmando que o admin desenvolvedor ainda vê a tela de "escolher empresa" antes de
+rodar a varredura. Suíte completa (591 testes) passando.
+
 ## -113. Quinta rodada de simplificação do menu — hubs "Plataforma", "Regras e parâmetros" e "Painel e filas"
 
 **Pedido:** depois de ver o hub "Minha empresa" (seção -112 acima), o usuário pediu: "otimo, agora faça o

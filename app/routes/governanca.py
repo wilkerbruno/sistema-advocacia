@@ -2171,12 +2171,27 @@ def regras_e_parametros():
     aba_pedida = request.args.get("tab")
     aba_inicial = aba_pedida if aba_pedida in abas_visiveis else "regras"
 
+    # "Verificação de conflitos" é a única aba deste hub que NÃO computa o
+    # próprio contexto sempre: `varrer_conflitos_da_empresa()` é uma
+    # varredura pesada (todo cliente × todo processo com parte contrária
+    # da empresa inteira) que sua própria docstring já avisa pra só rodar
+    # sob demanda, nunca em toda carga de página — diferente das outras 4
+    # abas deste hub (listagens simples). Calculá-la incondicionalmente
+    # aqui faria QUALQUER aba do hub (inclusive "Regras de próxima ação",
+    # a aba padrão) pagar o custo da varredura da empresa inteira a cada
+    # acesso, o que já causou timeout/erro 500 em ambiente com carteira
+    # maior. Por isso só roda quando "conflitos" é de fato a aba pedida —
+    # o botão dessa aba específica é um link de verdade (recarrega a
+    # página com `?tab=conflitos`), não uma troca de aba só no cliente
+    # como as outras 4 (ver comentário no template).
+    conflitos_ctx = _contexto_verificacao_conflitos() if aba_inicial == "conflitos" else None
+
     return render_template(
         "governanca/regras_e_parametros_hub.html",
         aba_inicial=aba_inicial,
         regras_ctx=_contexto_regras_proxima_acao(),
         mapa_estado_ctx=_contexto_mapa_estado(),
-        conflitos_ctx=_contexto_verificacao_conflitos(),
+        conflitos_ctx=conflitos_ctx,
         modelos_peca_ctx=_contexto_modelos_peca(),
         tabela_custas_ctx=_contexto_tabela_custas(),
     )

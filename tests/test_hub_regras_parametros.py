@@ -203,3 +203,64 @@ def test_carregar_tabela_padrao_tjsp_a_partir_do_hub_volta_para_o_hub(client, lo
     )
     assert r.status_code == 302
     assert r.headers["Location"].endswith("/governanca/regras-e-parametros?tab=tabela_custas")
+
+
+# ---------------------- Bug corrigido: varredura de conflitos não pode rodar em toda carga do hub ----------------------
+# (usuário relatou 500 em ambiente real ao acessar o hub — a varredura de
+# conflitos, que a própria varrer_conflitos_da_empresa() avisa que só deve
+# rodar sob demanda, estava sendo recalculada em TODA aba, sempre. Ver
+# comentário em governanca.py::regras_e_parametros().)
+
+def test_carregar_o_hub_sem_pedir_a_aba_conflitos_nao_roda_a_varredura_pesada(client, login, app, monkeypatch):
+    """Acessar qualquer aba que não seja 'conflitos' (inclusive a aba
+    padrão) não pode chamar varrer_conflitos_da_empresa() — é essa
+    varredura incondicional que causava o 500 relatado em produção."""
+    import app.routes.governanca as governanca_mod
+
+    _, unidade = _montar_empresa()
+    _criar_usuario_e_logar(unidade.id, "admin10@hubregras.com", "admin", login)
+
+    chamadas = []
+    monkeypatch.setattr(
+        governanca_mod,
+        "varrer_conflitos_da_empresa",
+        lambda *a, **k: chamadas.append((a, k)) or [],
+    )
+
+    for url in ("/governanca/regras-e-parametros",
+                "/governanca/regras-e-parametros?tab=regras",
+                "/governanca/regras-e-parametros?tab=mapa_estado",
+                "/governanca/regras-e-parametros?tab=modelos_peca",
+                "/governanca/regras-e-parametros?tab=tabela_custas"):
+        r = client.get(url)
+        assert r.status_code == 200
+
+    assert chamadas == []
+
+
+def test_aba_conflitos_via_query_string_roda_a_varredura_e_mostra_o_resultado(client, login, app):
+    _, unidade = _montar_empresa()
+    _criar_usuario_e_logar(unidade.id, "admin11@hubregras.com", "admin", login)
+
+    r = client.get("/governanca/regras-e-parametros?tab=conflitos")
+    assert r.status_code == 200
+    html = r.data.decode("utf-8")
+
+    idx_botao = html.index('id="tab-btn-conflitos"')
+    trecho = html[max(0, idx_botao - 30):idx_botao + 30]
+    assert "active" in trecho
+    # sem cliente/processo cadastrado, cai no estado vazio de "sem conflito":
+    assert "Nenhum conflito encontrado" in html
+
+
+def test_aba_conflitos_para_admin_desenvolvedor_pede_pra_escolher_empresa(client, login, app):
+    """Admin desenvolvedor não tem empresa fixa — a aba de conflitos pede
+    pra escolher uma antes de rodar a varredura (mesmo comportamento de
+    sempre da tela solteira /governanca/conflitos)."""
+    _, unidade = _montar_empresa(dono_da_plataforma=True)
+    _criar_usuario_e_logar(unidade.id, "dev@hubregras.com", "admin", login)
+
+    r = client.get("/governanca/regras-e-parametros?tab=conflitos")
+    assert r.status_code == 200
+    html = r.data.decode("utf-8")
+    assert "Escolha uma empresa acima" in html

@@ -20,6 +20,16 @@
   só as LISTAS viraram abas; "+ Nova regra"/"+ Novo mapeamento"/"+ Novo
   modelo"/"+ Nova linha"/"Editar" continuam abrindo uma tela de
   formulário própria, fora do hub.
+
+  Particularidade: "Verificação de conflitos" é a ÚNICA aba que não troca
+  client-side — o botão dela é um link de verdade (recarrega a página com
+  `?tab=conflitos`), porque `varrer_conflitos_da_empresa()` é pesada
+  (varre toda a carteira) e sua docstring já avisa pra só rodar sob
+  demanda, nunca em toda carga de página (ver governanca.py::
+  regras_e_parametros — calcular isso de graça pra qualquer aba já causou
+  timeout/erro 500). As outras 4 abas são listagens simples e continuam
+  trocando instantaneamente via Bootstrap, com o conteúdo das 4 já pronto
+  na página desde o primeiro carregamento.
 #}
 <ul class="nav nav-tabs mb-3" id="abasRegrasParametros" role="tablist" style="border-color: var(--paper-200);">
   <li class="nav-item" role="presentation">
@@ -33,9 +43,12 @@
     </button>
   </li>
   <li class="nav-item" role="presentation">
-    <button class="nav-link {{ 'active' if aba_inicial == 'conflitos' }}" id="tab-btn-conflitos" data-bs-toggle="tab" data-bs-target="#aba-conflitos" type="button" role="tab" aria-controls="aba-conflitos">
+    {# Link de verdade (recarrega a página), não troca-de-aba client-side —
+       ver comentário no topo deste arquivo: a varredura de conflitos é
+       pesada demais pra calcular de graça em toda carga do hub. #}
+    <a class="nav-link {{ 'active' if aba_inicial == 'conflitos' }}" id="tab-btn-conflitos" href="{{ url_for('governanca.regras_e_parametros', tab='conflitos') }}" role="tab" aria-controls="aba-conflitos">
       Verificação de conflitos
-    </button>
+    </a>
   </li>
   <li class="nav-item" role="presentation">
     <button class="nav-link {{ 'active' if aba_inicial == 'modelos_peca' }}" id="tab-btn-modelos_peca" data-bs-toggle="tab" data-bs-target="#aba-modelos_peca" type="button" role="tab" aria-controls="aba-modelos_peca">
@@ -232,62 +245,64 @@
       nomes comuns.
     </p>
 
-    {% if c_ctx.empresas_para_escolher is not none %}
-    <form method="get" action="{{ url_for('governanca.regras_e_parametros') }}" class="d-flex gap-2 mb-3 align-items-end">
-      <input type="hidden" name="tab" value="conflitos">
-      <div>
-        <label class="form-label small mb-1">Empresa</label>
-        <select name="empresa_id" class="form-select" style="min-width:280px;" onchange="this.form.submit()">
-          <option value="">Selecione uma empresa...</option>
-          {% for e in c_ctx.empresas_para_escolher %}
-          <option value="{{ e.id }}" {{ "selected" if c_ctx.empresa_id == e.id }}>{{ e.nome }}</option>
-          {% endfor %}
-        </select>
-      </div>
-      <noscript><button class="btn btn-outline-doc btn-sm">Verificar</button></noscript>
-    </form>
-    {% endif %}
+    {% if c_ctx %}
+      {% if c_ctx.empresas_para_escolher is not none %}
+      <form method="get" action="{{ url_for('governanca.regras_e_parametros') }}" class="d-flex gap-2 mb-3 align-items-end">
+        <input type="hidden" name="tab" value="conflitos">
+        <div>
+          <label class="form-label small mb-1">Empresa</label>
+          <select name="empresa_id" class="form-select" style="min-width:280px;" onchange="this.form.submit()">
+            <option value="">Selecione uma empresa...</option>
+            {% for e in c_ctx.empresas_para_escolher %}
+            <option value="{{ e.id }}" {{ "selected" if c_ctx.empresa_id == e.id }}>{{ e.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <noscript><button class="btn btn-outline-doc btn-sm">Verificar</button></noscript>
+      </form>
+      {% endif %}
 
-    {% if c_ctx.empresas_para_escolher is not none and not c_ctx.empresa_id %}
-    <div class="empty-state">
-      <div class="font-display">Escolha uma empresa acima</div>
-      <p class="mb-0">Admin desenvolvedor enxerga múltiplas empresas — escolha qual escritório verificar.</p>
-    </div>
-    {% elif c_ctx.conflitos %}
-    <div class="alert alert-danger small mb-3">
-      {{ c_ctx.conflitos|length }} possível conflito(s) de interesse encontrado(s). Revise cada um — pode
-      ser mesmo nome de pessoas diferentes, ou algo que já foi resolvido (ex: caso encerrado).
-    </div>
-    <div class="card-doc tab p-0">
-      <table class="table-doc mb-0">
-        <thead>
-          <tr>
-            <th>Cliente</th>
-            <th>Também aparece como parte contrária em</th>
-          </tr>
-        </thead>
-        <tbody>
-          {% for item in c_ctx.conflitos %}
-          <tr>
-            <td><a class="linha-link" href="{{ url_for('clientes.detalhe', cliente_id=item.cliente.id) }}">{{ item.cliente.nome }}</a></td>
-            <td>
-              {% for p in item.processos %}
-              <div>
-                <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a>
-                <span class="text-muted-doc small">— cliente desse processo: {{ p.cliente.nome if p.cliente else "—" }}</span>
-              </div>
-              {% endfor %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    {% elif c_ctx.empresa_id %}
-    <div class="empty-state">
-      <div class="font-display">Nenhum conflito encontrado</div>
-      <p class="mb-0">Nenhum cliente cadastrado aparece como parte contrária em outro processo do escritório.</p>
-    </div>
+      {% if c_ctx.empresas_para_escolher is not none and not c_ctx.empresa_id %}
+      <div class="empty-state">
+        <div class="font-display">Escolha uma empresa acima</div>
+        <p class="mb-0">Admin desenvolvedor enxerga múltiplas empresas — escolha qual escritório verificar.</p>
+      </div>
+      {% elif c_ctx.conflitos %}
+      <div class="alert alert-danger small mb-3">
+        {{ c_ctx.conflitos|length }} possível conflito(s) de interesse encontrado(s). Revise cada um — pode
+        ser mesmo nome de pessoas diferentes, ou algo que já foi resolvido (ex: caso encerrado).
+      </div>
+      <div class="card-doc tab p-0">
+        <table class="table-doc mb-0">
+          <thead>
+            <tr>
+              <th>Cliente</th>
+              <th>Também aparece como parte contrária em</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in c_ctx.conflitos %}
+            <tr>
+              <td><a class="linha-link" href="{{ url_for('clientes.detalhe', cliente_id=item.cliente.id) }}">{{ item.cliente.nome }}</a></td>
+              <td>
+                {% for p in item.processos %}
+                <div>
+                  <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a>
+                  <span class="text-muted-doc small">— cliente desse processo: {{ p.cliente.nome if p.cliente else "—" }}</span>
+                </div>
+                {% endfor %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% elif c_ctx.empresa_id %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum conflito encontrado</div>
+        <p class="mb-0">Nenhum cliente cadastrado aparece como parte contrária em outro processo do escritório.</p>
+      </div>
+      {% endif %}
     {% endif %}
   </div>
 
