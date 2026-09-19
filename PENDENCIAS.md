@@ -1,5 +1,41 @@
 # Status das pendências do briefing (atualizado em 19/09/2026)
 
+## -115. Segunda causa do mesmo erro 500 em "Regras e parâmetros": `NULLS LAST` não existe no MySQL
+
+**Relato do usuário:** depois da correção da seção -114, o erro 500 continuou. Desta vez o usuário mandou o
+log completo do servidor, o que permitiu ver a causa real (o handler de erro genérico da seção -114 escondia
+o traceback do usuário, mas não do log): `pymysql.err.ProgrammingError: (1064, "You have an error in your
+SQL syntax [...] near 'NULLS LAST'")`, disparado dentro de `_contexto_tabela_custas()`.
+
+**Causa raiz — bug antigo, só exposto agora:** três consultas do sistema (`app/utils/calculo_custas.py::
+calcular_custa`, `app/routes/processos.py` no detalhe do processo, e `app/routes/governanca.py::
+_contexto_tabela_custas`) ordenam `TabelaCustas.faixa_ate` com `.asc().nullslast()`, que o SQLAlchemy traduz
+pra `ORDER BY ... NULLS LAST`. Essa cláusula é entendida por Postgres e por SQLite (por isso a suíte de
+testes, que roda em SQLite, nunca pegou o problema) — mas o **MySQL não suporta `NULLS LAST`/`NULLS FIRST`
+em nenhuma versão**, e quebra com erro de sintaxe. Ou seja: esse bug já existia antes desta rodada de hubs,
+nas três consultas, mas só "explodia" pra quem visitasse `/governanca/tabela-custas` diretamente (tela pouco
+usada) ou calculasse custas dentro de um processo. A rota `regras_e_parametros()` (seção -113) passou a
+chamar `_contexto_tabela_custas()` incondicionalmente em toda carga do hub — igual às outras 3 abas
+"leves" —, e como "Regras e parâmetros" virou a porta de entrada única do menu pra essa área, o bug que
+antes era raro passou a acontecer sempre que o hub era aberto.
+
+**Correção:** nova função portátil `ordem_nulls_last(coluna)` em `app/utils/calculo_custas.py` — em vez de
+pedir `NULLS LAST` do banco, ordena primeiro por uma expressão `CASE WHEN coluna IS NULL THEN 1 ELSE 0 END`
+e só depois pelo valor de verdade (mesmo resultado, SQL padrão que MySQL/Postgres/SQLite entendem igual).
+Usada nos três lugares que antes chamavam `.nullslast()` diretamente. Conferido manualmente que o SQL
+gerado pro dialeto MySQL não contém mais `NULLS LAST` em nenhuma forma.
+
+**Onde:** `app/utils/calculo_custas.py` (`ordem_nulls_last()` novo; `calcular_custa()` usa a versão nova),
+`app/routes/governanca.py` (import de `ordem_nulls_last`; `_contexto_tabela_custas()` usa a versão nova),
+`app/routes/processos.py` (import de `ordem_nulls_last`; consulta de tipos de custa do tribunal no detalhe
+do processo usa a versão nova). Testado: `tests/test_calculo_custas.py` já tinha um teste
+(`test_calcula_faixas_escolhe_a_faixa_correta`) que cadastra faixas com `faixa_ate=None` misturada com
+faixas numéricas e confirma que a escolhida é a certa — continua passando com a nova ordenação, prova que o
+resultado é idêntico ao de antes, só portátil. Suíte completa (591 testes) passando. **Aviso:** como o
+ambiente de testes roda em SQLite e o de produção em MySQL, esse tipo de incompatibilidade só aparece na
+carteira real do usuário — vale ficar atento a qualquer outro erro 500 relatado depois de mudanças em
+consultas, mesmo com a suíte 100% verde.
+
 ## -114. Corrigido o erro 500 no hub "Regras e parâmetros" (seção -113) causado pela varredura de conflitos rodando em toda carga de página
 
 **Relato do usuário:** depois de receber a seção -113, testou no ambiente real (carteira de verdade, não

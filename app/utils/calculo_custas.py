@@ -29,6 +29,28 @@ qualquer linha a qualquer momento pela tela. O sistema NUNCA recalcula ou
 atualiza estes valores sozinho.
 """
 from decimal import Decimal
+from sqlalchemy import case
+
+
+def ordem_nulls_last(coluna):
+    """
+    Devolve os critérios de `order_by(...)` pra ordenar `coluna` de forma
+    ascendente com valores NULL sempre por último — de um jeito que
+    funciona também em MySQL (banco de produção).
+
+    O jeito "óbvio" do SQLAlchemy pra isso, `coluna.asc().nullslast()`,
+    gera a cláusula `ORDER BY ... NULLS LAST`, que só Postgres e SQLite
+    entendem — MySQL não suporta essa sintaxe e quebra com
+    `ProgrammingError` (visto em produção ao abrir "Tabela de custas":
+    PENDENCIAS.md, seção -115). Essa versão é portável entre os três: em
+    vez de pedir NULLS LAST direto do banco, ordena primeiro por "esta
+    linha é nula?" (0 = não, 1 = sim) e só depois pelo valor de verdade —
+    mesmo resultado, sql padrão que todo banco entende.
+
+    Uso: `.order_by(*ordem_nulls_last(TabelaCustas.faixa_ate))` no lugar
+    de `.order_by(TabelaCustas.faixa_ate.asc().nullslast())`.
+    """
+    return (case((coluna.is_(None), 1), else_=0), coluna.asc())
 
 
 def _fmt_reais(valor):
@@ -62,7 +84,7 @@ def calcular_custa(tribunal, tipo_custa, valor_base=None, quantidade=1):
     from app.models import TabelaCustas
 
     linhas = (TabelaCustas.query.filter_by(tribunal=tribunal, tipo_custa=tipo_custa, ativo=True)
-              .order_by(TabelaCustas.faixa_ate.asc().nullslast()).all())
+              .order_by(*ordem_nulls_last(TabelaCustas.faixa_ate)).all())
     if not linhas:
         raise CustaNaoCadastradaError(
             f"Nenhuma regra de custas ativa cadastrada para \"{tribunal}\" / \"{tipo_custa}\". "

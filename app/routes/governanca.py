@@ -26,7 +26,7 @@ from app.models import (Processo, Cliente, Unidade, Movimentacao, Publicacao, De
                          Prazo, HistoricoEstadoProcesso, SenhaProcesso, LogCaptura,
                          MapaEstadoTPU, RegraProximaAcao, AgenteLocalPareado, SolicitacaoBuscaAutos,
                          ModeloPeca, TabelaCustas)
-from app.utils.calculo_custas import TABELA_PADRAO_TJSP
+from app.utils.calculo_custas import TABELA_PADRAO_TJSP, ordem_nulls_last
 from app.utils.acesso import (aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
                                unidades_do_escopo, usuarios_do_escopo, apenas_admin,
                                checar_acesso_processo_ou_403, filtrar_processos_visiveis)
@@ -1898,7 +1898,7 @@ def _contexto_tabela_custas():
     hub `regras_e_parametros()` (simplificação de menu).
     """
     linhas = (TabelaCustas.query
-              .order_by(TabelaCustas.tribunal, TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast())
+              .order_by(TabelaCustas.tribunal, TabelaCustas.tipo_custa, *ordem_nulls_last(TabelaCustas.faixa_ate))
               .all())
     return dict(linhas=linhas)
 

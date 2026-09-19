@@ -15,7 +15,7 @@ from app.models import (
     SolicitacaoBuscaAutos, DelimitacaoObjeto, DocumentoIndexado, ModeloPeca, TabelaCustas, CalculoCustas,
 )
 from app.models.modelo_peca import resolver_modelo_peca
-from app.utils.calculo_custas import calcular_custa, CustaNaoCadastradaError
+from app.utils.calculo_custas import calcular_custa, CustaNaoCadastradaError, ordem_nulls_last
 from app.utils.acesso import (
     aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403,
     unidades_do_escopo, usuarios_do_escopo, checar_acesso_processo_ou_403, filtrar_processos_visiveis,
@@ -400,7 +400,7 @@ def detalhe(processo_id):
     tipos_custas_do_tribunal = []
     if processo.tribunal:
         linhas_custas = (TabelaCustas.query.filter_by(tribunal=processo.tribunal, ativo=True)
-                          .order_by(TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast()).all())
+                          .order_by(TabelaCustas.tipo_custa, *ordem_nulls_last(TabelaCustas.faixa_ate)).all())
         vistos = set()
         for l in linhas_custas:
             if l.tipo_custa in vistos:
