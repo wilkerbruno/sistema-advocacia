@@ -1,0 +1,436 @@
+{% extends "base.html" %}
+{% block titulo %}Painel e filas — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Painel e filas{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de "Painel e filas" (menu simplificado, a pedido explícito:
+  "faça o mesmo com os itens de [...] 'painel e filas'") — reúne em abas
+  de uma tela só os 5 itens que antes ficavam soltos, sob o título fixo
+  "Painel e filas", em Governança de carteira: Painel de governança,
+  Fila de intimações, Métricas e relatório semanal, Produtividade da
+  equipe e Contingenciamento. Mesma ideia de admin.py::minha_empresa,
+  plataforma.py::hub e governanca.py::regras_e_parametros. Único nível de
+  permissão (@login_required — nenhuma dessas 5 telas era admin-only)
+  para o hub inteiro, sem variação de visibilidade por aba (a única
+  diferença por papel, a "Distribuição por unidade" só pra admin dentro
+  da aba Painel, já é tratada dentro do próprio
+  _contexto_painel_governanca(), igual sempre foi). As cinco telas
+  antigas (governanca.painel, governanca.fila_intimacoes, governanca.
+  metricas, governanca.relatorio_semanal_preview, governanca.
+  painel_metricas, governanca.produtividade, governanca.
+  contingenciamento) continuam existindo e funcionando normalmente para
+  quem chegar direto por um link salvo.
+
+  "Métricas e relatório semanal" já era, desde a 1ª rodada de
+  simplificação, um hub de 2 abas próprio (governanca.painel_metricas) —
+  aqui vira uma aba "aninhada": o mesmo corpo de duas sub-abas
+  (_corpo_painel_metricas.html), só com os ids prefixados ("pf-") pra
+  nunca colidir com os ids das outras abas desta tela.
+#}
+<ul class="nav nav-tabs mb-3" id="abasPainelEFilas" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'painel' }}" id="tab-btn-painel" data-bs-toggle="tab" data-bs-target="#aba-painel" type="button" role="tab" aria-controls="aba-painel">
+      Painel de governança
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'fila' }}" id="tab-btn-fila" data-bs-toggle="tab" data-bs-target="#aba-fila" type="button" role="tab" aria-controls="aba-fila">
+      Fila de intimações
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'metricas_relatorio' }}" id="tab-btn-metricas_relatorio" data-bs-toggle="tab" data-bs-target="#aba-metricas_relatorio" type="button" role="tab" aria-controls="aba-metricas_relatorio">
+      Métricas e relatório semanal
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'produtividade' }}" id="tab-btn-produtividade" data-bs-toggle="tab" data-bs-target="#aba-produtividade" type="button" role="tab" aria-controls="aba-produtividade">
+      Produtividade da equipe
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'contingenciamento' }}" id="tab-btn-contingenciamento" data-bs-toggle="tab" data-bs-target="#aba-contingenciamento" type="button" role="tab" aria-controls="aba-contingenciamento">
+      Contingenciamento
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasPainelEFilas">
+
+  {% set p_ctx = painel_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'painel' }}" id="aba-painel" role="tabpanel" aria-labelledby="tab-btn-painel">
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Prazos fatais — próximos 7 dias</div>
+          <div class="fs-3">{{ p_ctx.prazos_7d_count }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Prazos fatais — 8 a 15 dias</div>
+          <div class="fs-3">{{ p_ctx.prazos_15d_count }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Vencidos sem evidência de cumprimento</div>
+          <div class="fs-3" style="color: var(--status-danger);">{{ p_ctx.prazos_vencidos_sem_evidencia_count }}</div>
+          {% if p_ctx.prazos_vencidos_sem_evidencia_count %}
+          <a class="small" href="#aba-fila" id="link-ver-fila-intimacoes">ver na fila de intimações →</a>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Processos ativos sem movimentação há 30+ dias</div>
+          <div class="fs-3">{{ p_ctx.parados_30 }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">60+ dias</div>
+          <div class="fs-3">{{ p_ctx.parados_60 }}</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">90+ dias</div>
+          <div class="fs-3" style="color: var(--status-danger);">{{ p_ctx.parados_90 }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc mb-2">Exposição financeira por fase (soma valor da causa)</div>
+          <table class="table-doc">
+            <tbody>
+              {% for fase, valor in p_ctx.exposicao_por_fase.items() %}
+              <tr><td>{{ fase or "Não informada" }}</td><td class="text-end">{{ valor|moeda }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc mb-2">Exposição financeira por classificação de risco</div>
+          <table class="table-doc">
+            <tbody>
+              {% for risco, valor in p_ctx.exposicao_por_risco.items() %}
+              <tr><td>{{ risco or "Não classificado" }}</td><td class="text-end">{{ valor|moeda }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc mb-2">Distribuição por fase</div>
+          <table class="table-doc">
+            <tbody>
+              {% for fase, qtd in p_ctx.distribuicao_fase.items() %}
+              <tr><td>{{ fase or "Não informada" }}</td><td class="text-end">{{ qtd }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc mb-2">Distribuição por área</div>
+          <table class="table-doc">
+            <tbody>
+              {% for area, qtd in p_ctx.distribuicao_area.items() %}
+              <tr><td>{{ area or "Não informada" }}</td><td class="text-end">{{ qtd }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    {% if p_ctx.distribuicao_unidade %}
+    <div class="card-doc tab p-3 mb-3">
+      <div class="small text-muted-doc mb-2">Distribuição por unidade</div>
+      <table class="table-doc">
+        <tbody>
+          {% for unidade, qtd in p_ctx.distribuicao_unidade.items() %}
+          <tr><td>{{ unidade }}</td><td class="text-end">{{ qtd }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="card-doc tab p-3 mb-3">
+      <div class="small text-muted-doc mb-2">Movimentações críticas — últimas 24h</div>
+      {% if p_ctx.movimentacoes_criticas %}
+      <table class="table-doc">
+        <thead><tr><th>Processo</th><th>Data</th><th>Texto</th></tr></thead>
+        <tbody>
+          {% for m in p_ctx.movimentacoes_criticas %}
+          <tr>
+            <td><a href="{{ url_for('processos.detalhe', processo_id=m.processo_id) }}">{{ m.processo.numero_processo or m.processo.numero_interno }}</a></td>
+            <td>{{ m.data|data_hora_br }}</td>
+            <td>{{ m.texto_integral[:120] }}{% if m.complemento %} <span class="text-muted-doc small">— {{ m.complemento }}</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted-doc small mb-0">Nenhuma movimentação registrada nas últimas 24h.</p>
+      {% endif %}
+    </div>
+
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc mb-2">Processos não monitoráveis automaticamente ({{ p_ctx.total_nao_monitoraveis }})</div>
+      {% if p_ctx.processos_nao_monitoraveis %}
+      <table class="table-doc">
+        <thead><tr><th>Processo</th><th>Cliente</th><th>Motivo</th></tr></thead>
+        <tbody>
+          {% for p in p_ctx.processos_nao_monitoraveis %}
+          <tr>
+            <td><a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno }}</a></td>
+            <td>{{ p.cliente.nome }}</td>
+            <td>{{ p.motivo_nao_monitoravel or "—" }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% if p_ctx.total_nao_monitoraveis > p_ctx.processos_nao_monitoraveis|length %}
+      <p class="small text-muted-doc mb-0">
+        Mostrando os {{ p_ctx.processos_nao_monitoraveis|length }} mais recentes de {{ p_ctx.total_nao_monitoraveis }} —
+        use os filtros de <a href="{{ url_for('processos.listar') }}">Processos</a> pra ver o restante.
+      </p>
+      {% endif %}
+      {% else %}
+      <p class="text-muted-doc small mb-0">Toda a carteira está com forma de acompanhamento definida.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set f_ctx = fila_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'fila' }}" id="aba-fila" role="tabpanel" aria-labelledby="tab-btn-fila">
+    <p class="small text-muted-doc mb-3">
+      Todos os prazos pendentes, ordenados por data fatal — a tela de trabalho do dia (seção 7.2 do briefing).
+    </p>
+    {% if f_ctx.prazos %}
+    <table class="table-doc">
+      <thead>
+        <tr>
+          <th>Processo</th><th>Cliente</th><th>Ato / ação exigida</th><th>Responsável</th>
+          <th>Data fatal</th><th>Dias restantes</th><th>Status</th><th>Evidência</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pr in f_ctx.prazos %}
+        {% set dias_restantes = (pr.data_vencimento - f_ctx.hoje).days %}
+        <tr>
+          <td><a href="{{ url_for('processos.detalhe', processo_id=pr.processo_id) }}">{{ pr.processo.numero_processo or pr.processo.numero_interno }}</a></td>
+          <td>{{ pr.processo.cliente.nome }}</td>
+          <td>{{ pr.descricao }}</td>
+          <td>{{ pr.responsavel.nome if pr.responsavel else "—" }}</td>
+          <td>{{ pr.data_vencimento|data_br }}</td>
+          <td>
+            {% if dias_restantes < 0 %}<span class="badge-status badge-perdido">{{ -dias_restantes }} dia(s) atrasado</span>
+            {% elif dias_restantes == 0 %}<span class="badge-status badge-urgente">vence hoje</span>
+            {% else %}{{ dias_restantes }} dia(s){% endif %}
+          </td>
+          <td><span class="badge-status badge-{{ pr.status }}">{{ pr.status }}</span></td>
+          <td>{{ "com evidência" if (pr.evidencia_movimentacao_id or pr.evidencia_documento_id) else "sem evidência" }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if f_ctx.paginacao.pages > 1 %}
+    <nav class="mt-3">
+      <ul class="pagination pagination-sm">
+        {% for pg in range(1, f_ctx.paginacao.pages + 1) %}
+        <li class="page-item {{ 'active' if pg == f_ctx.paginacao.page }}">
+          <a class="page-link" href="{{ url_for('governanca.painel_e_filas', tab='fila', pagina=pg) }}">{{ pg }}</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </nav>
+    {% endif %}
+    {% else %}
+    <p class="text-muted-doc small">Nenhum prazo pendente na fila.</p>
+    {% endif %}
+  </div>
+
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'metricas_relatorio' }}" id="aba-metricas_relatorio" role="tabpanel" aria-labelledby="tab-btn-metricas_relatorio">
+    {% set id_prefixo = "pf-" %}
+    {% set aba_metricas_relatorio = aba_metricas_relatorio_inicial %}
+    {% set taxa_cumprimento = metricas_relatorio_ctx.taxa_cumprimento %}
+    {% set cumpridos = metricas_relatorio_ctx.cumpridos %}
+    {% set perdidos = metricas_relatorio_ctx.perdidos %}
+    {% set total_prazos_finalizados = metricas_relatorio_ctx.total_prazos_finalizados %}
+    {% set prazos_perdidos_por_processo = metricas_relatorio_ctx.prazos_perdidos_por_processo %}
+    {% set tempo_medio_publicacao_protocolo = metricas_relatorio_ctx.tempo_medio_publicacao_protocolo %}
+    {% set idade_media_dias = metricas_relatorio_ctx.idade_media_dias %}
+    {% set total_carteira = metricas_relatorio_ctx.total_carteira %}
+    {% set cobertura_pct = metricas_relatorio_ctx.cobertura_pct %}
+    {% set monitoraveis_automatico = metricas_relatorio_ctx.monitoraveis_automatico %}
+    {% set pct_captura_saudavel = metricas_relatorio_ctx.pct_captura_saudavel %}
+    {% set taxa_sucesso = metricas_relatorio_ctx.taxa_sucesso %}
+    {% set ganhos = metricas_relatorio_ctx.ganhos %}
+    {% set perdas = metricas_relatorio_ctx.perdas %}
+    {% set acordos = metricas_relatorio_ctx.acordos %}
+    {% set total_processos_encerrados = metricas_relatorio_ctx.total_processos_encerrados %}
+    {% set total_com_desfecho_definido = metricas_relatorio_ctx.total_com_desfecho_definido %}
+    {% set tempo_medio_duracao_dias = metricas_relatorio_ctx.tempo_medio_duracao_dias %}
+    {% set inicio_semana = metricas_relatorio_ctx.inicio_semana %}
+    {% set fim_semana = metricas_relatorio_ctx.fim_semana %}
+    {% set prazos_da_semana = metricas_relatorio_ctx.prazos_da_semana %}
+    {% set prazos_perdidos_semana_passada = metricas_relatorio_ctx.prazos_perdidos_semana_passada %}
+    {% set processos_parados = metricas_relatorio_ctx.processos_parados %}
+    {% set movimentacoes_semana = metricas_relatorio_ctx.movimentacoes_semana %}
+    {% include "governanca/_corpo_painel_metricas.html" %}
+  </div>
+
+  {% set pr_ctx = produtividade_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'produtividade' }}" id="aba-produtividade" role="tabpanel" aria-labelledby="tab-btn-produtividade">
+    <div class="card-doc tab p-0">
+      {% if pr_ctx.linhas %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Usuário</th>
+            <th class="text-end">Prazos cumpridos</th>
+            <th class="text-end">Prazos perdidos</th>
+            <th class="text-end">Taxa individual</th>
+            <th class="text-end">Tarefas concluídas</th>
+            <th class="text-end">Tarefas atrasadas</th>
+            <th class="text-end">Horas apontadas</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in pr_ctx.linhas %}
+          <tr>
+            <td>{{ l.usuario.nome }} <span class="small text-muted-doc">({{ l.usuario.papel }})</span></td>
+            <td class="text-end">{{ l.cumpridos }}</td>
+            <td class="text-end">{{ l.perdidos }}</td>
+            <td class="text-end">
+              {% if l.taxa is not none %}
+              <span class="badge-status {% if l.taxa >= 80 %}badge-cumprido{% elif l.taxa >= 50 %}badge-pendente{% else %}badge-perdido{% endif %}">{{ "%.0f"|format(l.taxa) }}%</span>
+              {% else %}—{% endif %}
+            </td>
+            <td class="text-end">{{ l.tarefas_concluidas }}</td>
+            <td class="text-end">{% if l.tarefas_atrasadas > 0 %}<span class="text-danger fw-semibold">{{ l.tarefas_atrasadas }}</span>{% else %}0{% endif %}</td>
+            <td class="text-end">{{ "%.2f"|format(l.horas_total) }}h</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Sem atividade registrada ainda</div>
+        <p class="mb-0">O ranking aparece assim que houver prazos, tarefas ou horas apontadas por alguém da equipe.</p>
+      </div>
+      {% endif %}
+    </div>
+    <p class="text-muted-doc small mt-3 mb-0">
+      Taxa individual = prazos cumpridos ÷ (cumpridos + perdidos) daquele responsável. Usuários sem nenhuma atividade não aparecem na lista.
+    </p>
+  </div>
+
+  {% set ct_ctx = contingenciamento_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'contingenciamento' }}" id="aba-contingenciamento" role="tabpanel" aria-labelledby="tab-btn-contingenciamento">
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Exposição total (carteira ativa)</div>
+          <div class="fs-3">{{ ct_ctx.exposicao_total|moeda }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Provisão total</div>
+          <div class="fs-3" style="color: var(--status-danger);">{{ ct_ctx.provisao_total|moeda }}</div>
+          <div class="small text-muted-doc">{{ "%.1f"|format(ct_ctx.provisao_total / ct_ctx.exposicao_total * 100) ~ "%" if ct_ctx.exposicao_total else "—" }} da exposição</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Provável (100%)</div>
+          <div class="fs-3">{{ ct_ctx.totais_por_classificacao.provavel|moeda }}</div>
+          <div class="small text-muted-doc">{{ ct_ctx.contagem_por_classificacao.provavel }} processo(s)</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Possível (50%) / Remoto (0%)</div>
+          <div class="fs-3">{{ ct_ctx.totais_por_classificacao.possivel|moeda }}</div>
+          <div class="small text-muted-doc">{{ ct_ctx.contagem_por_classificacao.possivel }} possível · {{ ct_ctx.contagem_por_classificacao.remoto }} remoto</div>
+        </div>
+      </div>
+    </div>
+
+    {% if ct_ctx.contagem_por_classificacao.sem_classificacao > 0 %}
+    <div class="alert alert-warning py-2 px-3 small">
+      {{ ct_ctx.contagem_por_classificacao.sem_classificacao }} processo(s) ativo(s) com valor de causa ainda sem classificação de contingenciamento — não entram na provisão acima. Classifique em cada processo (aba de edição).
+    </div>
+    {% endif %}
+
+    <div class="card-doc tab p-0">
+      <div class="p-3 pb-0 small text-muted-doc">Maiores provisões (top 30)</div>
+      {% if ct_ctx.linhas %}
+      <table class="table-doc">
+        <thead>
+          <tr><th>Processo</th><th>Cliente</th><th>Classificação</th><th class="text-end">Valor da causa</th><th class="text-end">Provisão</th></tr>
+        </thead>
+        <tbody>
+          {% for p in ct_ctx.linhas %}
+          <tr>
+            <td><a class="linha-link" href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a></td>
+            <td>{{ p.cliente.nome if p.cliente else "—" }}</td>
+            <td><span class="badge-status {% if p.classificacao_contingencia == 'provavel' %}badge-perdido{% elif p.classificacao_contingencia == 'possivel' %}badge-pendente{% else %}badge-normal{% endif %}">{{ p.classificacao_contingencia|capitalize }}</span></td>
+            <td class="text-end">{{ p.valor_causa|moeda }}</td>
+            <td class="text-end fw-semibold">{{ p.valor_provisionado|moeda }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum processo classificado ainda</div>
+        <p class="mb-0">Abra um processo e defina a classificação de contingenciamento na aba de edição.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Link "ver na fila de intimações" (aba Painel de governança) — troca de
+// aba via Bootstrap em vez de navegar pra outra URL, já que as duas abas
+// estão na mesma tela agora (mesmo padrão dos outros hubs desta rodada).
+(function () {
+  function ligarTrocaDeAba(idLink, idBotaoAba) {
+    var link = document.getElementById(idLink);
+    var botao = document.getElementById(idBotaoAba);
+    if (!link || !botao || typeof bootstrap === "undefined") return;
+    link.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      bootstrap.Tab.getOrCreateInstance(botao).show();
+    });
+  }
+  ligarTrocaDeAba("link-ver-fila-intimacoes", "tab-btn-fila");
+})();
+</script>
+{% endblock %}

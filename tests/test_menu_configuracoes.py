@@ -29,16 +29,17 @@ teste de permissão/URL de rota individual precisou mudar):
     todo mundo — só "Minha empresa" e "Plataforma" continuam com as
     mesmas restrições de sempre.
 
-CORREÇÃO (rodadas seguintes, mesma sessão): "Minha conta" e "Minha
-empresa" deixaram de ser subtítulos/acordeões dentro de "Configurações" —
-viraram cada uma um HUB COM ABAS numa tela só (app/routes/conta.py::hub e
-app/routes/admin.py::minha_empresa), a pedido explícito do usuário. Por
-isso os testes abaixo checam só que existe UM link pra cada hub dentro de
-"Configurações" — o conteúdo de cada aba (Unidades, Equipe, Relatórios,
-Auditoria, Alçada de aprovação, Minha licença, Módulos, Integrações) tem
-cobertura própria em tests/test_hub_minha_empresa.py, e o de "Minha conta"
-em tests/test_hub_rotina_e_minha_conta.py. Só "Plataforma" continua sendo
-um subtítulo/acordeão de verdade dentro de "Configurações".
+CORREÇÃO (rodadas seguintes, mesma sessão): "Minha conta", "Minha
+empresa" e (5ª rodada) "Plataforma" deixaram de ser subtítulos/acordeões
+dentro de "Configurações" — viraram cada uma um HUB COM ABAS numa tela só
+(app/routes/conta.py::hub, app/routes/admin.py::minha_empresa e
+app/routes/plataforma.py::hub), a pedido explícito do usuário: "faça o
+mesmo com os itens de 'plataforma' [...]". Por isso os testes abaixo
+checam só que existe UM link pra cada hub dentro de "Configurações" — o
+conteúdo de cada aba tem cobertura própria em tests/test_hub_minha_empresa.py
+("Minha empresa"), tests/test_hub_rotina_e_minha_conta.py ("Minha conta")
+e tests/test_hub_plataforma.py ("Plataforma", com Painel de licenças,
+Empresas clientes, Catálogo de módulos e Preços padrão).
 
 Estes testes cobrem só a ESTRUTURA do menu renderizado (o que aparece pra
 cada papel) — não duplicam os testes de permissão de cada rota
@@ -82,15 +83,13 @@ def test_admin_desenvolvedor_ve_configuracoes_com_minha_empresa_e_plataforma(cli
     assert "Minha conta" in html
     assert "Minha empresa" in html
     assert "Plataforma" in html
-    # "Minha conta" e "Minha empresa" agora são hubs (um link cada, não um
-    # subtítulo com vários itens soltos) — ver tests/test_hub_minha_empresa.py
-    # e tests/test_hub_rotina_e_minha_conta.py pro conteúdo de cada aba.
+    # "Minha conta", "Minha empresa" e "Plataforma" agora são hubs (um link
+    # cada, não um subtítulo com vários itens soltos) — ver
+    # tests/test_hub_minha_empresa.py, tests/test_hub_rotina_e_minha_conta.py
+    # e tests/test_hub_plataforma.py pro conteúdo de cada aba.
     assert 'href="/minha-conta/"' in html
     assert 'href="/admin/minha-empresa"' in html
-    # "Plataforma" continua sendo subtítulo/acordeão de verdade, com os
-    # itens soltos de sempre:
-    for texto in ("Painel de licenças", "Empresas clientes", "Catálogo de módulos", "Preços padrão"):
-        assert texto in html
+    assert 'href="/plataforma/"' in html
 
 
 def test_admin_comum_ve_configuracoes_mas_nao_plataforma(client, login, app):
@@ -105,10 +104,9 @@ def test_admin_comum_ve_configuracoes_mas_nao_plataforma(client, login, app):
     # "Minha licença"/"Módulos" agora só aparecem DENTRO do hub "Minha
     # empresa" (abas próprias, ver test_hub_minha_empresa.py) — não mais
     # como itens soltos na navegação.
-    # não é admin_desenvolvedor -> nenhum item da Plataforma deve aparecer
-    assert "subgrupo-titulo\">Plataforma" not in html
-    assert "Painel de licenças" not in html
-    assert "Empresas clientes" not in html
+    # não é admin_desenvolvedor -> o link do hub "Plataforma" nem deve aparecer
+    assert 'href="/plataforma/"' not in html
+    assert ">Plataforma<" not in html
 
 
 def test_advogado_sem_gestao_ve_so_minha_conta_em_configuracoes(client, login, app):
@@ -123,8 +121,8 @@ def test_advogado_sem_gestao_ve_so_minha_conta_em_configuracoes(client, login, a
 
     assert 'data-grupo="config"' in html
     assert "Preferências do menu" in html
-    assert "subgrupo-titulo\">Minha empresa" not in html
-    assert "subgrupo-titulo\">Plataforma" not in html
+    assert 'href="/admin/minha-empresa"' not in html
+    assert 'href="/plataforma/"' not in html
 
 
 def test_operacao_governanca_e_configuracoes_sao_grupos_recolhiveis(client, login, app):

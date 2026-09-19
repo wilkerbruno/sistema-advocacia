@@ -1,0 +1,457 @@
+{% extends "base.html" %}
+{% block titulo %}Regras e parâmetros — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Regras e parâmetros{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de "Regras e parâmetros" (menu simplificado, a pedido
+  explícito: "faça o mesmo com os itens de [...] 'regras e parametros'
+  [...]") — reúne em abas de uma tela só o que antes eram 5 itens soltos
+  num acordeão de 2º nível dentro de Governança de carteira: Regras de
+  próxima ação, Mapa de estado (TPU), Verificação de conflitos, Modelos
+  de peças e Tabela de custas. Mesma ideia de admin.py::minha_empresa e
+  plataforma.py::hub. Único nível de permissão (admin) — nenhuma aba
+  varia por papel, então as cinco abas aparecem sempre. As cinco telas
+  antigas (governanca.regras_proxima_acao_lista, governanca.
+  mapa_estado_lista, governanca.verificacao_conflitos, governanca.
+  modelos_peca_lista, governanca.tabela_custas_lista) continuam existindo
+  e funcionando normalmente para quem chegar direto por um link salvo —
+  só as LISTAS viraram abas; "+ Nova regra"/"+ Novo mapeamento"/"+ Novo
+  modelo"/"+ Nova linha"/"Editar" continuam abrindo uma tela de
+  formulário própria, fora do hub.
+#}
+<ul class="nav nav-tabs mb-3" id="abasRegrasParametros" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'regras' }}" id="tab-btn-regras" data-bs-toggle="tab" data-bs-target="#aba-regras" type="button" role="tab" aria-controls="aba-regras">
+      Regras de próxima ação
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'mapa_estado' }}" id="tab-btn-mapa_estado" data-bs-toggle="tab" data-bs-target="#aba-mapa_estado" type="button" role="tab" aria-controls="aba-mapa_estado">
+      Mapa de estado (TPU)
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'conflitos' }}" id="tab-btn-conflitos" data-bs-toggle="tab" data-bs-target="#aba-conflitos" type="button" role="tab" aria-controls="aba-conflitos">
+      Verificação de conflitos
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'modelos_peca' }}" id="tab-btn-modelos_peca" data-bs-toggle="tab" data-bs-target="#aba-modelos_peca" type="button" role="tab" aria-controls="aba-modelos_peca">
+      Modelos de peças
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'tabela_custas' }}" id="tab-btn-tabela_custas" data-bs-toggle="tab" data-bs-target="#aba-tabela_custas" type="button" role="tab" aria-controls="aba-tabela_custas">
+      Tabela de custas
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasRegrasParametros">
+
+  {% set r_ctx = regras_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'regras' }}" id="aba-regras" role="tabpanel" aria-labelledby="tab-btn-regras">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Liga um ato capturado (movimentação/publicação) à ação exigida e ao prazo
+        legal correspondente. É o que faz o lançamento automático de prazo
+        (seção G4/G5) funcionar de verdade — sem regra cadastrada para o ato, o
+        sistema cria uma tarefa genérica de análise em vez de deixar passar em
+        branco, mas o prazo real precisa ser conferido manualmente nesse caso.
+      </p>
+      <a href="{{ url_for('governanca.nova_regra_proxima_acao') }}" class="btn btn-brass ms-auto">+ Nova regra</a>
+    </div>
+
+    <div class="card-doc tab p-0">
+      {% if r_ctx.regras %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Ato capturado</th>
+            <th>Código TPU</th>
+            <th>Ação exigida</th>
+            <th>Prazo</th>
+            <th>Responsável sugerido</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in r_ctx.regras %}
+          <tr class="{{ '' if r.ativo else 'text-muted-doc' }}">
+            <td>{{ r.ato_capturado }}</td>
+            <td>{{ r.codigo_tpu or "—" }}</td>
+            <td>{{ r.acao_exigida }}</td>
+            <td>
+              {% if r.prazo_base_dias %}
+                {{ r.prazo_base_dias }} {{ "dia útil" if r.prazo_base_dias == 1 else "dias úteis" }}
+                {%- if r.unidade_prazo == "dias_corridos" %} (corridos){% endif %}
+              {% else %}
+                {{ r.observacao_prazo or "conforme despacho/evento" }}
+              {% endif %}
+            </td>
+            <td>{{ r.responsavel_sugerido_papel or "—" }}</td>
+            <td><span class="badge-status {{ 'badge-concluida' if r.ativo else 'badge-cancelada' }}">{{ "ativa" if r.ativo else "inativa" }}</span></td>
+            <td class="d-flex gap-1">
+              <a href="{{ url_for('governanca.editar_regra_proxima_acao', regra_id=r.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+              <form method="post" action="{{ url_for('governanca.alternar_regra_proxima_acao', regra_id=r.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if r.ativo else "Ativar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma regra cadastrada</div>
+        <p class="mb-0">Enquanto não houver regras aqui, todo ato capturado gera uma tarefa genérica de análise (nunca é ignorado), mas o prazo automático de verdade só passa a valer depois de cadastrar as regras dos atos mais comuns da carteira.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="mt-3">
+      <a href="#aba-mapa_estado" id="link-ver-mapa-estado" class="linha-link small">Ver mapa de código TPU → estado de negócio →</a>
+    </div>
+  </div>
+
+  {% set me_ctx = mapa_estado_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'mapa_estado' }}" id="aba-mapa_estado" role="tabpanel" aria-labelledby="tab-btn-mapa_estado">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Traduz o código da Tabela Processual Unificada (CNJ) de cada movimentação
+        capturada para um estado de negócio legível (ex: "Citado / prazo de
+        resposta", "Em fase recursal"). Sem mapeamento para um código, a
+        movimentação cai na fila de triagem em vez de silenciosamente não
+        atualizar o estado do processo.
+        {% if me_ctx.triagem_pendente %}
+          <strong class="text-danger">{{ me_ctx.triagem_pendente }} movimentação(ões) aguardando triagem agora</strong> — código(s) TPU ainda sem mapeamento cadastrado.
+        {% endif %}
+      </p>
+      <a href="{{ url_for('governanca.novo_mapa_estado') }}" class="btn btn-brass ms-auto">+ Novo mapeamento</a>
+    </div>
+
+    {% if me_ctx.fila_triagem %}
+    <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+      <p class="small mb-2">
+        <strong>Fila de triagem — o que ainda falta mapear</strong>, agrupado por código TPU
+        (ou por trecho do texto, quando o ato não veio com código). Mostra a quantidade de
+        movimentações capturadas nesse grupo, um exemplo real e em quais processos aparece —
+        cadastre o mapeamento direto daqui, já com código/texto pré-preenchidos.
+      </p>
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Código TPU</th>
+            <th>Exemplo de texto</th>
+            <th>Qtde.</th>
+            <th>Processos (amostra)</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for g in me_ctx.fila_triagem %}
+          <tr>
+            <td>{{ g.codigo_tpu or "— (sem código)" }}</td>
+            <td>{{ (g.exemplo_texto or "")[:100] }}</td>
+            <td>{{ g.quantidade }}</td>
+            <td>
+              {% for p in g.processos %}
+              <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}#prazos" class="small d-block">{{ p.numero_processo }}</a>
+              {% endfor %}
+            </td>
+            <td>
+              <a class="btn btn-outline-doc btn-sm"
+                 href="{{ url_for('governanca.novo_mapa_estado', codigo_tpu=g.codigo_tpu or '', descricao_tpu=(g.exemplo_texto or '')[:60], texto_contido=(g.exemplo_texto or '')[:80] if not g.codigo_tpu else '') }}">
+                Mapear agora
+              </a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="card-doc tab p-0">
+      {% if me_ctx.itens %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Código TPU</th>
+            <th>Descrição do código</th>
+            <th>Texto contém</th>
+            <th>Estado de negócio</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for i in me_ctx.itens %}
+          <tr class="{{ '' if i.ativo else 'text-muted-doc' }}">
+            <td>{{ i.codigo_tpu or "—" }}</td>
+            <td>{{ i.descricao_tpu or "—" }}</td>
+            <td>{{ i.texto_contido or "—" }}</td>
+            <td>{{ i.estado_negocio }}</td>
+            <td><span class="badge-status {{ 'badge-concluida' if i.ativo else 'badge-cancelada' }}">{{ "ativo" if i.ativo else "inativo" }}</span></td>
+            <td class="d-flex gap-1">
+              <a href="{{ url_for('governanca.editar_mapa_estado', item_id=i.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+              <form method="post" action="{{ url_for('governanca.alternar_mapa_estado', item_id=i.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if i.ativo else "Ativar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum mapeamento cadastrado</div>
+        <p class="mb-0">Cadastre os códigos TPU mais comuns na carteira do escritório para que o estado de negócio de cada processo se atualize sozinho a cada movimentação capturada.</p>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="mt-3">
+      <a href="#aba-regras" id="link-ver-regras-proxima-acao" class="linha-link small">← Ver regras de próxima ação</a>
+    </div>
+  </div>
+
+  {% set c_ctx = conflitos_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'conflitos' }}" id="aba-conflitos" role="tabpanel" aria-labelledby="tab-btn-conflitos">
+    <p class="small text-muted-doc mb-3">
+      Varre todo o escritório (todas as unidades) atrás do conflito clássico da advocacia:
+      representar alguém como cliente e, ao mesmo tempo, ser adverso a essa mesma pessoa/empresa
+      em outro caso. A comparação é por nome normalizado (sem acento, sem diferença de
+      maiúscula/minúscula) — nomes parecidos mas não exatamente iguais não são pegos aqui de
+      propósito, pra não gerar aviso demais; revise sempre com bom senso, principalmente com
+      nomes comuns.
+    </p>
+
+    {% if c_ctx.empresas_para_escolher is not none %}
+    <form method="get" action="{{ url_for('governanca.regras_e_parametros') }}" class="d-flex gap-2 mb-3 align-items-end">
+      <input type="hidden" name="tab" value="conflitos">
+      <div>
+        <label class="form-label small mb-1">Empresa</label>
+        <select name="empresa_id" class="form-select" style="min-width:280px;" onchange="this.form.submit()">
+          <option value="">Selecione uma empresa...</option>
+          {% for e in c_ctx.empresas_para_escolher %}
+          <option value="{{ e.id }}" {{ "selected" if c_ctx.empresa_id == e.id }}>{{ e.nome }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <noscript><button class="btn btn-outline-doc btn-sm">Verificar</button></noscript>
+    </form>
+    {% endif %}
+
+    {% if c_ctx.empresas_para_escolher is not none and not c_ctx.empresa_id %}
+    <div class="empty-state">
+      <div class="font-display">Escolha uma empresa acima</div>
+      <p class="mb-0">Admin desenvolvedor enxerga múltiplas empresas — escolha qual escritório verificar.</p>
+    </div>
+    {% elif c_ctx.conflitos %}
+    <div class="alert alert-danger small mb-3">
+      {{ c_ctx.conflitos|length }} possível conflito(s) de interesse encontrado(s). Revise cada um — pode
+      ser mesmo nome de pessoas diferentes, ou algo que já foi resolvido (ex: caso encerrado).
+    </div>
+    <div class="card-doc tab p-0">
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Cliente</th>
+            <th>Também aparece como parte contrária em</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in c_ctx.conflitos %}
+          <tr>
+            <td><a class="linha-link" href="{{ url_for('clientes.detalhe', cliente_id=item.cliente.id) }}">{{ item.cliente.nome }}</a></td>
+            <td>
+              {% for p in item.processos %}
+              <div>
+                <a href="{{ url_for('processos.detalhe', processo_id=p.id) }}">{{ p.numero_processo or p.numero_interno or ("Processo #" ~ p.id) }}</a>
+                <span class="text-muted-doc small">— cliente desse processo: {{ p.cliente.nome if p.cliente else "—" }}</span>
+              </div>
+              {% endfor %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% elif c_ctx.empresa_id %}
+    <div class="empty-state">
+      <div class="font-display">Nenhum conflito encontrado</div>
+      <p class="mb-0">Nenhum cliente cadastrado aparece como parte contrária em outro processo do escritório.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% set mp_ctx = modelos_peca_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'modelos_peca' }}" id="aba-modelos_peca" role="tabpanel" aria-labelledby="tab-btn-modelos_peca">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Biblioteca de modelos do escritório por tipo de peça e área — cadastre o esqueleto, o estilo e as
+        cláusulas de praxe que o escritório já usa. Uma vez cadastrado e ativo, o modelo passa a ser
+        aplicado AUTOMATICAMENTE em toda geração de rascunho de petição que casar o mesmo tipo de peça (e a
+        mesma área, quando informada) — o advogado não precisa escolher nada na hora de gerar. Vale só como
+        referência de estilo e estrutura; nenhum fato do processo vem daqui, sempre dos dados reais do
+        processo.
+      </p>
+      <a href="{{ url_for('governanca.novo_modelo_peca') }}" class="btn btn-brass ms-auto">+ Novo modelo</a>
+    </div>
+
+    <div class="card-doc tab p-0">
+      {% if mp_ctx.modelos %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Tipo de peça</th>
+            <th>Área</th>
+            <th>Atualizado em</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for m in mp_ctx.modelos %}
+          <tr class="{{ '' if m.ativo else 'text-muted-doc' }}">
+            <td>{{ m.nome }}</td>
+            <td>{{ m.tipo_peca }}</td>
+            <td>{{ m.area_direito or "qualquer área" }}</td>
+            <td>{{ m.atualizado_em|data_hora_br if m.atualizado_em else "—" }}</td>
+            <td><span class="badge-status {{ 'badge-concluida' if m.ativo else 'badge-cancelada' }}">{{ "ativo" if m.ativo else "inativo" }}</span></td>
+            <td class="d-flex gap-1">
+              <a href="{{ url_for('governanca.editar_modelo_peca', modelo_id=m.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+              <form method="post" action="{{ url_for('governanca.alternar_modelo_peca', modelo_id=m.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if m.ativo else "Ativar" }}</button>
+              </form>
+              <form method="post" action="{{ url_for('governanca.excluir_modelo_peca', modelo_id=m.id) }}"
+                    onsubmit="return confirm('Excluir este modelo?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm text-danger">Excluir</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum modelo cadastrado</div>
+        <p class="mb-0">Enquanto não houver modelos aqui, cada rascunho de petição gerado segue só o estilo
+          genérico padrão do sistema. Cadastre o primeiro modelo (ex.: contestação cível) pra ele passar a
+          ser aplicado sozinho a partir da próxima geração desse tipo de peça.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set tc_ctx = tabela_custas_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'tabela_custas' }}" id="aba-tabela_custas" role="tabpanel" aria-labelledby="tab-btn-tabela_custas">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Regras de cálculo de custas, preparo e guias por tribunal — usadas na aba "Cálculo de custas" de
+        cada processo (memória de cálculo aberta para conferência, nunca só o número final). Cadastro
+        editável, igual às regras de próxima ação: o sistema nunca inventa um valor sozinho, e nenhuma
+        linha aqui é aplicada às cegas — confira a base legal/observação antes de usar em cobrança real.
+      </p>
+      <div class="d-flex gap-2 ms-auto">
+        <form method="post" action="{{ url_for('governanca.carregar_tabela_padrao_tjsp') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button type="submit" class="btn btn-outline-doc">Carregar tabela padrão TJSP</button>
+        </form>
+        <a href="{{ url_for('governanca.nova_linha_custas') }}" class="btn btn-brass">+ Nova linha</a>
+      </div>
+    </div>
+
+    <div class="card-doc tab p-0">
+      {% if tc_ctx.linhas %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr>
+            <th>Tribunal</th>
+            <th>Tipo de custa</th>
+            <th>Descrição</th>
+            <th>Regra</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for l in tc_ctx.linhas %}
+          <tr class="{{ '' if l.ativo else 'text-muted-doc' }}">
+            <td>{{ l.tribunal }}</td>
+            <td>{{ l.tipo_custa }}</td>
+            <td>{{ l.descricao }}</td>
+            <td>
+              {% if l.percentual is not none %}
+                {{ l.percentual }}%{% if l.valor_minimo is not none or l.valor_maximo is not none %} (mín.
+                {{ l.valor_minimo|moeda if l.valor_minimo is not none else "—" }} / máx.
+                {{ l.valor_maximo|moeda if l.valor_maximo is not none else "—" }}){% endif %}
+              {% elif l.valor_fixo is not none %}
+                {{ l.valor_fixo|moeda }}{% if l.faixa_ate is not none %} (até {{ l.faixa_ate|moeda }}){% endif %}
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td><span class="badge-status {{ 'badge-concluida' if l.ativo else 'badge-cancelada' }}">{{ "ativa" if l.ativo else "inativa" }}</span></td>
+            <td class="d-flex gap-1">
+              <a href="{{ url_for('governanca.editar_linha_custas', linha_id=l.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+              <form method="post" action="{{ url_for('governanca.alternar_linha_custas', linha_id=l.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if l.ativo else "Ativar" }}</button>
+              </form>
+              <form method="post" action="{{ url_for('governanca.excluir_linha_custas', linha_id=l.id) }}"
+                    onsubmit="return confirm('Excluir esta linha?');">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm text-danger">Excluir</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma linha cadastrada</div>
+        <p class="mb-0">Use "Carregar tabela padrão TJSP" para começar com um catálogo pronto (pesquisado em
+          fonte pública, com base legal e data de referência em cada linha) e depois ajuste o que precisar
+          — ou cadastre do zero pra outro tribunal.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Links "Ver mapa de código TPU" (aba Regras de próxima ação) e "Ver
+// regras de próxima ação" (aba Mapa de estado) — trocam de aba via
+// Bootstrap em vez de navegar pra outra URL, já que as duas abas estão
+// na mesma tela agora (mesmo padrão do link "Importar em lote" em
+// governanca/entrada_processos.html e "Ver módulos"/"Voltar para minha
+// licença" no hub "Minha empresa").
+(function () {
+  function ligarTrocaDeAba(idLink, idBotaoAba) {
+    var link = document.getElementById(idLink);
+    var botao = document.getElementById(idBotaoAba);
+    if (!link || !botao || typeof bootstrap === "undefined") return;
+    link.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      bootstrap.Tab.getOrCreateInstance(botao).show();
+    });
+  }
+  ligarTrocaDeAba("link-ver-mapa-estado", "tab-btn-mapa_estado");
+  ligarTrocaDeAba("link-ver-regras-proxima-acao", "tab-btn-regras");
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% block titulo %}Plataforma — JusControl{% endblock %}
+{% block eyebrow %}Plataforma{% endblock %}
+{% block cabecalho %}Plataforma{% endblock %}
+
+{% block conteudo %}
+{#
+  Hub único de "Plataforma" (menu simplificado, a pedido explícito:
+  "faça o mesmo com os itens de 'plataforma'...") — reúne em abas de uma
+  tela só o que antes eram 4 itens soltos num acordeão de 2º nível dentro
+  de Configurações: Painel de licenças, Empresas clientes, Catálogo de
+  módulos e Preços padrão. Mesma ideia de admin.py::minha_empresa e
+  conta.py::hub. Único nível de permissão (admin desenvolvedor) — ao
+  contrário de "Minha empresa", nenhuma aba varia por papel, então as
+  quatro abas aparecem sempre. As quatro telas antigas (plataforma.
+  painel_licencas, plataforma.empresas, plataforma.modulos_lista,
+  plataforma.editar_planos) continuam existindo e funcionando
+  normalmente para quem chegar direto por um link salvo; "+ Nova
+  empresa"/"+ Novo módulo"/"Editar"/detalhe de empresa continuam abrindo
+  uma tela própria, fora do hub — só as LISTAS/painéis viraram abas.
+#}
+<ul class="nav nav-tabs mb-3" id="abasPlataforma" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'licencas' }}" id="tab-btn-licencas" data-bs-toggle="tab" data-bs-target="#aba-licencas" type="button" role="tab" aria-controls="aba-licencas">
+      Painel de licenças
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'empresas' }}" id="tab-btn-empresas" data-bs-toggle="tab" data-bs-target="#aba-empresas" type="button" role="tab" aria-controls="aba-empresas">
+      Empresas clientes
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'modulos' }}" id="tab-btn-modulos" data-bs-toggle="tab" data-bs-target="#aba-modulos" type="button" role="tab" aria-controls="aba-modulos">
+      Catálogo de módulos
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_inicial == 'planos' }}" id="tab-btn-planos" data-bs-toggle="tab" data-bs-target="#aba-planos" type="button" role="tab" aria-controls="aba-planos">
+      Preços padrão
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="conteudoAbasPlataforma">
+
+  {% set l_ctx = licencas_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'licencas' }}" id="aba-licencas" role="tabpanel" aria-labelledby="tab-btn-licencas">
+    <div class="row g-3 mb-3">
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Receita mensal recorrente</div>
+          <div class="fs-3">{{ l_ctx.receita_mensal_recorrente|moeda }}</div>
+          <div class="small text-muted-doc">normalizado por mês (trimestral÷3, anual÷12)</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Empresas ativas</div>
+          <div class="fs-3" style="color: var(--status-ok, #2e7d32);">{{ l_ctx.totais.ativa }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Pendentes de pagamento</div>
+          <div class="fs-3">{{ l_ctx.totais.pendente_pagamento }}</div>
+        </div>
+      </div>
+      <div class="col-md-3">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Vencidas</div>
+          <div class="fs-3" style="color: var(--status-danger, #b71c1c);">{{ l_ctx.totais.vencida }}</div>
+        </div>
+      </div>
+    </div>
+
+    <form method="get" action="{{ url_for('plataforma.hub') }}" class="card-doc tab p-3 mb-3 row g-2 align-items-end">
+      <input type="hidden" name="tab" value="licencas">
+      <div class="col-md-4">
+        <label class="form-label small mb-1">Buscar empresa</label>
+        <input type="text" name="busca" class="form-control form-control-sm" value="{{ l_ctx.busca }}">
+      </div>
+      <div class="col-md-4">
+        <label class="form-label small mb-1">Status</label>
+        <select name="status" class="form-select form-select-sm">
+          <option value="">Todos</option>
+          {% for s in ["ativa", "pendente_pagamento", "vencida", "cancelada", "sem_licenca"] %}
+          <option value="{{ s }}" {{ "selected" if l_ctx.filtro_status == s }}>{{ s.replace("_", " ")|capitalize }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="col-md-2">
+        <button class="btn btn-brass btn-sm w-100">Filtrar</button>
+      </div>
+      <div class="col-md-2">
+        <a href="{{ url_for('plataforma.nova_empresa') }}" class="btn btn-outline-doc btn-sm w-100">Nova empresa</a>
+      </div>
+    </form>
+
+    <table class="table-doc">
+      <thead>
+        <tr><th>Empresa</th><th>Plano</th><th>Valor</th><th>Status</th><th>Vencimento</th><th style="min-width:340px;">Ação rápida</th></tr>
+      </thead>
+      <tbody>
+        {% for l in l_ctx.linhas %}
+        <tr>
+          <td><a href="{{ url_for('plataforma.detalhe_empresa', empresa_id=l.empresa.id) }}">{{ l.empresa.nome }}</a></td>
+          <td>{{ l.licenca.plano|capitalize if l.licenca else "—" }}</td>
+          <td>{{ l.licenca.valor_negociado|moeda if l.licenca else "—" }}</td>
+          <td>
+            {% if l.status_calc == "ativa" %}<span class="badge-status badge-cumprido">ativa</span>
+            {% elif l.status_calc == "pendente_pagamento" %}<span class="badge-status badge-pendente">pendente</span>
+            {% elif l.status_calc == "vencida" %}<span class="badge-status badge-perdido">vencida</span>
+            {% elif l.status_calc == "cancelada" %}<span class="badge-status badge-perdido">cancelada</span>
+            {% else %}<span class="badge-status badge-pendente">sem licença</span>{% endif %}
+          </td>
+          <td>
+            {% if l.licenca and l.licenca.data_fim %}
+              {{ l.licenca.data_fim|data_br }}
+              {% if l.dias_restantes is not none %}
+                <span class="small text-muted-doc">({{ l.dias_restantes }} dia(s){{ " atrás" if l.dias_restantes < 0 else "" }})</span>
+              {% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            <form method="post" action="{{ url_for('plataforma.atualizar_licenca_rapido', empresa_id=l.empresa.id) }}" class="d-flex gap-1 flex-wrap align-items-center">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <select name="plano" class="form-select form-select-sm" style="width:auto;">
+                {% for p in ["mensal", "trimestral", "anual"] %}
+                <option value="{{ p }}" {{ "selected" if l.licenca and l.licenca.plano == p }}>{{ p|capitalize }}</option>
+                {% endfor %}
+              </select>
+              <input type="text" name="valor_negociado" class="form-control form-control-sm" style="width:100px;"
+                     value="{{ l.licenca.valor_negociado if l.licenca else '' }}" placeholder="R$">
+              <button class="btn btn-outline-doc btn-sm" title="Salvar valor/plano">Salvar</button>
+              <button class="btn btn-brass btn-sm" name="marcar_paga_manualmente" value="1" title="Marcar como paga a partir de hoje">Marcar paga</button>
+              {% if l.licenca and l.licenca.status != "cancelada" %}
+              <button class="btn btn-outline-doc btn-sm" name="cancelar" value="1" title="Cancelar licença"
+                      onclick="return confirm('Cancelar a licença desta empresa?')">Cancelar</button>
+              {% endif %}
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not l_ctx.linhas %}
+    <p class="text-muted-doc small">Nenhuma empresa encontrada com esse filtro.</p>
+    {% endif %}
+  </div>
+
+  {% set e_ctx = empresas_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'empresas' }}" id="aba-empresas" role="tabpanel" aria-labelledby="tab-btn-empresas">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Todas as empresas clientes cadastradas na plataforma (não inclui a
+        própria empresa dona da plataforma). Para status de licença e cobrança,
+        veja <a href="#aba-licencas" id="link-ver-painel-licencas">o painel de
+        licenças</a>.
+      </p>
+      <a href="{{ url_for('plataforma.nova_empresa') }}" class="btn btn-brass ms-auto">+ Nova empresa</a>
+    </div>
+
+    <div class="card-doc tab p-0">
+      {% if e_ctx.empresas %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr><th>Empresa</th><th>CNPJ</th><th>E-mail de contato</th><th>Status</th><th>Cadastrada em</th></tr>
+        </thead>
+        <tbody>
+          {% for e in e_ctx.empresas %}
+          <tr>
+            <td><a class="linha-link" href="{{ url_for('plataforma.detalhe_empresa', empresa_id=e.id) }}">{{ e.nome }}</a></td>
+            <td>{{ e.cnpj or "—" }}</td>
+            <td>{{ e.email_contato or "—" }}</td>
+            <td><span class="badge-status {{ 'badge-cumprido' if e.ativa else 'badge-cancelada' }}">{{ "ativa" if e.ativa else "inativa" }}</span></td>
+            <td>{{ e.criado_em|data_br }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma empresa cliente cadastrada ainda</div>
+        <p class="mb-0">Cadastre a primeira empresa cliente para começar.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set m_ctx = modulos_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'modulos' }}" id="aba-modulos" role="tabpanel" aria-labelledby="tab-btn-modulos">
+    <div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <p class="small text-muted-doc mb-0" style="max-width: 640px;">
+        Cada módulo controla o acesso a um bloco do sistema (mesmo nome do menu
+        lateral correspondente). Módulos marcados "obrigatório" ficam liberados
+        para toda empresa automaticamente — os demais só ficam disponíveis para
+        uma empresa através da tela "Gerenciar módulos" dela (ver
+        <a href="#aba-empresas" id="link-ver-empresas-clientes">Empresas clientes</a>).
+      </p>
+      <a href="{{ url_for('plataforma.novo_modulo') }}" class="btn btn-brass ms-auto">+ Novo módulo</a>
+    </div>
+
+    <div class="card-doc tab p-0">
+      {% if m_ctx.itens %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr><th>Chave</th><th>Nome</th><th>Preço sugerido</th><th>Obrigatório</th><th>Status</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for i in m_ctx.itens %}
+          <tr class="{{ '' if i.ativo else 'text-muted-doc' }}">
+            <td><code>{{ i.chave }}</code></td>
+            <td>{{ i.nome }}</td>
+            <td>{{ i.preco_sugerido|moeda if i.preco_sugerido is not none else "—" }}</td>
+            <td>{{ "Sim" if i.obrigatorio else "—" }}</td>
+            <td><span class="badge-status {{ 'badge-cumprido' if i.ativo else 'badge-cancelada' }}">{{ "no catálogo" if i.ativo else "retirado" }}</span></td>
+            <td class="d-flex gap-1">
+              <a href="{{ url_for('plataforma.editar_modulo', item_id=i.id) }}" class="btn btn-outline-doc btn-sm">Editar</a>
+              <form method="post" action="{{ url_for('plataforma.alternar_modulo_ativo', item_id=i.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Retirar do catálogo" if i.ativo else "Reativar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhum módulo cadastrado</div>
+        <p class="mb-0">Cadastre pelo menos os módulos correspondentes às telas que existem hoje no sistema.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  {% set p_ctx = planos_ctx %}
+  <div class="tab-pane fade {{ 'show active' if aba_inicial == 'planos' }}" id="aba-planos" role="tabpanel" aria-labelledby="tab-btn-planos">
+    <p class="small text-muted-doc mb-3" style="max-width: 640px;">
+      Valores mostrados em <code>/cadastrar-empresa</code> (cadastro público
+      self-service, sem falar com você antes) para cada ciclo de cobrança.
+      Alterar aqui NÃO muda o valor de nenhuma empresa já cadastrada — o valor
+      de cada empresa (<code>Licenca.valor_negociado</code>) continua sendo
+      negociado individualmente por você em cada empresa, mesmo que ela tenha
+      se cadastrado sozinha usando o preço padrão da época.
+    </p>
+
+    <div class="card-doc tab p-4" style="max-width: 480px;">
+      {% if p_ctx.config.atualizado_em %}
+      <div class="small text-muted-doc mb-3">
+        Última alteração: {{ p_ctx.config.atualizado_em|data_hora_br }}{% if p_ctx.config.atualizado_por %} por {{ p_ctx.config.atualizado_por.nome }}{% endif %}
+      </div>
+      {% else %}
+      <div class="small text-muted-doc mb-3">Ainda usando os valores padrão de fábrica (nunca foi salvo por aqui).</div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('plataforma.editar_planos') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Mensal (R$) *</label>
+            <input type="text" name="preco_padrao_mensal" class="form-control" required
+                   value="{{ p_ctx.config.preco_padrao_mensal }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Trimestral (R$) *</label>
+            <input type="text" name="preco_padrao_trimestral" class="form-control" required
+                   value="{{ p_ctx.config.preco_padrao_trimestral }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Anual (R$) *</label>
+            <input type="text" name="preco_padrao_anual" class="form-control" required
+                   value="{{ p_ctx.config.preco_padrao_anual }}">
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-4">
+          <button type="submit" class="btn btn-brass">Salvar preços</button>
+          <a href="{{ url_for('auth.cadastrar_empresa') }}" class="btn btn-outline-doc" target="_blank">Ver cadastro público</a>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts_extra %}
+<script>
+// Links "ver o painel de licenças" (aba Empresas clientes) e "Empresas
+// clientes" (aba Catálogo de módulos) — trocam de aba via Bootstrap em
+// vez de navegar pra outra URL, já que as três abas estão na mesma tela
+// agora (mesmo padrão do link "Importar em lote" em
+// governanca/entrada_processos.html e "Ver módulos"/"Voltar para minha
+// licença" no hub "Minha empresa").
+(function () {
+  function ligarTrocaDeAba(idLink, idBotaoAba) {
+    var link = document.getElementById(idLink);
+    var botao = document.getElementById(idBotaoAba);
+    if (!link || !botao || typeof bootstrap === "undefined") return;
+    link.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      bootstrap.Tab.getOrCreateInstance(botao).show();
+    });
+  }
+  ligarTrocaDeAba("link-ver-painel-licencas", "tab-btn-licencas");
+  ligarTrocaDeAba("link-ver-empresas-clientes", "tab-btn-empresas");
+})();
+</script>
+{% endblock %}

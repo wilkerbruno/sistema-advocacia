@@ -1070,9 +1070,14 @@ def abrir_projudi_auto_envio(processo_id, slug):
 
 # ---------- Fila de intimações (seção 7.2) ----------
 
-@governanca_bp.route("/fila-intimacoes")
-@login_required
-def fila_intimacoes():
+def _contexto_fila_intimacoes():
+    """
+    Reúne o contexto da fila de intimações num dict só — extraído da view
+    `fila_intimacoes()` para ser reaproveitado pelo hub `painel_e_filas()`
+    (simplificação de menu). `paginar()` já lê "pagina"/"por_pagina" direto
+    da querystring da requisição atual, então a paginação funciona igual
+    tanto na tela solteira quanto na aba do hub.
+    """
     # "historico_anterior" (ver PENDENCIAS.md, seção -33) fica de fora da
     # fila de propósito — já foi revisado e regularizado em lote, não
     # precisa de ninguém tratando de novo aqui.
@@ -1096,8 +1101,13 @@ def fila_intimacoes():
     # trabalho do dia".
     paginacao = paginar(query.order_by(Prazo.data_vencimento))
     hoje = date.today()
-    return render_template("governanca/fila_intimacoes.html", prazos=paginacao.items,
-                            paginacao=paginacao, hoje=hoje)
+    return dict(prazos=paginacao.items, paginacao=paginacao, hoje=hoje)
+
+
+@governanca_bp.route("/fila-intimacoes")
+@login_required
+def fila_intimacoes():
+    return render_template("governanca/fila_intimacoes.html", **_contexto_fila_intimacoes())
 
 
 # ---------- Prazos em atenção / Prazos perdidos (cards do painel — PENDENCIAS.md, seção -100) ----------
@@ -1175,9 +1185,14 @@ def prazos_perdidos():
 
 # ---------- Painel de governança (seção 8) ----------
 
-@governanca_bp.route("/painel")
-@login_required
-def painel():
+def _contexto_painel_governanca():
+    """
+    Reúne todo o contexto do painel de governança num dict só — extraído
+    da view `painel()` para poder ser reaproveitado pelo hub
+    `painel_e_filas()` (simplificação de menu, mesmo pedido de "Minha
+    empresa"/"Plataforma": juntar em abas o que antes eram itens soltos
+    do menu).
+    """
     hoje = date.today()
     processos_q = aplicar_escopo_unidade(Processo.query, Processo)
     # CORREÇÃO DE SEGURANÇA (PENDENCIAS.md, seção -54): mesmo problema do
@@ -1256,8 +1271,8 @@ def painel():
         processos_q.filter(Processo.monitoravel.is_(False)).order_by(Processo.criado_em.desc())
     )
 
-    return render_template(
-        "governanca/painel.html", hoje=hoje,
+    return dict(
+        hoje=hoje,
         prazos_7d_count=prazos_7d_count, prazos_15d_count=prazos_15d_count,
         prazos_vencidos_sem_evidencia_count=prazos_vencidos_sem_evidencia_count,
         parados_30=parados_30, parados_60=parados_60, parados_90=parados_90,
@@ -1266,6 +1281,12 @@ def painel():
         total_nao_monitoraveis=total_nao_monitoraveis,
         movimentacoes_criticas=movimentacoes_criticas, processos_nao_monitoraveis=processos_nao_monitoraveis,
     )
+
+
+@governanca_bp.route("/painel")
+@login_required
+def painel():
+    return render_template("governanca/painel.html", **_contexto_painel_governanca())
 
 
 # ---------- Métricas de governança (seção 9) ----------
@@ -1376,14 +1397,14 @@ def metricas():
 
 # ---------- Produtividade por advogado (item 2 do briefing de paridade) ----------
 
-@governanca_bp.route("/produtividade")
-@login_required
-def produtividade():
+def _contexto_produtividade():
     """
     Ranking de produtividade individual — item 2 ("controle de
     produtividade") do briefing de paridade. Cada linha soma o que está
     sob responsabilidade daquele usuário: prazos, tarefas e horas
-    apontadas (quando o timesheet estiver em uso).
+    apontadas (quando o timesheet estiver em uso). Extraído da view
+    `produtividade()` para ser reaproveitado pelo hub `painel_e_filas()`
+    (simplificação de menu).
     """
     from app.models import Usuario, Tarefa, Apontamento
 
@@ -1428,19 +1449,25 @@ def produtividade():
 
     linhas.sort(key=lambda l: (l["taxa"] if l["taxa"] is not None else -1), reverse=True)
 
-    return render_template("governanca/produtividade.html", linhas=linhas)
+    return dict(linhas=linhas)
+
+
+@governanca_bp.route("/produtividade")
+@login_required
+def produtividade():
+    return render_template("governanca/produtividade.html", **_contexto_produtividade())
 
 
 # ---------- Contingenciamento jurídico formal (item 7 do briefing de paridade) ----------
 
-@governanca_bp.route("/contingenciamento")
-@login_required
-def contingenciamento():
+def _contexto_contingenciamento():
     """
     Provisão de contingência: valor da causa × percentual da classificação
     (provável=100%, possível=50%, remoto=0%, ou percentual manual por
     processo) — não apenas soma bruta por categoria de risco operacional,
     que é o que `classificacao_risco` já fazia no painel de governança.
+    Extraído da view `contingenciamento()` para ser reaproveitado pelo hub
+    `painel_e_filas()` (simplificação de menu).
     """
     processos_q = aplicar_escopo_unidade(Processo.query, Processo).filter(Processo.status == "ativo")
 
@@ -1464,8 +1491,7 @@ def contingenciamento():
 
     processos_classificados.sort(key=lambda p: p.valor_provisionado or Decimal("0"), reverse=True)
 
-    return render_template(
-        "governanca/contingenciamento.html",
+    return dict(
         linhas=processos_classificados[:30],
         totais_por_classificacao=totais_por_classificacao,
         contagem_por_classificacao=contagem_por_classificacao,
@@ -1473,12 +1499,15 @@ def contingenciamento():
     )
 
 
+@governanca_bp.route("/contingenciamento")
+@login_required
+def contingenciamento():
+    return render_template("governanca/contingenciamento.html", **_contexto_contingenciamento())
+
+
 # ---------- Verificação de conflito de interesses (PENDENCIAS.md, seção -42) ----------
 
-@governanca_bp.route("/conflitos")
-@login_required
-@apenas_admin
-def verificacao_conflitos():
+def _contexto_verificacao_conflitos():
     """
     Varredura completa da empresa inteira (todas as unidades) atrás de
     todo par (cliente, processo de OUTRO cliente cuja parte_contraria bate
@@ -1493,6 +1522,9 @@ def verificacao_conflitos():
     não tem uma "empresa atual" fixa, então esta tela pede pra escolher
     uma antes de rodar a varredura, em vez de arriscar misturar dado de
     escritórios clientes diferentes.
+
+    Extraído da view `verificacao_conflitos()` para ser reaproveitado pelo
+    hub `regras_e_parametros()` (simplificação de menu).
     """
     from app.models import Empresa
 
@@ -1508,8 +1540,14 @@ def verificacao_conflitos():
         empresa_id = current_user.empresa_id_atual
         conflitos = varrer_conflitos_da_empresa(empresa_id)
 
-    return render_template("governanca/conflitos.html", conflitos=conflitos,
-                            empresas_para_escolher=empresas_para_escolher, empresa_id=empresa_id)
+    return dict(conflitos=conflitos, empresas_para_escolher=empresas_para_escolher, empresa_id=empresa_id)
+
+
+@governanca_bp.route("/conflitos")
+@login_required
+@apenas_admin
+def verificacao_conflitos():
+    return render_template("governanca/conflitos.html", **_contexto_verificacao_conflitos())
 
 
 # ---------- Export para Data Lake (seção 12) ----------
@@ -1667,12 +1705,20 @@ def painel_metricas():
 # conforme a legislação e o rito aplicável ao caso (CPC, Lei de Execução
 # Fiscal etc.).
 
+def _contexto_regras_proxima_acao():
+    """
+    Extraído da view `regras_proxima_acao_lista()` para ser reaproveitado
+    pelo hub `regras_e_parametros()` (simplificação de menu).
+    """
+    regras = RegraProximaAcao.query.order_by(RegraProximaAcao.ativo.desc(), RegraProximaAcao.ato_capturado).all()
+    return dict(regras=regras)
+
+
 @governanca_bp.route("/regras-proxima-acao")
 @login_required
 @apenas_admin
 def regras_proxima_acao_lista():
-    regras = RegraProximaAcao.query.order_by(RegraProximaAcao.ativo.desc(), RegraProximaAcao.ato_capturado).all()
-    return render_template("governanca/regras_proxima_acao_lista.html", regras=regras)
+    return render_template("governanca/regras_proxima_acao_lista.html", **_contexto_regras_proxima_acao())
 
 
 @governanca_bp.route("/regras-proxima-acao/nova", methods=["GET", "POST"])
@@ -1737,7 +1783,7 @@ def alternar_regra_proxima_acao(regra_id):
     registrar_log(current_user, "ativou" if regra.ativo else "desativou", "RegraProximaAcao", regra.id, regra.ato_capturado)
     db.session.commit()
     flash(f"Regra {'ativada' if regra.ativo else 'desativada'}.", "info")
-    return redirect(url_for("governanca.regras_proxima_acao_lista"))
+    return redirect(request.referrer or url_for("governanca.regras_proxima_acao_lista"))
 
 
 # Biblioteca de modelos de peças (item 10 da lista de pipeline de IA jurídica
@@ -1749,13 +1795,21 @@ def alternar_regra_proxima_acao(regra_id):
 # decisão de design do timbrado, ver app/utils/timbrado.py) — cada empresa
 # só vê e edita os próprios modelos, nunca os de outro escritório cliente.
 
+def _contexto_modelos_peca():
+    """
+    Extraído da view `modelos_peca_lista()` para ser reaproveitado pelo
+    hub `regras_e_parametros()` (simplificação de menu).
+    """
+    modelos = (ModeloPeca.query.filter_by(empresa_id=current_user.empresa_id_atual)
+               .order_by(ModeloPeca.ativo.desc(), ModeloPeca.tipo_peca, ModeloPeca.nome).all())
+    return dict(modelos=modelos)
+
+
 @governanca_bp.route("/modelos-peca")
 @login_required
 @apenas_admin
 def modelos_peca_lista():
-    modelos = (ModeloPeca.query.filter_by(empresa_id=current_user.empresa_id_atual)
-               .order_by(ModeloPeca.ativo.desc(), ModeloPeca.tipo_peca, ModeloPeca.nome).all())
-    return render_template("governanca/modelos_peca_lista.html", modelos=modelos)
+    return render_template("governanca/modelos_peca_lista.html", **_contexto_modelos_peca())
 
 
 @governanca_bp.route("/modelos-peca/novo", methods=["GET", "POST"])
@@ -1813,7 +1867,7 @@ def alternar_modelo_peca(modelo_id):
     registrar_log(current_user, "ativou" if modelo.ativo else "desativou", "ModeloPeca", modelo.id, modelo.nome)
     db.session.commit()
     flash(f"Modelo {'ativado' if modelo.ativo else 'desativado'}.", "info")
-    return redirect(url_for("governanca.modelos_peca_lista"))
+    return redirect(request.referrer or url_for("governanca.modelos_peca_lista"))
 
 
 @governanca_bp.route("/modelos-peca/<int:modelo_id>/excluir", methods=["POST"])
@@ -1828,7 +1882,7 @@ def excluir_modelo_peca(modelo_id):
     registrar_log(current_user, "excluiu", "ModeloPeca", modelo_id, nome)
     db.session.commit()
     flash("Modelo excluído.", "info")
-    return redirect(url_for("governanca.modelos_peca_lista"))
+    return redirect(request.referrer or url_for("governanca.modelos_peca_lista"))
 
 
 # Tabela de custas (item 9 da lista de pipeline de IA jurídica trazida pelo
@@ -1838,14 +1892,22 @@ def excluir_modelo_peca(modelo_id):
 # empresa) de RegraProximaAcao/MapaEstadoTPU acima — é regra de tribunal
 # (fato objetivo da lei de custas), não estilo do escritório.
 
+def _contexto_tabela_custas():
+    """
+    Extraído da view `tabela_custas_lista()` para ser reaproveitado pelo
+    hub `regras_e_parametros()` (simplificação de menu).
+    """
+    linhas = (TabelaCustas.query
+              .order_by(TabelaCustas.tribunal, TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast())
+              .all())
+    return dict(linhas=linhas)
+
+
 @governanca_bp.route("/tabela-custas")
 @login_required
 @apenas_admin
 def tabela_custas_lista():
-    linhas = (TabelaCustas.query
-              .order_by(TabelaCustas.tribunal, TabelaCustas.tipo_custa, TabelaCustas.faixa_ate.asc().nullslast())
-              .all())
-    return render_template("governanca/tabela_custas_lista.html", linhas=linhas)
+    return render_template("governanca/tabela_custas_lista.html", **_contexto_tabela_custas())
 
 
 @governanca_bp.route("/tabela-custas/carregar-padrao-tjsp", methods=["POST"])
@@ -1876,7 +1938,7 @@ def carregar_tabela_padrao_tjsp():
               "success")
     else:
         flash("A tabela padrão do TJSP já estava carregada (nenhuma linha nova).", "info")
-    return redirect(url_for("governanca.tabela_custas_lista"))
+    return redirect(request.referrer or url_for("governanca.tabela_custas_lista"))
 
 
 @governanca_bp.route("/tabela-custas/nova", methods=["GET", "POST"])
@@ -1938,7 +2000,7 @@ def alternar_linha_custas(linha_id):
                   f"{linha.tribunal}/{linha.tipo_custa}")
     db.session.commit()
     flash(f"Linha {'ativada' if linha.ativo else 'desativada'}.", "info")
-    return redirect(url_for("governanca.tabela_custas_lista"))
+    return redirect(request.referrer or url_for("governanca.tabela_custas_lista"))
 
 
 @governanca_bp.route("/tabela-custas/<int:linha_id>/excluir", methods=["POST"])
@@ -1951,7 +2013,7 @@ def excluir_linha_custas(linha_id):
     registrar_log(current_user, "excluiu", "TabelaCustas", linha_id, rotulo)
     db.session.commit()
     flash("Linha excluída.", "info")
-    return redirect(url_for("governanca.tabela_custas_lista"))
+    return redirect(request.referrer or url_for("governanca.tabela_custas_lista"))
 
 
 def fila_triagem_agrupada(limite_processos_por_grupo=5):
@@ -1993,15 +2055,22 @@ def fila_triagem_agrupada(limite_processos_por_grupo=5):
     return sorted(grupos.values(), key=lambda g: g["quantidade"], reverse=True)
 
 
+def _contexto_mapa_estado():
+    """
+    Extraído da view `mapa_estado_lista()` para ser reaproveitado pelo hub
+    `regras_e_parametros()` (simplificação de menu).
+    """
+    itens = MapaEstadoTPU.query.order_by(MapaEstadoTPU.ativo.desc(), MapaEstadoTPU.codigo_tpu).all()
+    fila_triagem = fila_triagem_agrupada()
+    triagem_pendente = sum(g["quantidade"] for g in fila_triagem)
+    return dict(itens=itens, triagem_pendente=triagem_pendente, fila_triagem=fila_triagem)
+
+
 @governanca_bp.route("/mapa-estado-tpu")
 @login_required
 @apenas_admin
 def mapa_estado_lista():
-    itens = MapaEstadoTPU.query.order_by(MapaEstadoTPU.ativo.desc(), MapaEstadoTPU.codigo_tpu).all()
-    fila_triagem = fila_triagem_agrupada()
-    triagem_pendente = sum(g["quantidade"] for g in fila_triagem)
-    return render_template("governanca/mapa_estado_lista.html", itens=itens,
-                            triagem_pendente=triagem_pendente, fila_triagem=fila_triagem)
+    return render_template("governanca/mapa_estado_lista.html", **_contexto_mapa_estado())
 
 
 @governanca_bp.route("/mapa-estado-tpu/novo", methods=["GET", "POST"])
@@ -2076,4 +2145,75 @@ def alternar_mapa_estado(item_id):
     registrar_log(current_user, "ativou" if item.ativo else "desativou", "MapaEstadoTPU", item.id, item.codigo_tpu)
     db.session.commit()
     flash(f"Mapeamento {'ativado' if item.ativo else 'desativado'}.", "info")
-    return redirect(url_for("governanca.mapa_estado_lista"))
+    return redirect(request.referrer or url_for("governanca.mapa_estado_lista"))
+
+
+# ---------- Hub "Regras e parâmetros" (simplificação de menu) ----------
+# Reúne em abas de uma tela só os 5 itens que antes ficavam soltos num
+# acordeão de 2º nível dentro de Governança de carteira: Regras de
+# próxima ação, Mapa de estado (TPU), Verificação de conflitos, Modelos
+# de peças e Tabela de custas — pedido explícito do usuário, mesmo padrão
+# já aplicado em "Rotina", "Minha conta", "Minha empresa" e "Plataforma"
+# (ver PENDENCIAS.md). Único nível de permissão (admin) para o hub
+# inteiro, então não precisa de `abas_visiveis` como em "Minha empresa"
+# — todas as 5 abas aparecem sempre que alguém consegue abrir a tela. As
+# cinco telas antigas (regras_proxima_acao_lista, mapa_estado_lista,
+# verificacao_conflitos, modelos_peca_lista, tabela_custas_lista)
+# continuam existindo e funcionando normalmente para quem chegar direto
+# por um link salvo — só as LISTAS viraram abas; "+ Nova regra"/"Editar"/
+# etc. continuam abrindo uma tela de formulário própria, fora do hub.
+
+@governanca_bp.route("/regras-e-parametros")
+@login_required
+@apenas_admin
+def regras_e_parametros():
+    abas_visiveis = ["regras", "mapa_estado", "conflitos", "modelos_peca", "tabela_custas"]
+    aba_pedida = request.args.get("tab")
+    aba_inicial = aba_pedida if aba_pedida in abas_visiveis else "regras"
+
+    return render_template(
+        "governanca/regras_e_parametros_hub.html",
+        aba_inicial=aba_inicial,
+        regras_ctx=_contexto_regras_proxima_acao(),
+        mapa_estado_ctx=_contexto_mapa_estado(),
+        conflitos_ctx=_contexto_verificacao_conflitos(),
+        modelos_peca_ctx=_contexto_modelos_peca(),
+        tabela_custas_ctx=_contexto_tabela_custas(),
+    )
+
+
+# ---------- Hub "Painel e filas" (simplificação de menu) ----------
+# Reúne em abas de uma tela só os itens que hoje aparecem soltos, sob o
+# título fixo "Painel e filas", em Governança de carteira: Painel de
+# governança, Fila de intimações, Métricas e relatório semanal (que já
+# era, desde a 1ª rodada de simplificação, um hub de 2 abas próprio —
+# aqui vira uma aba "aninhada", com as mesmas 2 sub-abas dentro dela, ver
+# governanca/_corpo_painel_metricas.html), Produtividade da equipe e
+# Contingenciamento. Mesmo nível de permissão de sempre (só
+# @login_required — nenhuma dessas 5 telas era admin-only) para o hub
+# inteiro, sem variação de visibilidade por aba. As cinco telas antigas
+# continuam existindo e funcionando normalmente para quem chegar direto
+# por um link salvo.
+
+@governanca_bp.route("/painel-e-filas")
+@login_required
+def painel_e_filas():
+    abas_visiveis = ["painel", "fila", "metricas_relatorio", "produtividade", "contingenciamento"]
+    aba_pedida = request.args.get("tab")
+    aba_inicial = aba_pedida if aba_pedida in abas_visiveis else "painel"
+
+    aba_metricas_relatorio_inicial = "relatorio" if request.args.get("subtab") == "relatorio" else "metricas"
+    metricas_relatorio_ctx = {}
+    metricas_relatorio_ctx.update(_contexto_metricas())
+    metricas_relatorio_ctx.update(_contexto_relatorio_semanal())
+
+    return render_template(
+        "governanca/painel_e_filas_hub.html",
+        aba_inicial=aba_inicial,
+        aba_metricas_relatorio_inicial=aba_metricas_relatorio_inicial,
+        painel_ctx=_contexto_painel_governanca(),
+        fila_ctx=_contexto_fila_intimacoes(),
+        metricas_relatorio_ctx=metricas_relatorio_ctx,
+        produtividade_ctx=_contexto_produtividade(),
+        contingenciamento_ctx=_contexto_contingenciamento(),
+    )

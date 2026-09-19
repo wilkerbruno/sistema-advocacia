@@ -28,10 +28,15 @@ plataforma_bp = Blueprint("plataforma", __name__)
 MESES_POR_PLANO = {"mensal": 1, "trimestral": 3, "anual": 12}
 
 
-@plataforma_bp.route("/licencas")
-@login_required
-@apenas_admin_desenvolvedor
-def painel_licencas():
+def _contexto_painel_licencas():
+    """
+    Reúne o contexto do painel de licenças num dict só — extraído da view
+    `painel_licencas()` para ser reaproveitado pelo hub `plataforma.hub()`
+    (simplificação de menu, mesmo pedido de "Minha empresa"/"Rotina":
+    "faça o mesmo com os itens de 'plataforma'..."). Continua lendo os
+    filtros (status/busca) direto da querystring da requisição atual,
+    exatamente como antes.
+    """
     filtro_status = request.args.get("status")  # ativa | pendente_pagamento | vencida | cancelada | sem_licenca
     busca = request.args.get("busca", "").strip()
 
@@ -67,12 +72,18 @@ def painel_licencas():
     if filtro_status:
         linhas = [l for l in linhas if l["status_calc"] == filtro_status]
 
-    return render_template(
-        "plataforma/painel_licencas.html",
+    return dict(
         linhas=linhas, totais=totais, total_empresas=len(empresas_lista),
         receita_mensal_recorrente=receita_mensal_recorrente,
         filtro_status=filtro_status, busca=busca,
     )
+
+
+@plataforma_bp.route("/licencas")
+@login_required
+@apenas_admin_desenvolvedor
+def painel_licencas():
+    return render_template("plataforma/painel_licencas.html", **_contexto_painel_licencas())
 
 
 @plataforma_bp.route("/licencas/<int:empresa_id>/atualizar", methods=["POST"])
@@ -106,15 +117,23 @@ def atualizar_licenca_rapido(empresa_id):
     registrar_log(current_user, "definiu_licenca", "Empresa", empresa.id, f"{plano} R${valor}")
     db.session.commit()
     flash(f"Licença de \"{empresa.nome}\" atualizada.", "success")
-    return redirect(url_for("plataforma.painel_licencas", **request.args))
+    return redirect(request.referrer or url_for("plataforma.painel_licencas", **request.args))
+
+
+def _contexto_empresas():
+    """
+    Extraído da view `empresas()` para ser reaproveitado pelo hub
+    `plataforma.hub()` (simplificação de menu).
+    """
+    lista = Empresa.query.filter_by(dono_da_plataforma=False).order_by(Empresa.nome).all()
+    return dict(empresas=lista)
 
 
 @plataforma_bp.route("/empresas")
 @login_required
 @apenas_admin_desenvolvedor
 def empresas():
-    lista = Empresa.query.filter_by(dono_da_plataforma=False).order_by(Empresa.nome).all()
-    return render_template("plataforma/empresas.html", empresas=lista)
+    return render_template("plataforma/empresas.html", **_contexto_empresas())
 
 
 @plataforma_bp.route("/empresas/nova", methods=["GET", "POST"])
@@ -322,6 +341,15 @@ def licenca_empresa(empresa_id):
 # /cadastrar-empresa; o valor negociado de cada empresa já cadastrada
 # (Licenca.valor_negociado) nunca muda sozinho quando isso é editado aqui.
 
+def _contexto_editar_planos():
+    """
+    Extraído da view `editar_planos()` para ser reaproveitado pelo hub
+    `plataforma.hub()` (simplificação de menu). Só o contexto de leitura —
+    a lógica de POST continua só na view original.
+    """
+    return dict(config=ConfiguracaoPlataforma.obter())
+
+
 @plataforma_bp.route("/planos", methods=["GET", "POST"])
 @login_required
 @apenas_admin_desenvolvedor
@@ -341,9 +369,9 @@ def editar_planos():
         db.session.commit()
         flash("Preços padrão atualizados — valem a partir do próximo cadastro público. "
               "Empresas já cadastradas não são afetadas.", "success")
-        return redirect(url_for("plataforma.editar_planos"))
+        return redirect(request.referrer or url_for("plataforma.editar_planos"))
 
-    return render_template("plataforma/planos_form.html", config=config)
+    return render_template("plataforma/planos_form.html", **_contexto_editar_planos())
 
 
 # ---------------------- Catálogo de módulos ----------------------
@@ -352,12 +380,20 @@ def editar_planos():
 # nenhuma empresa cliente (elas só veem o catálogo filtrado em
 # /licenciamento/modulos, sem preço sugerido nem o quanto é "obrigatório").
 
+def _contexto_modulos_lista():
+    """
+    Extraído da view `modulos_lista()` para ser reaproveitado pelo hub
+    `plataforma.hub()` (simplificação de menu).
+    """
+    itens = Modulo.query.order_by(Modulo.ativo.desc(), Modulo.ordem_exibicao, Modulo.nome).all()
+    return dict(itens=itens)
+
+
 @plataforma_bp.route("/modulos")
 @login_required
 @apenas_admin_desenvolvedor
 def modulos_lista():
-    itens = Modulo.query.order_by(Modulo.ativo.desc(), Modulo.ordem_exibicao, Modulo.nome).all()
-    return render_template("plataforma/modulos_lista.html", itens=itens)
+    return render_template("plataforma/modulos_lista.html", **_contexto_modulos_lista())
 
 
 @plataforma_bp.route("/modulos/novo", methods=["GET", "POST"])
@@ -426,7 +462,7 @@ def alternar_modulo_ativo(item_id):
     db.session.commit()
     flash(f"Módulo {'reativado no catálogo' if item.ativo else 'retirado do catálogo'} — "
           f"empresas que já tinham esse módulo liberado não são afetadas.", "info")
-    return redirect(url_for("plataforma.modulos_lista"))
+    return redirect(request.referrer or url_for("plataforma.modulos_lista"))
 
 
 # ---------------------- Módulos por empresa ----------------------
@@ -470,3 +506,36 @@ def modulos_empresa(empresa_id):
     linhas = [dict(modulo=m, associacao=associacoes.get(m.id)) for m in catalogo]
 
     return render_template("plataforma/modulos_empresa.html", empresa=empresa, linhas=linhas)
+
+
+# ---------------------- Hub "Plataforma" (simplificação de menu) ----------------------
+# Reúne em abas de uma tela só os 4 itens que antes ficavam soltos num
+# acordeão de 2º nível dentro de Configurações: Painel de licenças,
+# Empresas clientes, Catálogo de módulos e Preços padrão — pedido
+# explícito do usuário, mesmo padrão já aplicado em "Rotina", "Minha
+# conta" e "Minha empresa" (ver PENDENCIAS.md). Único nível de permissão
+# (admin desenvolvedor) para o hub inteiro, então não precisa de
+# `abas_visiveis` como em "Minha empresa" — as 4 abas aparecem sempre que
+# alguém consegue abrir a tela. As quatro telas antigas (painel_licencas,
+# empresas, modulos_lista, editar_planos) continuam existindo e
+# funcionando normalmente para quem chegar direto por um link salvo — só
+# as LISTAS/painéis viraram abas; "+ Nova empresa"/"+ Novo módulo"/
+# "Editar"/detalhe de empresa continuam abrindo uma tela própria, fora do
+# hub.
+
+@plataforma_bp.route("/")
+@login_required
+@apenas_admin_desenvolvedor
+def hub():
+    abas_visiveis = ["licencas", "empresas", "modulos", "planos"]
+    aba_pedida = request.args.get("tab")
+    aba_inicial = aba_pedida if aba_pedida in abas_visiveis else "licencas"
+
+    return render_template(
+        "plataforma/hub.html",
+        aba_inicial=aba_inicial,
+        licencas_ctx=_contexto_painel_licencas(),
+        empresas_ctx=_contexto_empresas(),
+        modulos_ctx=_contexto_modulos_lista(),
+        planos_ctx=_contexto_editar_planos(),
+    )

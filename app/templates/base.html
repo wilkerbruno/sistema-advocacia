@@ -49,50 +49,59 @@
       {% set governanca_aberto = esta_em_governanca or favorito == 'governanca' %}
       {% set config_aberto = esta_em_config or favorito == 'config' %}
 
-      {# Submenus (2º nível, dentro de um grupo) — mesma ideia dos grupos
-         recolhíveis acima, só que pra encolher um PUNHADO de itens
-         relacionados dentro de um grupo já aberto. Usado hoje só pras
-         duas seções que continuam sendo administração de PLATAFORMA (não
-         da empresa cliente): "Plataforma" (catálogo/licenças entre
-         empresas, só admin desenvolvedor) e "Regras e parâmetros" (5
-         telas de CRUD independentes de configuração jurídica, uso raro no
-         dia a dia) — accordion ainda faz sentido nessas porque nenhuma
-         tela sozinha resolve o assunto e não são "a mesma tarefa vista de
-         formas diferentes".
+      {# Itens que reúnem telas relacionadas usam o padrão de HUB COM ABAS
+         numa tela só (uma rota Flask, várias tab-pane — ver app/routes/
+         rotina.py, app/routes/conta.py::hub, app/routes/admin.py::
+         minha_empresa, app/routes/governanca.py::entrada_processos/
+         regras_e_parametros/painel_e_filas, app/routes/plataforma.py::hub)
+         em vez de um botão que só expande uma lista de links (acordeão de
+         2º nível — ".submenu-colapsavel", hoje sem nenhum uso: as duas
+         últimas seções que ainda eram acordeão, "Plataforma" e "Regras e
+         parâmetros", viraram hub nesta rodada) — pedido explícito do
+         cliente, repetido a cada seção nova: "quero que junte todos os
+         itens de 'minha empresa' também", depois "faça o mesmo com os
+         itens de 'plataforma', 'regras e parametros' e 'painel e filas'".
+         Cada hub reúne: "Rotina" (Tarefas+Agenda+Horas), "Minha conta"
+         (Preferências+Autenticador+Meu agente local), "Minha empresa"
+         (Unidades+Equipe+Relatórios+Auditoria+Alçada de aprovação+Minha
+         licença+Módulos+Integrações), "Entrada de processos" (CNJ+OAB+
+         Importar em lote), "Plataforma" (Painel de licenças+Empresas
+         clientes+Catálogo de módulos+Preços padrão), "Regras e
+         parâmetros" (Regras de próxima ação+Mapa de estado (TPU)+
+         Verificação de conflitos+Modelos de peças+Tabela de custas) e
+         "Painel e filas" (Painel de governança+Fila de intimações+
+         Métricas e relatório semanal+Produtividade da equipe+
+         Contingenciamento — a própria "Métricas e relatório semanal" já
+         era, desde a 1ª rodada, um hub de 2 abas próprio, que aqui vira
+         uma aba "aninhada" com as mesmas 2 sub-abas dentro dela).
 
-         "Rotina" (Tarefas+Agenda+Horas), "Minha conta" (Preferências+
-         Autenticador+Meu agente local), "Minha empresa" (Unidades+Equipe+
-         Relatórios+Auditoria+Alçada de aprovação+Minha licença+Módulos+
-         Integrações) e "Entrada de processos" (CNJ+OAB+Importar em lote)
-         usam em vez disso o padrão de HUB COM ABAS numa tela só (uma rota
-         Flask, várias tab-pane — ver app/routes/rotina.py, app/routes/
-         conta.py::hub, app/routes/admin.py::minha_empresa, app/routes/
-         governanca.py::entrada_processos) porque cada uma delas reúne
-         telas relacionadas que fazem sentido ver lado a lado, e virar uma
-         aba dentro de uma tela só (em vez de um botão que só expande uma
-         lista de links) deixa tudo a um clique de distância — pedido
-         explícito do cliente ("quero que junte todos os itens de 'minha
-         empresa' também", depois da mesma ideia já aplicada a Rotina e
-         Minha conta), inspirado no que já existia em "Entrada de
-         processos". As telas antigas (tarefas.listar, agenda.index,
-         timesheet.listar, conta.preferencias, conta.configurar_totp,
-         agente_local.meu_agente, admin.unidades, admin.usuarios, admin.
-         relatorios, admin.auditoria, admin.alcada_aprovacao,
-         licenciamento.minha_licenca, licenciamento.modulos, integracoes.
+         Cada uma dessas telas fazia sentido ver lado a lado, e virar uma
+         aba dentro de uma tela só deixa tudo a um clique de distância. As
+         telas antigas (tarefas.listar, agenda.index, timesheet.listar,
+         conta.preferencias, conta.configurar_totp, agente_local.
+         meu_agente, admin.unidades, admin.usuarios, admin.relatorios,
+         admin.auditoria, admin.alcada_aprovacao, licenciamento.
+         minha_licenca, licenciamento.modulos, integracoes.
          minhas_integracoes, governanca.novo_por_cnj, governanca.
-         importar_lote) continuam existindo e funcionando pra quem chegar
-         direto por um link salvo — só o menu lateral passou a apontar pro
-         hub. "+ Nova unidade"/"+ Novo usuário"/"Editar" continuam abrindo
-         uma tela de formulário própria, fora do hub, mesmo padrão de
-         "Nova tarefa" dentro do hub "Rotina".
+         importar_lote, plataforma.painel_licencas, plataforma.empresas,
+         plataforma.modulos_lista, plataforma.editar_planos, governanca.
+         regras_proxima_acao_lista, governanca.mapa_estado_lista,
+         governanca.verificacao_conflitos, governanca.modelos_peca_lista,
+         governanca.tabela_custas_lista, governanca.painel, governanca.
+         fila_intimacoes, governanca.painel_metricas, governanca.
+         produtividade, governanca.contingenciamento) continuam existindo
+         e funcionando pra quem chegar direto por um link salvo — só o
+         menu lateral passou a apontar pro hub. "+ Nova unidade"/"+ Novo
+         usuário"/"+ Nova empresa"/"+ Novo módulo"/"+ Nova regra"/"Editar"
+         continuam abrindo uma tela de formulário própria, fora do hub,
+         mesmo padrão de "Nova tarefa" dentro do hub "Rotina".
 
          Mesmo padrão de auto-abrir quando a página atual está dentro
          (nunca esconde onde o usuário está) + localStorage (ver script no
-         fim da página) que os grupos já usam, só que com uma classe
-         própria (submenu-colapsavel) pra não conflitar com o toggle dos
-         3 grupos principais. #}
+         fim da página) que os grupos já usam. #}
       {% set esta_em_rotina = request.endpoint and (request.endpoint == 'rotina.index' or request.endpoint.startswith('tarefas.') or request.endpoint == 'agenda.index' or request.endpoint.startswith('timesheet.')) %}
-      {% set esta_em_regras_parametros = request.endpoint and request.endpoint in ['governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao', 'governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado', 'governanca.verificacao_conflitos', 'governanca.modelos_peca_lista', 'governanca.novo_modelo_peca', 'governanca.editar_modelo_peca', 'governanca.tabela_custas_lista', 'governanca.nova_linha_custas', 'governanca.editar_linha_custas'] %}
+      {% set esta_em_regras_parametros = request.endpoint and request.endpoint in ['governanca.regras_e_parametros', 'governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao', 'governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado', 'governanca.verificacao_conflitos', 'governanca.modelos_peca_lista', 'governanca.novo_modelo_peca', 'governanca.editar_modelo_peca', 'governanca.tabela_custas_lista', 'governanca.nova_linha_custas', 'governanca.editar_linha_custas'] %}
+      {% set esta_em_painel_e_filas = request.endpoint and request.endpoint in ['governanca.painel_e_filas', 'governanca.painel', 'governanca.fila_intimacoes', 'governanca.painel_metricas', 'governanca.metricas', 'governanca.relatorio_semanal_preview', 'governanca.produtividade', 'governanca.contingenciamento'] %}
       {% set esta_em_minha_conta = request.endpoint and (request.endpoint.startswith('conta.') or request.endpoint.startswith('agente_local.')) %}
       {% set esta_em_minha_empresa = request.endpoint and request.endpoint.split('.')[0] in ['admin', 'licenciamento', 'integracoes'] %}
       {% set esta_em_plataforma = request.endpoint and request.endpoint.startswith('plataforma.') %}
@@ -130,21 +139,8 @@
           <span>Governança de carteira</span> <span class="grupo-chevron">▾</span>
         </button>
         <div class="grupo-itens {{ '' if governanca_aberto else 'recolhido' }}">
-          <div class="subgrupo-titulo">Painel e filas</div>
-          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.painel' }}" href="{{ url_for('governanca.painel') }}">
-            <span class="tab-index">G1</span> Painel de governança
-          </a>
-          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.fila_intimacoes' }}" href="{{ url_for('governanca.fila_intimacoes') }}">
-            <span class="tab-index">G2</span> Fila de intimações
-          </a>
-          <a class="nav-item {{ 'active' if request.endpoint in ['governanca.painel_metricas', 'governanca.metricas', 'governanca.relatorio_semanal_preview'] }}" href="{{ url_for('governanca.painel_metricas') }}">
-            <span class="tab-index">G3</span> Métricas e relatório semanal
-          </a>
-          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.produtividade' }}" href="{{ url_for('governanca.produtividade') }}">
-            <span class="tab-index">G7</span> Produtividade da equipe
-          </a>
-          <a class="nav-item {{ 'active' if request.endpoint == 'governanca.contingenciamento' }}" href="{{ url_for('governanca.contingenciamento') }}">
-            <span class="tab-index">G8</span> Contingenciamento
+          <a class="nav-item {{ 'active' if esta_em_painel_e_filas }}" href="{{ url_for('governanca.painel_e_filas') }}">
+            <span class="tab-index">G1</span> Painel e filas
           </a>
 
           <a class="nav-item {{ 'active' if request.endpoint in ['governanca.entrada_processos', 'governanca.novo_por_cnj', 'governanca.importar_lote'] or (request.endpoint and request.endpoint.startswith('captacao_oab.')) }}" href="{{ url_for('governanca.entrada_processos') }}">
@@ -153,29 +149,9 @@
           </a>
 
           {% if current_user.is_admin %}
-          <div class="submenu-colapsavel {{ 'expandido' if esta_em_regras_parametros }}" data-submenu="regras-parametros">
-            <button type="button" class="nav-item submenu-toggle">
-              <span>Regras e parâmetros</span>
-              <span class="submenu-chevron">▾</span>
-            </button>
-            <div class="submenu-itens {{ '' if esta_em_regras_parametros else 'recolhido' }}">
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.regras_proxima_acao_lista', 'governanca.nova_regra_proxima_acao', 'governanca.editar_regra_proxima_acao'] }}" href="{{ url_for('governanca.regras_proxima_acao_lista') }}">
-                <span class="tab-index">G9</span> Regras de próxima ação
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.mapa_estado_lista', 'governanca.novo_mapa_estado', 'governanca.editar_mapa_estado'] }}" href="{{ url_for('governanca.mapa_estado_lista') }}">
-                <span class="tab-index">GA</span> Mapa de estado (TPU)
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint == 'governanca.verificacao_conflitos' }}" href="{{ url_for('governanca.verificacao_conflitos') }}">
-                <span class="tab-index">GB</span> Verificação de conflitos
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.modelos_peca_lista', 'governanca.novo_modelo_peca', 'governanca.editar_modelo_peca'] }}" href="{{ url_for('governanca.modelos_peca_lista') }}">
-                <span class="tab-index">GC</span> Modelos de peças
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint in ['governanca.tabela_custas_lista', 'governanca.nova_linha_custas', 'governanca.editar_linha_custas'] }}" href="{{ url_for('governanca.tabela_custas_lista') }}">
-                <span class="tab-index">GD</span> Tabela de custas
-              </a>
-            </div>
-          </div>
+          <a class="nav-item {{ 'active' if esta_em_regras_parametros }}" href="{{ url_for('governanca.regras_e_parametros') }}">
+            <span class="tab-index">G9</span> Regras e parâmetros
+          </a>
           {% endif %}
         </div>
       </div>
@@ -204,26 +180,9 @@
           {% endif %}
 
           {% if current_user.is_admin_desenvolvedor %}
-          <div class="submenu-colapsavel {{ 'expandido' if esta_em_plataforma }}" data-submenu="plataforma">
-            <button type="button" class="nav-item submenu-toggle">
-              <span>Plataforma</span>
-              <span class="submenu-chevron">▾</span>
-            </button>
-            <div class="submenu-itens {{ '' if esta_em_plataforma else 'recolhido' }}">
-              <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.painel_licencas' }}" href="{{ url_for('plataforma.painel_licencas') }}">
-                <span class="tab-index">P1</span> Painel de licenças
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.empresa') or request.endpoint == 'plataforma.empresas' or request.endpoint == 'plataforma.modulos_empresa' or request.endpoint == 'plataforma.licenca_empresa' }}" href="{{ url_for('plataforma.empresas') }}">
-                <span class="tab-index">P2</span> Empresas clientes
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint and request.endpoint.startswith('plataforma.modulo') and request.endpoint != 'plataforma.modulos_empresa' }}" href="{{ url_for('plataforma.modulos_lista') }}">
-                <span class="tab-index">P3</span> Catálogo de módulos
-              </a>
-              <a class="nav-item {{ 'active' if request.endpoint == 'plataforma.editar_planos' }}" href="{{ url_for('plataforma.editar_planos') }}">
-                <span class="tab-index">P4</span> Preços padrão
-              </a>
-            </div>
-          </div>
+          <a class="nav-item {{ 'active' if esta_em_plataforma }}" href="{{ url_for('plataforma.hub') }}">
+            Plataforma
+          </a>
           {% endif %}
         </div>
       </div>
@@ -442,11 +401,13 @@ function configurarColapsaveis(selectorWrapper, selectorBotao, selectorItens, pr
 
 configurarColapsaveis(".grupo-colapsavel", ".grupo-toggle", ".grupo-itens", "menu-grupo-", "grupo");
 
-// Submenus de 2º nível (ex.: "Rotina", "Minha conta", "Minha empresa",
-// "Plataforma", "Regras e parâmetros") — botão separado do clique do
-// nav-item que ele mesmo é (evita abrir o link de dentro por engano: o
-// botão do submenu não tem href, só o toggle).
-configurarColapsaveis(".submenu-colapsavel", ".submenu-toggle", ".submenu-itens", "menu-submenu-", "submenu");
+// Os submenus recolhíveis de 2º nível não têm mais nenhum uso no menu —
+// "Plataforma" e "Regras e parâmetros" (as duas últimas seções nesse
+// padrão) viraram hub com abas nesta rodada, igual "Rotina", "Minha
+// conta", "Minha empresa" e "Entrada de processos" já eram. A função
+// `configurarColapsaveis` continua existindo (não faz mal nenhum ficar
+// sem uso), só a chamada que apontava pra esse seletor foi removida por
+// não ter mais nenhum elemento correspondente no DOM.
 </script>
 
 {% if current_user.is_authenticated %}

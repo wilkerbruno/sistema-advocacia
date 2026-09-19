@@ -1,5 +1,86 @@
 # Status das pendências do briefing (atualizado em 19/09/2026)
 
+## -113. Quinta rodada de simplificação do menu — hubs "Plataforma", "Regras e parâmetros" e "Painel e filas"
+
+**Pedido:** depois de ver o hub "Minha empresa" (seção -112 acima), o usuário pediu: "otimo, agora faça o
+mesmo com os iten de 'plataforma', 'regras e parametros' e 'painel e filas'" — estender o mesmo padrão de
+hub-com-abas pras três seções que ainda restavam fora dele: "Plataforma" e "Regras e parâmetros" (as duas
+últimas seções em acordeão de 2º nível — ver seção -109) e "Painel e filas" (um título fixo com 5 itens
+soltos, nunca tinha sido um acordeão).
+
+**Três hubs novos, mesmo padrão de sempre** (uma rota Flask, várias tab-pane, `_contexto_xxx()` extraído
+de cada view original, rotas antigas preservadas):
+
+- **`plataforma.hub()`** (`GET /plataforma/`), template `plataforma/hub.html` — 4 abas: Painel de
+  licenças, Empresas clientes, Catálogo de módulos, Preços padrão. Helpers novos em
+  `app/routes/plataforma.py`: `_contexto_painel_licencas()`, `_contexto_empresas()`,
+  `_contexto_modulos_lista()`, `_contexto_editar_planos()`. Único nível de permissão (admin
+  desenvolvedor) — diferente de "Minha empresa", nenhuma aba varia por papel, então não precisou de
+  `abas_visiveis`. "+ Nova empresa"/"+ Novo módulo"/"Editar"/detalhe de empresa continuam telas próprias,
+  fora do hub.
+- **`governanca.regras_e_parametros()`** (`GET /governanca/regras-e-parametros`), template
+  `governanca/regras_e_parametros_hub.html` — 5 abas: Regras de próxima ação, Mapa de estado (TPU),
+  Verificação de conflitos, Modelos de peças, Tabela de custas. Helpers novos em
+  `app/routes/governanca.py`: `_contexto_regras_proxima_acao()`, `_contexto_mapa_estado()`,
+  `_contexto_verificacao_conflitos()`, `_contexto_modelos_peca()`, `_contexto_tabela_custas()`. Único
+  nível de permissão (admin). Os links cruzados que já existiam entre "Regras de próxima ação" e "Mapa de
+  estado" (ver seção -103) viraram troca de aba via JS (`bootstrap.Tab`), mesmo padrão do link "Importar
+  em lote" dentro de "Entrada de processos". O filtro de empresa da aba "Verificação de conflitos" (só
+  aparece pro admin desenvolvedor, que vê múltiplas empresas) aponta pro próprio hub com `?tab=conflitos`
+  preservado, mesmo padrão da Auditoria no hub "Minha empresa".
+- **`governanca.painel_e_filas()`** (`GET /governanca/painel-e-filas`), template
+  `governanca/painel_e_filas_hub.html` — 5 abas: Painel de governança, Fila de intimações, Métricas e
+  relatório semanal, Produtividade da equipe, Contingenciamento. Helpers novos:
+  `_contexto_painel_governanca()`, `_contexto_fila_intimacoes()`, `_contexto_produtividade()`,
+  `_contexto_contingenciamento()` (reaproveita também `_contexto_metricas()`/
+  `_contexto_relatorio_semanal()`, já extraídos na 1ª rodada). Único nível de permissão
+  (`@login_required` — nenhuma dessas 5 telas era admin-only); o conteúdo da aba Painel continua variando
+  por papel exatamente como sempre (distribuição por unidade só pra admin), sem precisar de
+  `abas_visiveis`. O link cruzado "ver na fila de intimações →" (cartão de prazos vencidos do Painel)
+  virou troca de aba via JS. A paginação da Fila (dentro do hub) usa uma lista numerada com
+  `?tab=fila&pagina=N` explícito (em vez do partial genérico `_paginacao.html`, que não sabe preservar a
+  aba atual) — mesmo padrão já usado na Auditoria do hub "Minha empresa".
+
+  **Particularidade desta aba — "Métricas e relatório semanal" aninhada:** essa seção já era, desde a 1ª
+  rodada (seção -109), um hub de 2 abas próprio (`governanca.painel_metricas`). Em vez de duplicar esse
+  conteúdo ou achatar as duas sub-abas, o corpo (nav + tab-content) foi extraído pra um partial novo,
+  `app/templates/governanca/_corpo_painel_metricas.html`, parametrizado por um prefixo de id
+  (`id_prefixo`) e pela sub-aba inicial (`aba_metricas_relatorio`) — reaproveitado tanto pela tela
+  solteira `governanca/painel_metricas.html` (prefixo vazio, ids sem mudança nenhuma: `tab-btn-metricas`,
+  `tab-btn-relatorio`) quanto pela aba "aninhada" dentro do hub novo (prefixo `"pf-"`: `pf-tab-btn-
+  metricas`, `pf-tab-btn-relatorio`) — nunca colidem entre si porque só uma das duas telas é renderizada
+  por vez. A sub-aba inicial da aba aninhada é lida de `?subtab=relatorio` (namespace separado do `?tab=`
+  do hub externo).
+
+**Menu lateral (`app/templates/base.html`):** os três acordeões/título-fixo viraram link único cada
+(`esta_em_plataforma` já era baseado em prefixo de endpoint, então cobriu o hub novo sem mudança;
+`esta_em_regras_parametros` — lista explícita de endpoints — ganhou `governanca.regras_e_parametros`;
+`esta_em_painel_e_filas`, novo, cobre o hub e as 5 telas antigas). Com isso não sobra mais NENHUM
+`.submenu-colapsavel` no menu — a chamada de `configurarColapsaveis()` pra esse seletor foi removida do
+`<script>` no fim da página (a função continua existindo, só não tem mais nenhum elemento correspondente
+no DOM pra configurar). Comentário do bloco de submenus reescrito pra refletir que só sobram hubs.
+
+**Onde:** `app/routes/plataforma.py` (4 helpers `_contexto_*` novos, rota `hub()`, referrer-fix em
+`atualizar_licenca_rapido`/`alternar_modulo_ativo`/`editar_planos`), `app/routes/governanca.py` (9
+helpers `_contexto_*` novos — `_contexto_painel_governanca`, `_contexto_fila_intimacoes`,
+`_contexto_produtividade`, `_contexto_contingenciamento`, `_contexto_verificacao_conflitos`,
+`_contexto_regras_proxima_acao`, `_contexto_modelos_peca`, `_contexto_tabela_custas`,
+`_contexto_mapa_estado` —, rotas `regras_e_parametros()` e `painel_e_filas()`, referrer-fix em
+`alternar_regra_proxima_acao`/`alternar_modelo_peca`/`excluir_modelo_peca`/
+`carregar_tabela_padrao_tjsp`/`alternar_linha_custas`/`excluir_linha_custas`/`alternar_mapa_estado`),
+`app/templates/plataforma/hub.html` (novo), `app/templates/governanca/regras_e_parametros_hub.html`
+(novo), `app/templates/governanca/painel_e_filas_hub.html` (novo), `app/templates/governanca/
+_corpo_painel_metricas.html` (novo, partial extraído de `painel_metricas.html`), `app/templates/
+governanca/painel_metricas.html` (simplificado pra só incluir o partial), `app/templates/base.html`
+(3 seções viraram link único; `esta_em_regras_parametros` atualizado; `esta_em_painel_e_filas` novo;
+comentário do bloco reescrito; chamada morta de `configurarColapsaveis` removida). Testado em
+`tests/test_hub_plataforma.py` (novo — 9 testes), `tests/test_hub_regras_parametros.py` (novo — 10
+testes), `tests/test_hub_painel_e_filas.py` (novo — 12 testes, incluindo a aba aninhada), com ajustes em
+`tests/test_submenus_segundo_nivel.py` (reescrito — não sobra mais nenhum acordeão de 2º nível pra
+testar, só um teste garantindo isso), `tests/test_menu_configuracoes.py` (testes de "Plataforma" agora
+checam o link único do hub) e `tests/test_menu_simplificacao.py` (testes de "Painel e filas"/"Regras e
+parâmetros" atualizados pro novo formato de hub). Suíte completa (588 testes) passando.
+
 ## -112. Quarta rodada de simplificação do menu — hub "Minha empresa"
 
 **Pedido:** depois de ver os hubs "Rotina" e "Minha conta" (seção -111 abaixo), o usuário pediu: "otimo,

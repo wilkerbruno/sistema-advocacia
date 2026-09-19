@@ -196,7 +196,7 @@ def test_menu_nao_mostra_mais_itens_antigos_soltos(client, login, app):
     html = client.get("/").data.decode("utf-8")
 
     assert "Entrada de processos" in html
-    assert "Métricas e relatório semanal" in html
+    assert "Painel e filas" in html
     assert "Rotina" in html
     assert "Minha conta" in html
     # os links diretos que existiam soltos no menu não aparecem mais lá:
@@ -209,22 +209,38 @@ def test_menu_nao_mostra_mais_itens_antigos_soltos(client, login, app):
     assert 'href="/timesheet/"' not in html
     assert 'href="/agente-local"' not in html
     assert 'href="/minha-conta/preferencias"' not in html
+    # "Painel e filas" (5ª rodada) também deixou de mostrar os 5 itens
+    # soltos — vira hub com abas, ver test_hub_painel_e_filas.py:
+    assert 'href="/governanca/painel"' not in html
+    assert 'href="/governanca/fila-intimacoes"' not in html
+    assert 'href="/governanca/metricas-e-relatorio"' not in html
+    assert 'href="/governanca/produtividade"' not in html
+    assert 'href="/governanca/contingenciamento"' not in html
     # os links novos que substituem os itens soltos aparecem no lugar:
     assert 'href="/rotina/"' in html
     assert 'href="/minha-conta/"' in html
+    assert 'href="/governanca/painel-e-filas"' in html
 
 
-def test_governanca_tem_subgrupos(client, login, app):
+def test_governanca_tem_hub_de_painel_e_filas_e_hub_de_regras_e_parametros(client, login, app):
+    """"Painel e filas" (Painel de governança+Fila de intimações+Métricas
+    e relatório semanal+Produtividade da equipe+Contingenciamento) e
+    "Regras e parâmetros" (5 itens, uso raro) viraram hub com abas na 5ª
+    rodada de simplificação — ver test_hub_painel_e_filas.py e
+    test_hub_regras_parametros.py pro conteúdo de cada aba. Antes eram,
+    respectivamente, um título fixo com itens soltos e um submenu
+    recolhível de 2º nível."""
     _, unidade = _montar_empresa(dono_da_plataforma=True)
     _criar_usuario_e_logar(unidade.id, "dev@menusimpl.com", "admin", login)
 
     html = client.get("/").data.decode("utf-8")
 
-    assert 'subgrupo-titulo">Painel e filas' in html
-    # "Regras e parâmetros" (5 itens, uso raro) virou um submenu recolhível
-    # de 2º nível em vez de título fixo — ver test_submenus_segundo_nivel.py
-    assert 'data-submenu="regras-parametros"' in html
+    assert 'href="/governanca/painel-e-filas"' in html
+    assert "Painel e filas" in html
+    assert 'href="/governanca/regras-e-parametros"' in html
     assert "Regras e parâmetros" in html
+    assert "subgrupo-titulo" not in html
+    assert "submenu-colapsavel" not in html
 
 
 def test_meu_agente_local_saiu_de_operacao_e_foi_para_configuracoes(client, login, app):

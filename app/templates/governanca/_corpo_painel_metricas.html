@@ -1,0 +1,156 @@
+{#
+  Corpo (nav + tab-content) do hub "Métricas" + "Relatório semanal
+  (preview)" — extraído de governanca/painel_metricas.html (1ª rodada de
+  simplificação de menu) para ser reaproveitado também dentro do hub
+  "Painel e filas" (5ª rodada), onde vira uma aba "aninhada" (duas
+  sub-abas dentro de uma aba). Nenhuma lógica de negócio mudou aqui, só a
+  navegação — ver governanca.py::_contexto_metricas /
+  _contexto_relatorio_semanal.
+
+  Quem faz o include precisa passar:
+    - id_prefixo: prefixo pros ids/data-bs-target dos elementos internos
+      (vazio na tela solteira; "pf-" dentro do hub "Painel e filas", pra
+      nunca colidir com os ids da própria aba externa que o envolve).
+    - aba_metricas_relatorio: "metricas" ou "relatorio" — qual das duas
+      sub-abas começa ativa.
+    - todo o contexto de _contexto_metricas()/_contexto_relatorio_semanal()
+      (taxa_cumprimento, prazos_da_semana, etc.), igual sempre foi.
+#}
+<ul class="nav nav-tabs mb-3" id="{{ id_prefixo }}abasPainelMetricas" role="tablist" style="border-color: var(--paper-200);">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_metricas_relatorio != 'relatorio' }}" id="{{ id_prefixo }}tab-btn-metricas" data-bs-toggle="tab" data-bs-target="#{{ id_prefixo }}aba-metricas" type="button" role="tab" aria-controls="{{ id_prefixo }}aba-metricas" aria-selected="{{ 'true' if aba_metricas_relatorio != 'relatorio' else 'false' }}">
+      Métricas
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link {{ 'active' if aba_metricas_relatorio == 'relatorio' }}" id="{{ id_prefixo }}tab-btn-relatorio" data-bs-toggle="tab" data-bs-target="#{{ id_prefixo }}aba-relatorio" type="button" role="tab" aria-controls="{{ id_prefixo }}aba-relatorio" aria-selected="{{ 'true' if aba_metricas_relatorio == 'relatorio' else 'false' }}">
+      Relatório semanal (preview)
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content" id="{{ id_prefixo }}conteudoAbasPainelMetricas">
+
+  <div class="tab-pane fade {{ 'show active' if aba_metricas_relatorio != 'relatorio' }}" id="{{ id_prefixo }}aba-metricas" role="tabpanel" aria-labelledby="{{ id_prefixo }}tab-btn-metricas">
+    <div class="row g-3 mb-3">
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Taxa de cumprimento de prazo</div>
+          <div class="fs-3">{{ "%.1f"|format(taxa_cumprimento) ~ "%" if taxa_cumprimento is not none else "—" }}</div>
+          <div class="small text-muted-doc">{{ cumpridos }} cumpridos / {{ perdidos }} perdidos (de {{ total_prazos_finalizados }} finalizados)</div>
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Tempo médio publicação → protocolo</div>
+          <div class="fs-3">{{ "%.1f"|format(tempo_medio_publicacao_protocolo) ~ " dias" if tempo_medio_publicacao_protocolo is not none else "—" }}</div>
+          {% if tempo_medio_publicacao_protocolo is none %}
+          <div class="small text-muted-doc">Sem prazos cumpridos com publicação vinculada ainda.</div>
+          {% endif %}
+        </div>
+      </div>
+      <div class="col-md-4">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Idade média da carteira ativa</div>
+          <div class="fs-3">{{ "%.0f"|format(idade_media_dias) ~ " dias" if idade_media_dias is not none else "—" }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-3 mb-3">
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Cobertura de monitoramento automático</div>
+          <div class="fs-3">{{ "%.1f"|format(cobertura_pct) ~ "%" if cobertura_pct is not none else "—" }}</div>
+          <div class="small text-muted-doc">{{ monitoraveis_automatico }} de {{ total_carteira }} processos com captura automática ativa</div>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="card-doc tab p-3">
+          <div class="small text-muted-doc">Carteira com captura saudável (últimos 7 dias)</div>
+          <div class="fs-3">{{ "%.1f"|format(pct_captura_saudavel) ~ "%" if pct_captura_saudavel is not none else "—" }}</div>
+          {% if pct_captura_saudavel is none %}
+          <div class="small text-muted-doc">Sem execuções de captura registradas — depende de um conector real (ver README).</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    {% include "governanca/_bi_desfecho.html" %}
+
+    <div class="card-doc tab p-3">
+      <div class="small text-muted-doc mb-2">Processos com mais prazos perdidos</div>
+      {% if prazos_perdidos_por_processo %}
+      <table class="table-doc">
+        <thead><tr><th>Processo</th><th class="text-end">Prazos perdidos</th></tr></thead>
+        <tbody>
+          {% for numero, pid, qtd in prazos_perdidos_por_processo %}
+          <tr>
+            <td><a href="{{ url_for('processos.detalhe', processo_id=pid) }}">{{ numero or ("Processo #" ~ pid) }}</a></td>
+            <td class="text-end">{{ qtd }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p class="text-muted-doc small mb-0">Nenhum prazo perdido registrado.</p>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="tab-pane fade {{ 'show active' if aba_metricas_relatorio == 'relatorio' }}" id="{{ id_prefixo }}aba-relatorio" role="tabpanel" aria-labelledby="{{ id_prefixo }}tab-btn-relatorio">
+    <div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warning, #b8860b);">
+      <p class="small mb-0">
+        <strong>Preview apenas.</strong> O envio automático por e-mail (seção 10 do briefing)
+        ainda não está ligado — falta configurar SMTP (ou WhatsApp via Evolution API) e um
+        agendador no servidor. Este é exatamente o conteúdo que seria enviado, referente à
+        semana de {{ inicio_semana|data_br }} a {{ fim_semana|data_br }}.
+      </p>
+    </div>
+
+    <div class="card-doc tab p-3 mb-3">
+      <p class="small text-muted-doc mb-2"><strong>Prazos desta semana ({{ prazos_da_semana|length }})</strong></p>
+      {% if prazos_da_semana %}
+      <ul class="small mb-0">
+        {% for p in prazos_da_semana %}
+        <li>{{ p.data_vencimento|data_br }} — {{ p.processo.numero_processo or p.processo.numero_interno }} — {{ p.descricao }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+    </div>
+
+    <div class="card-doc tab p-3 mb-3">
+      <p class="small text-muted-doc mb-2"><strong>Prazos perdidos na semana passada ({{ prazos_perdidos_semana_passada|length }})</strong></p>
+      {% if prazos_perdidos_semana_passada %}
+      <ul class="small mb-0">
+        {% for p in prazos_perdidos_semana_passada %}
+        <li>{{ p.data_vencimento|data_br }} — {{ p.processo.numero_processo or p.processo.numero_interno }} — {{ p.descricao }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+    </div>
+
+    <div class="card-doc tab p-3 mb-3">
+      <p class="small text-muted-doc mb-2"><strong>Processos parados há 30+ dias ({{ processos_parados|length }})</strong></p>
+      {% if processos_parados %}
+      <ul class="small mb-0">
+        {% for p in processos_parados %}
+        <li>{{ p.numero_processo or p.numero_interno }} — {{ p.cliente.nome }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-muted-doc small mb-0">Nenhum.</p>{% endif %}
+    </div>
+
+    <div class="card-doc tab p-3">
+      <p class="small text-muted-doc mb-2"><strong>Movimentações da semana ({{ movimentacoes_semana|length }})</strong></p>
+      {% if movimentacoes_semana %}
+      <ul class="small mb-0">
+        {% for m in movimentacoes_semana %}
+        <li>{{ m.data|data_hora_br }} — {{ m.processo.numero_processo or m.processo.numero_interno }} — {{ m.texto_integral[:100] }}</li>
+        {% endfor %}
+      </ul>
+      {% else %}<p class="text-muted-doc small mb-0">Nenhuma.</p>{% endif %}
+    </div>
+  </div>
+
+</div>
