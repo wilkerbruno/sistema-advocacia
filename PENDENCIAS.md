@@ -1,4 +1,44 @@
-# Status das pendências do briefing (atualizado em 19/09/2026)
+# Status das pendências do briefing (atualizado em 21/09/2026)
+
+## -116. Agente de IA "indisponível": `llama-cpp-python` estava comentado em `requirements.txt`, sem ninguém ter revertido de volta
+
+**Relato do usuário:** ao usar o Agente de IA, apareceu "⚠️ Agente indisponível: O modelo de IA local não
+está disponível neste servidor no momento. Use a API do Claude com chave própria da empresa em 'Minhas
+Integrações' [...], ou avise o suporte técnico do sistema."
+
+**Causa:** essa mensagem específica (ver `app/utils/ia_local.py::_obter_modelo()`) só aparece quando `import
+llama_cpp` falha — ou seja, a biblioteca que roda o modelo local não está instalada no servidor. Achei a
+raiz em `requirements.txt`: a linha `llama-cpp-python==0.3.34` estava **comentada**
+(`# llama-cpp-python==0.3.34`), então o `pip install -r requirements.txt` do `Dockerfile` pulava essa
+biblioteca — mesmo com o resto do `Dockerfile` (download do modelo, `--extra-index-url` da wheel
+pré-compilada, comentários todos) configurado como se a IA local estivesse ativa por padrão.
+
+Pelo histórico do próprio `PENDENCIAS.md` (seções -30 e -31, de uma rodada anterior): a seção -30 comentou
+essa linha de propósito (build travando por falta de RAM), e a seção -31, no mesmo dia, reverteu essa
+desativação — ou seja, o estado correto e pretendido é com a linha ATIVA. Não há nenhuma seção posterior
+pedindo pra desativar de novo. Não dá pra saber com certeza o motivo exato de a linha ter voltado a ficar
+comentada nesse meio tempo (não sobrou registro de um pedido nesse sentido), mas o mais provável é ter sido
+um descuido — o `Dockerfile` e o restante do sistema claramente esperam a IA local ligada.
+
+**Correção:** `requirements.txt` — linha `llama-cpp-python==0.3.34` descomentada de novo, sem nenhuma outra
+mudança (o `Dockerfile`, `app/utils/ia_local.py` e o resto já estavam corretos, só faltava essa linha).
+
+**⚠️ AÇÃO SUA NECESSÁRIA — isso só é um arquivo de texto, o efeito real depende do próximo deploy:** este
+sistema não tem controle de versão (git) configurado nesta sessão, então não fiz (nem consigo fazer) o
+`git add`/`commit`/`push` — só entreguei o `requirements.txt` corrigido na sua pasta local. Você (ou quem
+cuida do deploy) precisa: (1) conferir que este arquivo substituiu o antigo no repositório Git que o
+EasyPanel usa pra buildar (mesmo aviso já registrado nas seções -30/-31: o EasyPanel builda a partir do Git
+conectado, não da pasta sincronizada), (2) `git add`/`commit`/`push`, e (3) esperar o rebuild — que volta a
+baixar o modelo (~1,1 GB) e a instalar a wheel do `llama-cpp-python`, então o próximo deploy fica mais lento
+que o normal só dessa vez. Sem esses passos, o Agente de IA continua indisponível mesmo com o arquivo já
+corrigido aqui.
+
+**Não testável nesta sessão:** este ambiente de desenvolvimento não tem `llama-cpp-python` instalado nem os
+pesos do modelo baixados (não há como reproduzir o carregamento de verdade aqui, mesma limitação já registrada
+nas seções -30/-31) — a suíte de testes automatizados não cobre `app/utils/ia_local.py` por esse motivo (é
+código que depende do binário do modelo rodando de verdade). A correção em si é de uma linha só, sem lógica
+nova, e o comportamento de fallback amigável (`ModeloIndisponivelError`) continua o mesmo caso algo ainda dê
+errado depois do rebuild.
 
 ## -115. Segunda causa do mesmo erro 500 em "Regras e parâmetros": `NULLS LAST` não existe no MySQL
 
