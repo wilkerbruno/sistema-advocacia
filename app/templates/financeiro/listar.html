@@ -29,7 +29,7 @@
 
 <div class="kpi-grid mb-4">
   <div class="kpi-card">
-    <div class="kpi-label">{{ "A repassar (pendente)" if conta == "terceiros" else "A receber (pendente)" }}</div>
+    <div class="kpi-label">{{ "A receber de terceiros (pendente)" if conta == "terceiros" else "A receber (pendente)" }}</div>
     <div class="kpi-value">{{ total_a_receber|moeda }}</div>
   </div>
   <div class="kpi-card">
@@ -37,14 +37,35 @@
     <div class="kpi-value" style="color: var(--status-ok);">{{ total_recebido_mes|moeda }}</div>
   </div>
   <div class="kpi-card">
-    <div class="kpi-label">Em atraso</div>
+    <div class="kpi-label">{{ "Em atraso (a receber)" if conta == "terceiros" else "Em atraso" }}</div>
     <div class="kpi-value" style="color: var(--status-danger);">{{ total_atrasado|moeda }}</div>
   </div>
+  {% if conta == "terceiros" %}
+  {# Espelho dos três cards acima, mas do lado DESPESA — dinheiro que passa
+     pelo escritório em nome de terceiro tem as DUAS direções (recebido +
+     repassado), não só a de receita. Antes só existiam os três cards
+     acima, então uma despesa de conta de terceiros não aparecia em NENHUM
+     card (bug relatado pelo usuário) — só faz sentido na aba "Conta de
+     terceiros"; na "Caixa do escritório" os cards continuam só de receita
+     (AR), como sempre foram. #}
+  <div class="kpi-card">
+    <div class="kpi-label">A repassar (pendente)</div>
+    <div class="kpi-value">{{ total_a_repassar|moeda }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Repassado este mês</div>
+    <div class="kpi-value" style="color: var(--status-ok);">{{ total_repassado_mes|moeda }}</div>
+  </div>
+  <div class="kpi-card">
+    <div class="kpi-label">Repasse em atraso</div>
+    <div class="kpi-value" style="color: var(--status-danger);">{{ total_repasse_atrasado|moeda }}</div>
+  </div>
+  {% endif %}
 </div>
 
 <form method="get" class="d-flex flex-wrap gap-2 mb-3 align-items-center">
   <input type="hidden" name="conta" value="{{ conta }}">
-  <select name="natureza" class="form-select" style="width: 160px;" onchange="this.form.submit()">
+  <select name="natureza" class="form-select" style="width: 190px;" onchange="this.form.submit()">
     <option value="">Receitas e despesas</option>
     <option value="receita" {{ "selected" if natureza == "receita" }}>Receitas</option>
     <option value="despesa" {{ "selected" if natureza == "despesa" }}>Despesas</option>

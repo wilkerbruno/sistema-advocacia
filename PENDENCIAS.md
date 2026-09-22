@@ -1,5 +1,59 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -118. Despesa na "Conta de terceiros" não aparecia em nenhum card + seta do `<select>` sobrepondo o texto
+
+**Relato do usuário:** lançou uma despesa na aba "Conta de terceiros" e ela não apareceu em nenhum dos três
+cards de resumo ("A repassar (pendente)", "Recebido este mês", "Em atraso") — perguntou se deveria aparecer
+em "A repassar" ou se devia ter um card separado pra despesa. Reportou também que a seta do `<select>`
+"Receitas e despesas" ficava em cima do texto.
+
+**Causa do primeiro problema:** os três totais da tela (`total_a_receber`, `total_recebido_mes`,
+`total_atrasado`, em `app/routes/financeiro.py::listar()`) sempre filtravam só `Lancamento.natureza ==
+"receita"` — inclusive na aba "Conta de terceiros", mesmo o card ali já se chamando "A repassar (pendente)"
+(rótulo que sugere despesa, mas somava receita pendente por baixo). Dinheiro de terceiros circula nas DUAS
+direções — recebido em nome de alguém (receita, ex: depósito judicial) E repassado/pago em nome de alguém
+(despesa, ex: o repasse desse mesmo valor pro cliente depois) — só existiam cards pro lado receita, então
+qualquer despesa marcada como conta de terceiros literalmente não tinha em lugar nenhum pra aparecer.
+
+**Correção — 3 cards novos, só na aba "Conta de terceiros":** em vez de misturar receita e despesa num
+mesmo número (o que não faria sentido — são direções opostas de caixa), a aba "Conta de terceiros" ganhou
+três totais espelhados do lado despesa: "A repassar (pendente)", "Repassado este mês" e "Repasse em atraso"
+(`total_a_repassar`, `total_repassado_mes`, `total_repasse_atrasado`) — mesma lógica dos três originais, só
+trocando `natureza == "receita"` por `"despesa"`. Os três originais continuam existindo tal como sempre
+foram, só que agora o primeiro voltou a se chamar "A receber de terceiros (pendente)" nessa aba (o rótulo
+"A repassar" que já existia ali era enganoso — dizia uma coisa e mostrava outra). Na aba "Caixa do
+escritório" nada mudou — continuam só os três cards de sempre (é sobre receita/contas a receber mesmo,
+nunca foi o que o usuário reportou).
+
+**Causa do segundo problema (seta do `<select>` sobre o texto):** `app/static/css/estilo.css` tem uma regra
+`.form-control, .form-select { padding: 8px 11px; }` que carrega DEPOIS do Bootstrap (`base.html`) e, por
+isso, vence no empate de especificidade — só que o Bootstrap reserva ~2.25rem de espaço à direita do
+`<select>` pra caber a seta (ícone de fundo) sem sobrepor o texto, e essa regra do projeto pisava nesse
+espaço com só 11px. Era um bug **global**: qualquer `<select class="form-select">` do sistema com texto
+comprido o bastante (não só "Receitas e despesas" do Financeiro) sofria disso, embora só tivesse sido
+notado aqui. Corrigido com uma regra a mais, só pra `.form-select`, restaurando o `padding-right: 2.25rem`
+sem mexer no `.form-control` (que não tem seta nenhuma). Aproveitei e também aumentei a largura fixa do
+`<select>` "Receitas e despesas" (160px → 190px, o texto mais comprido dos três filtros dessa tela), como
+pedido.
+
+**Onde:** `app/routes/financeiro.py` (`listar()` — três totais novos, sempre calculados, baratos), `app/
+templates/financeiro/listar.html` (três cards novos dentro de `{% if conta == "terceiros" %}`; rótulo do
+primeiro card corrigido; largura do `<select>` de natureza aumentada), `app/static/css/estilo.css`
+(`.form-select` ganhou `padding-right: 2.25rem` próprio — corrige a seta em QUALQUER select do sistema, não
+só no Financeiro). Testado em `tests/test_conta_terceiros_kpis.py` (novo — 7 testes: despesa pendente
+aparece em "A repassar", despesa paga este mês aparece em "Repassado este mês", despesa pendente vencida
+aparece em "Repasse em atraso", os três cards novos NÃO aparecem na aba operacional, despesa não vaza pro
+card de receita, receita continua funcionando normalmente — sem regressão —, e a largura do select
+aumentou de verdade no HTML). Suíte completa (611 testes) passando.
+
+**Não corrigido nesta rodada, fora do escopo do que foi relatado:** o texto "Saldo em trânsito na conta de
+terceiros" (mostrado como lembrete na aba "Caixa do escritório") soma receita E despesa pendente de conta de
+terceiros juntas, sem distinguir o sinal — o que, a rigor, tem o mesmo tipo de mistura de direções que acabei
+de corrigir nos cards, só que num número menos visível (um texto pequeno, não um card). Não mexi nele porque
+não foi o que você reportou e corrigir exigiria decidir o que esse "saldo em trânsito" deveria significar de
+verdade (dinheiro hoje retido pela banca, que seria receita PAGA menos despesa PAGA — não pendente, que é o
+que está lá hoje). Vale eu revisar isso numa próxima rodada, se fizer sentido pra você.
+
 ## -117. Comprovante anexável ao lançamento financeiro (receita ou despesa)
 
 **Pedido:** "agora no novo lançamento, preciso que tenha a opção de colocar um arquivo como comprovante

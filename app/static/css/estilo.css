@@ -396,6 +396,16 @@ a:hover { color: var(--brass-600); }
   font-size: 0.88rem;
   padding: 8px 11px;
 }
+/* padding-right maior só no <select>: o Bootstrap reserva ~2.25rem à
+   direita pra caber a seta (ícone de fundo) sem sobrepor o texto — a regra
+   acima (compartilhada com .form-control, que não tem seta nenhuma) pisava
+   nesse espaço reservado com só 11px, então qualquer opção de texto mais
+   comprido (ex: "Receitas e despesas" no filtro do Financeiro) ficava
+   embaixo da seta. Só sobrescreve o lado direito, sem duplicar as outras
+   propriedades já definidas acima. */
+.form-select {
+  padding-right: 2.25rem;
+}
 .form-control:focus, .form-select:focus {
   border-color: var(--brass-500);
   box-shadow: 0 0 0 3px var(--brass-100);
