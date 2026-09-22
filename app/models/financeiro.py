@@ -64,6 +64,26 @@ class Lancamento(db.Model):
     percentual_exito = db.Column(db.Numeric(5, 2), nullable=True)
     valor_base_exito = db.Column(db.Numeric(14, 2), nullable=True)
 
+    # Comprovante anexado (nota fiscal, recibo, boleto pago etc.) — um
+    # arquivo só por lançamento, sempre opcional: nem toda receita/despesa
+    # tem o comprovante em mãos na hora de lançar (pode ser anexado depois,
+    # ver rota `financeiro.anexar_comprovante`). Mesmo padrão de
+    # armazenamento do `Documento` de processo (app/models/processo.py):
+    # `comprovante_nome_original` é o nome pra exibir/baixar,
+    # `comprovante_nome_arquivo` é o nome gerado (uuid) salvo em disco, sem
+    # risco de colisão entre lançamentos diferentes.
+    #
+    # nullable=True em tudo, mesmo motivo de `conta_terceiros` acima:
+    # sincronizar_schema.py só sabe fazer `ADD COLUMN` sem `DEFAULT` em
+    # MySQL numa tabela que já tem linha — coluna obrigatória quebraria o
+    # ALTER em produção.
+    comprovante_nome_original = db.Column(db.String(255), nullable=True)
+    comprovante_nome_arquivo = db.Column(db.String(255), nullable=True)
+    comprovante_tamanho_kb = db.Column(db.Integer, nullable=True)
+    comprovante_enviado_em = db.Column(db.DateTime, nullable=True)
+    comprovante_enviado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=True)
+    comprovante_enviado_por = db.relationship("Usuario", foreign_keys=[comprovante_enviado_por_id])
+
     criado_em = db.Column(db.DateTime, default=datetime.utcnow)
 
     unidade_id = db.Column(db.Integer, db.ForeignKey("unidades.id"), nullable=False)
@@ -76,7 +96,11 @@ class Lancamento(db.Model):
     cliente = db.relationship("Cliente")
 
     criado_por_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"))
-    criado_por = db.relationship("Usuario")
+    # foreign_keys explícito nos dois relationships pra Usuario (este e
+    # comprovante_enviado_por acima): a partir de duas FKs pra usuarios
+    # nesta mesma tabela, o SQLAlchemy não consegue mais adivinhar sozinho
+    # qual coluna cada relationship usa (AmbiguousForeignKeysError sem isso).
+    criado_por = db.relationship("Usuario", foreign_keys=[criado_por_id])
 
     apontamentos = db.relationship("Apontamento", back_populates="lancamento")
 

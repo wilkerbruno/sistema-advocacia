@@ -1,4 +1,57 @@
-# Status das pendências do briefing (atualizado em 21/09/2026)
+# Status das pendências do briefing (atualizado em 22/09/2026)
+
+## -117. Comprovante anexável ao lançamento financeiro (receita ou despesa)
+
+**Pedido:** "agora no novo lançamento, preciso que tenha a opção de colocar um arquivo como comprovante
+sendo receita ou despesa" — no formulário de "Novo lançamento" (Financeiro), poder anexar um arquivo (nota
+fiscal, recibo, boleto pago etc.) comprovando aquele lançamento, tanto pra receita quanto pra despesa.
+
+**O que foi feito:** `Lancamento` ganhou um comprovante opcional (um arquivo só por lançamento — mesmo
+padrão de armazenamento já usado pro `Documento` de processo: nome original pra exibir/baixar, nome gerado
+com uuid salvo em disco, pasta dedicada dentro de `UPLOAD_FOLDER`, extensão validada pela mesma lista de
+`ALLOWED_EXTENSIONS` de sempre — pdf, doc(x), jpg/jpeg, png, xls(x), txt, até 25 MB).
+
+- **Na criação** (`financeiro/novo`, `app/routes/financeiro.py::novo()`): o formulário ganhou um campo
+  "Comprovante (opcional)" — se um arquivo for enviado junto, é salvo e associado ao lançamento recém-criado
+  (via `_salvar_comprovante`, novo helper). Extensão não permitida cancela a criação inteira (nunca cria um
+  lançamento "pela metade" sem o comprovante que a pessoa pediu explicitamente pra anexar) e avisa o motivo.
+- **Depois da criação** (rota nova `POST /financeiro/<id>/comprovante`, `anexar_comprovante`): pro caso comum
+  de o arquivo chegar depois do lançamento já estar registrado (ex: já lançou a despesa, a nota fiscal chega
+  por e-mail alguns dias depois) — a listagem (`financeiro/listar.html`) mostra um mini-formulário de anexar
+  em cada linha que ainda não tem comprovante. Reenviar um novo arquivo SUBSTITUI o anterior (apaga o antigo
+  do disco, nunca acumula lixo).
+- **Baixar** (`GET /financeiro/<id>/comprovante/baixar`): mesma checagem de unidade de sempre
+  (`checar_acesso_unidade_ou_403`) e mesma auditoria de acesso já usada pra documentos de processo
+  (PENDENCIAS.md, seção -51) — registra quem baixou qual comprovante.
+- **Remover** (`POST /financeiro/<id>/comprovante/excluir`): apaga o arquivo do disco e limpa os campos, se
+  algum dia for anexado o arquivo errado.
+
+Todas as três rotas novas usam o mesmo controle de acesso já existente em todo o blueprint
+(`@requer_acesso_financeiro` + `checar_acesso_unidade_ou_403`) — nenhum nível de permissão novo, só reaproveita
+o que já protegia o resto do Financeiro.
+
+**Onde:** `app/models/financeiro.py` (`Lancamento` ganhou `comprovante_nome_original`,
+`comprovante_nome_arquivo`, `comprovante_tamanho_kb`, `comprovante_enviado_em`,
+`comprovante_enviado_por_id`/`comprovante_enviado_por` — todos `nullable=True`, mesmo motivo de
+`conta_terceiros` acima: `sincronizar_schema.py` só sabe `ADD COLUMN` sem `DEFAULT` em MySQL numa tabela que
+já tem linha; precisou também declarar `foreign_keys=` explícito nos dois relationships pra `Usuario`
+— `criado_por` e o novo `comprovante_enviado_por` — porque com duas FKs de `Lancamento` pra `usuarios` o
+SQLAlchemy não sabe mais sozinho qual coluna cada um usa), `app/routes/financeiro.py` (`_arquivo_permitido`,
+`_pasta_comprovante`, `_salvar_comprovante`, `_remover_arquivo_comprovante` — helpers novos;
+`novo()` ganhou o upload opcional; rotas novas `anexar_comprovante`, `baixar_comprovante`,
+`excluir_comprovante`), `app/templates/financeiro/form.html` (campo de arquivo + `enctype` no form),
+`app/templates/financeiro/listar.html` (link de download/remover quando já existe comprovante, mini-form de
+anexar quando não existe). Testado em `tests/test_comprovante_financeiro.py` (novo — 13 testes: anexar na
+criação pra receita e pra despesa, criação sem comprovante continua funcionando normal, extensão inválida
+cancela a criação inteira, anexar depois da criação, substituir apaga o arquivo antigo do disco, baixar
+devolve o conteúdo/nome certo, comprovante inexistente dá 404, usuário de outra unidade não consegue baixar,
+excluir remove arquivo e campos, e a listagem mostra o controle certo — link ou formulário — conforme o
+lançamento já tem ou não um comprovante). Suíte completa (604 testes) passando.
+
+**Não testado nesta rodada:** upload de arquivo de verdade grande (perto do limite de 25 MB) — os testes
+usam arquivos pequenos de exemplo, suficiente pra validar a lógica, mas vale confirmar na prática se um
+anexo grande de verdade (foto de nota fiscal em alta resolução, por exemplo) sobe sem problema no seu
+ambiente.
 
 ## -116. Agente de IA "indisponível": `llama-cpp-python` estava comentado em `requirements.txt`, sem ninguém ter revertido de volta
 

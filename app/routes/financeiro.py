@@ -1,10 +1,13 @@
 import io
+import os
+import uuid
 from calendar import monthrange
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
-from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, abort, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, send_from_directory, abort, current_app
 from flask_login import login_required, current_user
 from sqlalchemy import func
+from werkzeug.utils import secure_filename
 from app.extensions import db
 from app.models import Lancamento, AprovacaoLancamento, Processo, Cliente, Unidade, Apontamento
 from app.utils.acesso import aplicar_escopo_unidade, unidade_id_para_novo_registro, checar_acesso_unidade_ou_403, unidades_do_escopo, usuarios_do_escopo, requer_acesso_financeiro
@@ -17,6 +20,60 @@ financeiro_bp = Blueprint("financeiro", __name__)
 
 _MESES_PT = ("janeiro", "fevereiro", "março", "abril", "maio", "junho",
              "julho", "agosto", "setembro", "outubro", "novembro", "dezembro")
+
+
+def _arquivo_permitido(nome):
+    # Mesma checagem de app/routes/processos.py::_arquivo_permitido —
+    # duplicada aqui de propósito (arquivo pequeno, dois usos só) em vez de
+    # extrair um utilitário compartilhado pra um caso só de reaproveitamento.
+    ext = nome.rsplit(".", 1)[-1].lower() if "." in nome else ""
+    return ext in current_app.config["ALLOWED_EXTENSIONS"]
+
+
+def _pasta_comprovante(lancamento_id):
+    return os.path.join(current_app.config["UPLOAD_FOLDER"], "comprovantes_financeiro", str(lancamento_id))
+
+
+def _salvar_comprovante(lancamento, arquivo):
+    """
+    Salva `arquivo` (um `werkzeug.FileStorage`, de `request.files`) como o
+    comprovante de `lancamento` — substitui e apaga o comprovante anterior
+    do disco, se já existir um (só existe um comprovante por lançamento de
+    cada vez). Não faz `commit` — quem chama decide quando salvar.
+    Levanta `ValueError` com mensagem amigável se o tipo de arquivo não for
+    permitido (mesma lista de extensões de app/routes/processos.py).
+    """
+    if not _arquivo_permitido(arquivo.filename):
+        raise ValueError("Tipo de arquivo não permitido para comprovante.")
+
+    _remover_arquivo_comprovante(lancamento)
+
+    nome_original = secure_filename(arquivo.filename)
+    ext = nome_original.rsplit(".", 1)[-1].lower()
+    nome_salvo = f"{uuid.uuid4().hex}.{ext}"
+    pasta = _pasta_comprovante(lancamento.id)
+    os.makedirs(pasta, exist_ok=True)
+    caminho_completo = os.path.join(pasta, nome_salvo)
+    arquivo.save(caminho_completo)
+
+    lancamento.comprovante_nome_original = nome_original
+    lancamento.comprovante_nome_arquivo = nome_salvo
+    lancamento.comprovante_tamanho_kb = round(os.path.getsize(caminho_completo) / 1024)
+    lancamento.comprovante_enviado_em = datetime.utcnow()
+    lancamento.comprovante_enviado_por_id = current_user.id
+
+
+def _remover_arquivo_comprovante(lancamento):
+    """Só apaga o arquivo em disco (se existir) e limpa os campos — não faz commit."""
+    if lancamento.comprovante_nome_arquivo:
+        caminho = os.path.join(_pasta_comprovante(lancamento.id), lancamento.comprovante_nome_arquivo)
+        if os.path.exists(caminho):
+            os.remove(caminho)
+    lancamento.comprovante_nome_original = None
+    lancamento.comprovante_nome_arquivo = None
+    lancamento.comprovante_tamanho_kb = None
+    lancamento.comprovante_enviado_em = None
+    lancamento.comprovante_enviado_por_id = None
 
 
 def _parse_data(valor):
@@ -176,7 +233,24 @@ def novo():
             criado_por_id=current_user.id,
         )
         db.session.add(lancamento)
-        db.session.flush()
+        db.session.flush()  # já dá lancamento.id, precisa pra nomear a pasta do comprovante abaixo
+
+        # Comprovante (opcional — nota fiscal, recibo, boleto pago etc.,
+        # tanto pra receita quanto pra despesa): campo <input type="file">
+        # sempre opcional no formulário, nem toda receita/despesa tem o
+        # arquivo em mãos na hora de lançar (dá pra anexar depois, ver rota
+        # `anexar_comprovante`, ou trocar por outro a qualquer momento).
+        arquivo_comprovante = request.files.get("comprovante")
+        if arquivo_comprovante and arquivo_comprovante.filename:
+            try:
+                _salvar_comprovante(lancamento, arquivo_comprovante)
+            except ValueError as erro:
+                db.session.rollback()
+                flash(str(erro), "danger")
+                valores_causa_processos = {p.id: str(p.valor_causa) for p in processos if p.valor_causa is not None}
+                return render_template("financeiro/form.html", unidades=unidades, processos=processos,
+                                        clientes=clientes, valores_causa_processos=valores_causa_processos)
+
         registrar_log(current_user, "criou", "Lancamento", lancamento.id, lancamento.descricao)
         db.session.commit()
         # Alçada de aprovação (ver app/utils/alcada.py, PENDENCIAS.md,
@@ -204,6 +278,75 @@ def novo():
 
     return render_template("financeiro/form.html", unidades=unidades, processos=processos, clientes=clientes,
                             valores_causa_processos=valores_causa_processos)
+
+
+# ---------- Comprovante (nota fiscal, recibo, boleto pago etc. — opcional, tanto pra receita quanto despesa) ----------
+
+@financeiro_bp.route("/<int:lancamento_id>/comprovante", methods=["POST"])
+@login_required
+@requer_acesso_financeiro
+def anexar_comprovante(lancamento_id):
+    """
+    Anexa (ou substitui) o comprovante de um lançamento já existente — pro
+    caso comum de o arquivo (nota fiscal, recibo) chegar DEPOIS do
+    lançamento já ter sido registrado no sistema, sem precisar esperar o
+    documento em mãos pra lançar a receita/despesa. Usado tanto pelo
+    formulário de "Novo lançamento" (o `novo()` acima já chama
+    `_salvar_comprovante` direto, sem passar por esta rota) quanto pela
+    ação rápida "Anexar comprovante" da listagem (financeiro/listar.html),
+    pra quem esqueceu ou ainda não tinha o arquivo na hora de lançar.
+    """
+    lancamento = db.get_or_404(Lancamento, lancamento_id)
+    checar_acesso_unidade_ou_403(lancamento.unidade_id)
+
+    arquivo = request.files.get("comprovante")
+    if not arquivo or not arquivo.filename:
+        flash("Selecione um arquivo.", "warning")
+        return redirect(request.referrer or url_for("financeiro.listar"))
+
+    try:
+        _salvar_comprovante(lancamento, arquivo)
+    except ValueError as erro:
+        flash(str(erro), "danger")
+        return redirect(request.referrer or url_for("financeiro.listar"))
+
+    registrar_log(current_user, "anexou_comprovante", "Lancamento", lancamento.id, lancamento.descricao)
+    db.session.commit()
+    flash("Comprovante anexado.", "success")
+    return redirect(request.referrer or url_for("financeiro.listar"))
+
+
+@financeiro_bp.route("/<int:lancamento_id>/comprovante/baixar")
+@login_required
+@requer_acesso_financeiro
+def baixar_comprovante(lancamento_id):
+    lancamento = db.get_or_404(Lancamento, lancamento_id)
+    checar_acesso_unidade_ou_403(lancamento.unidade_id)
+    if not lancamento.comprovante_nome_arquivo:
+        abort(404)
+    # Auditoria de acesso (mesmo padrão de app/routes/processos.py::
+    # baixar_documento, PENDENCIAS.md seção -51): registra quem baixou qual
+    # comprovante e quando.
+    registrar_log(current_user, "baixou_comprovante", "Lancamento", lancamento.id, lancamento.descricao)
+    db.session.commit()
+    return send_from_directory(_pasta_comprovante(lancamento.id), lancamento.comprovante_nome_arquivo,
+                                as_attachment=True, download_name=lancamento.comprovante_nome_original)
+
+
+@financeiro_bp.route("/<int:lancamento_id>/comprovante/excluir", methods=["POST"])
+@login_required
+@requer_acesso_financeiro
+def excluir_comprovante(lancamento_id):
+    lancamento = db.get_or_404(Lancamento, lancamento_id)
+    checar_acesso_unidade_ou_403(lancamento.unidade_id)
+    if not lancamento.comprovante_nome_arquivo:
+        abort(404)
+    nome_removido = lancamento.comprovante_nome_original
+    _remover_arquivo_comprovante(lancamento)
+    registrar_log(current_user, "excluiu_comprovante", "Lancamento", lancamento.id, nome_removido)
+    db.session.commit()
+    flash("Comprovante removido.", "info")
+    return redirect(request.referrer or url_for("financeiro.listar"))
 
 
 @financeiro_bp.route("/gerar-cobranca-horas", methods=["GET", "POST"])

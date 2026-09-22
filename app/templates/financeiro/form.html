@@ -5,7 +5,7 @@
 
 {% block conteudo %}
 <div class="card-doc tab p-4" style="max-width: 700px;">
-  <form method="post">
+  <form method="post" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <div class="row g-3">
       <div class="col-12">
@@ -108,6 +108,15 @@
       <div class="col-12">
         <label class="form-label">Observações</label>
         <textarea name="observacoes" class="form-control"></textarea>
+      </div>
+
+      <div class="col-12">
+        <label class="form-label">Comprovante (opcional)</label>
+        <input type="file" name="comprovante" class="form-control">
+        <p class="small text-muted-doc mb-0 mt-1">
+          Nota fiscal, recibo, boleto pago etc. — vale pra receita ou despesa. Se ainda não tiver o
+          arquivo em mãos, não tem problema: dá pra anexar depois, na tela de lançamentos.
+        </p>
       </div>
 
       <div class="col-12">
