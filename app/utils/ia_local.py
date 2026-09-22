@@ -26,6 +26,14 @@ que já era com o Claude.
 ⚠️ Custo de RAM: o modelo fica carregado (lazy, na primeira mensagem que
 cada worker do gunicorn atender) em memória por processo — ver comentário
 sobre número de workers no Dockerfile.
+
+Este módulo também expõe `gerar_embeddings_lote` (seção separada, mais
+abaixo) — um SEGUNDO modelo, bem menor (~120 MB), usado só para gerar
+embeddings (vetor de números por trecho de texto) para o Índice vetorial da
+indexação de documentos, quando a empresa não tem chave do Gemini
+cadastrada (ver PENDENCIAS.md, seção -123, e
+app/utils/indexacao_documentos.py). Só é carregado em memória se/quando a
+indexação de algum documento precisar dele — nunca no boot do servidor.
 """
 import os
 import threading
@@ -34,6 +42,9 @@ from flask import current_app
 
 _modelo = None
 _lock = threading.Lock()
+
+_modelo_embedding = None
+_lock_embedding = threading.Lock()
 
 
 class ModeloIndisponivelError(Exception):
@@ -165,3 +176,107 @@ def gerar_resposta(system, mensagens_api, max_tokens=None):
         repeat_penalty=1.2,
     )
     return resposta["choices"][0]["message"]["content"].strip()
+
+
+# ---------------------------------------------------------------------------
+# Embedding local — índice vetorial da indexação de documentos (item 3 da
+# lista de pipeline de IA jurídica, ver PENDENCIAS.md, seção -123, e
+# app/utils/indexacao_documentos.py). Modelo BEM menor que o de chat
+# (~120 MB, baseado em MiniLM/BERT — arquitetura de embedding, não de
+# geração de texto), carregado por um SEGUNDO `Llama` (com `embedding=True`)
+# separado do modelo de chat, mas pela MESMA biblioteca já instalada
+# (llama-cpp-python) — nenhuma dependência nova.
+#
+# Antes desta seção, busca semântica só existia para empresa com chave do
+# Gemini cadastrada (app/utils/gemini_api.py::gerar_embeddings_lote) — este
+# módulo dá o mesmo resultado (vetor de números por trecho de texto) de
+# graça, sem BYOK nenhum, pro Índice vetorial funcionar em QUALQUER empresa.
+# Nunca substitui o Gemini quando ele está configurado (mais preciso, é a
+# opção paga) — só preenche a lacuna de quem não tem chave nenhuma.
+#
+# ⚠️ Vetores de modelos DIFERENTES nunca são comparáveis entre si (a
+# distância/ângulo entre eles não tem significado nenhum de "parecido" de
+# um modelo para outro) — por isso cada linha de DocumentoIndexado grava
+# `embedding_modelo` junto do vetor, e app/utils/indexacao_documentos.py
+# nunca mistura embeddings de proveniências diferentes numa mesma busca.
+# ---------------------------------------------------------------------------
+
+
+def _caminho_modelo_embedding():
+    return current_app.config.get("IA_LOCAL_EMBEDDING_MODELO_PATH")
+
+
+def embedding_disponivel():
+    """Mesmo espírito de `modelo_disponivel()` acima — só olha se o arquivo
+    de pesos existe, não carrega nada em memória."""
+    caminho = _caminho_modelo_embedding()
+    return bool(caminho and os.path.isfile(caminho))
+
+
+def nome_modelo_embedding():
+    """Identificador estável gravado em DocumentoIndexado.embedding_modelo —
+    deriva do NOME DO ARQUIVO (não uma constante fixa) de propósito: se um
+    dia o arquivo for trocado por outro modelo de embedding, o identificador
+    muda junto, e chunks antigos (vetor do modelo anterior) deixam de ser
+    considerados "com_embedding" comparável até serem reindexados — nunca
+    mistura vetores de dois modelos como se fossem a mesma coisa."""
+    caminho = _caminho_modelo_embedding()
+    return f"local:{os.path.basename(caminho)}" if caminho else None
+
+
+def _obter_modelo_embedding():
+    global _modelo_embedding
+    if _modelo_embedding is not None:
+        return _modelo_embedding
+    with _lock_embedding:
+        if _modelo_embedding is not None:
+            return _modelo_embedding
+        try:
+            from llama_cpp import Llama
+        except ImportError as e:
+            raise ModeloIndisponivelError(
+                "O modelo de embedding local não está disponível neste servidor no momento."
+            ) from e
+
+        caminho = _caminho_modelo_embedding()
+        if not caminho or not os.path.isfile(caminho):
+            raise ModeloIndisponivelError(
+                "O modelo de embedding local não está disponível neste servidor no momento "
+                "(pesos não encontrados)."
+            )
+
+        n_ctx = current_app.config.get("IA_LOCAL_EMBEDDING_CONTEXT_SIZE", 512)
+        n_threads = current_app.config.get("IA_LOCAL_THREADS")
+        _modelo_embedding = Llama(
+            model_path=caminho,
+            n_ctx=n_ctx,
+            n_threads=n_threads,
+            embedding=True,
+            verbose=False,
+        )
+        return _modelo_embedding
+
+
+def gerar_embeddings_lote(textos):
+    """
+    Gera um vetor (lista de float) por texto em `textos`, NA MESMA ORDEM E
+    QUANTIDADE da entrada — nunca reordena nem descarta item silenciosamente
+    (mesmo contrato de gemini_api.gerar_embeddings_lote, pra
+    app/utils/indexacao_documentos.py poder tratar os dois caminhos de forma
+    intercambiável). Levanta ModeloIndisponivelError se o modelo de
+    embedding não estiver disponível — quem chama já sabe tratar esse erro
+    (mesmo padrão de GeminiIndisponivelError: chunks continuam indexados,
+    só ficam sem vetor).
+
+    Chama o modelo UM TEXTO POR VEZ (não em lote/batch) — mais simples e
+    robusto que ajustar batching/padding manualmente, e roda em segundo
+    plano (job da fila), então o custo de tempo extra não afeta nenhum
+    ciclo de requisição/resposta do usuário.
+    """
+    modelo = _obter_modelo_embedding()
+    vetores = []
+    for texto in textos:
+        texto = (texto or "").strip() or " "  # texto vazio quebraria a tokenização
+        resultado = modelo.create_embedding(texto)
+        vetores.append(resultado["data"][0]["embedding"])
+    return vetores

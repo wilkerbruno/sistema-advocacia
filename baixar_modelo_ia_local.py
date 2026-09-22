@@ -27,19 +27,43 @@ sem custo por mensagem, sem dado saindo do servidor.
 principalmente em raciocínio jurídico mais elaborado e em português (o
 "grande" alucina menos que o "pequeno", mas não deixa de alucinar).
 
+Também baixa, à parte, o modelo de EMBEDDING local (item "embedding" —
+ver PENDENCIAS.md, seção -123, e app/utils/ia_local.py::gerar_embeddings_lote):
+um modelo bem menor (~120 MB, baseado em MiniLM/BERT, multilíngue —
+suporta português), usado só para gerar o Índice vetorial da indexação de
+documentos quando a empresa NÃO tem chave do Gemini cadastrada — antes
+dessa seção, busca semântica só existia com chave do Gemini; agora
+funciona de graça pra qualquer empresa. Roda pela MESMA biblioteca já
+instalada pro chat (llama-cpp-python), nenhuma dependência nova.
+
 Uso:
-    python baixar_modelo_ia_local.py              # baixa o "pequeno" (padrão)
-    python baixar_modelo_ia_local.py grande        # baixa o "grande"
+    python baixar_modelo_ia_local.py              # baixa o modelo de chat "pequeno" (padrão)
+    python baixar_modelo_ia_local.py grande        # baixa o modelo de chat "grande"
+    python baixar_modelo_ia_local.py embedding     # baixa o modelo de embedding
     IA_LOCAL_MODELO_TAMANHO=grande python baixar_modelo_ia_local.py   # mesma coisa, via variável de ambiente
 
 Idempotente: se o arquivo já existe com o tamanho esperado, não baixa de
-novo. O Dockerfile roda este script automaticamente durante o build sem
-argumento nenhum (baixa sempre o "pequeno", que é o padrão de produção
-hoje) — trocar para o "grande" em produção exige editar a linha do
-Dockerfile que chama este script, além de ajustar `IA_LOCAL_MODELO_PATH`,
-o número de workers do gunicorn e `IA_LOCAL_CONTEXT_SIZE` (ver
-PENDENCIAS.md, seção -6, para o passo a passo completo com os números
-certos de cada arquivo).
+novo. O Dockerfile roda este script automaticamente durante o build, duas
+vezes: sem argumento nenhum (baixa o modelo de chat "pequeno", que é o
+padrão de produção hoje) e com "embedding" (best-effort — se o download do
+modelo de embedding falhar, o build NÃO quebra por causa disso, só a busca
+semântica sem chave do Gemini fica indisponível, degradando exatamente como
+já degrada hoje sem chave nenhuma configurada — ver
+app/utils/indexacao_documentos.py). Trocar para o modelo de chat "grande" em
+produção exige editar a linha do Dockerfile que chama este script, além de
+ajustar `IA_LOCAL_MODELO_PATH`, o número de workers do gunicorn e
+`IA_LOCAL_CONTEXT_SIZE` (ver PENDENCIAS.md, seção -6, para o passo a passo
+completo com os números certos de cada arquivo).
+
+⚠️ Repositório/arquivo do modelo de embedding pesquisado, mas **não
+confirmado por um download real a partir deste ambiente de geração de
+código** (rede de saída restrita, mesma ressalva já registrada para outras
+integrações deste projeto — ver PENDENCIAS.md, seção -123). Se o nome do
+arquivo tiver mudado no Hugging Face, o download falha com uma mensagem
+clara (nunca finge sucesso) — troque o `repo`/`arquivo` abaixo por uma
+variante atual do mesmo modelo (qualquer conversão GGUF do
+"paraphrase-multilingual-MiniLM-L12-v2" serve, é um modelo bem conhecido e
+tem várias cópias/quantizações publicadas).
 """
 import os
 import sys
@@ -57,6 +81,12 @@ MODELOS = {
         "arquivo": "Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
         "tamanho_minimo": 2_300_000_000,  # ~2,3 GB
         "tamanho_legivel": "~2,5 GB",
+    },
+    "embedding": {
+        "repo": "second-state/paraphrase-multilingual-MiniLM-L12-v2-GGUF",
+        "arquivo": "paraphrase-multilingual-MiniLM-L12-v2-Q8_0.gguf",
+        "tamanho_minimo": 90_000_000,  # ~90-130 MB dependendo da quantização
+        "tamanho_legivel": "~130 MB",
     },
 }
 

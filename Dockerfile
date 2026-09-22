@@ -76,6 +76,30 @@ RUN chmod +x /entrypoint.sh
 COPY baixar_modelo_ia_local.py .
 RUN python baixar_modelo_ia_local.py
 
+# Modelo de EMBEDDING local (~130 MB — ver PENDENCIAS.md, seção -123, e
+# app/utils/ia_local.py::gerar_embeddings_lote): habilita busca semântica
+# (Índice vetorial da indexação de documentos) de graça pra empresa
+# nenhuma chave do Gemini cadastrada. Roda pela MESMA biblioteca do modelo
+# de chat acima (llama-cpp-python), sem dependência nova, e é pequeno o
+# bastante (~130 MB, contra ~1,1 GB do modelo de chat) pra não repetir o
+# problema de RAM já registrado nas seções -6/-30/-31.
+#
+# ⚠️ Diferente do download do modelo de chat acima, este é BEST-EFFORT
+# (`|| true`) DE PROPÓSITO: o nome exato do arquivo no Hugging Face foi
+# pesquisado, mas não confirmado por um download real a partir do ambiente
+# onde este Dockerfile foi escrito (sem acesso de rede a huggingface.co
+# dali) — se o link tiver mudado, o build NÃO pode quebrar por causa disso.
+# Sem o arquivo baixado, `embedding_disponivel()` devolve False e a busca
+# semântica sem chave do Gemini continua indisponível — degradando
+# exatamente como já degradava antes desta seção existir (cai pra "chunks
+# mais recentes", nunca quebra, nunca finge). Se o `echo` de aviso abaixo
+# aparecer no log do build, baixe manualmente depois (Terminal do
+# EasyPanel, dentro do container: `python baixar_modelo_ia_local.py
+# embedding`) ou ajuste `repo`/`arquivo` em baixar_modelo_ia_local.py para
+# uma cópia atual do modelo (ver aviso no topo daquele arquivo).
+RUN python baixar_modelo_ia_local.py embedding || \
+    echo "AVISO: download do modelo de embedding local falhou — busca semântica sem chave do Gemini ficará indisponível até rodar 'python baixar_modelo_ia_local.py embedding' manualmente (ver comentário acima no Dockerfile)."
+
 COPY . .
 
 RUN mkdir -p /app/uploads

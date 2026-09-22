@@ -13,15 +13,19 @@ chunking/embedding, e app/utils/analise_processo_ia.py para onde isso é
 usado (busca por similaridade em vez do corte por caractere bruto que
 existia antes).
 
-⚠️ Honestidade de escopo: o `embedding` só é preenchido quando a empresa
-tem uma chave do Gemini configurada (BYOK, ver app/utils/gemini_api.py) —
-é o único provedor deste sistema que expõe embeddings hoje (nem o modelo
-local, nem o Claude BYOK, têm essa API aqui). Sem chave do Gemini, os
-chunks ainda são gerados e indexados (o "corte por evento" já ajuda por si
-só), só a BUSCA por similaridade semântica é que fica indisponível — nesse
-caso `app/utils/indexacao_documentos.py::buscar_trechos_relevantes` cai
-para os chunks mais recentes, nunca quebra nem finge uma busca que não
-rodou.
+⚠️ Honestidade de escopo: o `embedding` é preenchido por um de DOIS
+provedores possíveis (PENDENCIAS.md, seção -123) — a chave do Gemini da
+empresa (BYOK, ver app/utils/gemini_api.py), quando cadastrada, OU o
+modelo local (app/utils/ia_local.py::gerar_embeddings_lote, sem BYOK, sem
+custo), quando o arquivo de pesos foi baixado no servidor; Gemini sempre
+tem prioridade quando a empresa tem chave. Sem NENHUM dos dois disponível,
+os chunks ainda são gerados e indexados (o "corte por evento" já ajuda por
+si só), só a BUSCA por similaridade semântica é que fica indisponível —
+nesse caso `app/utils/indexacao_documentos.py::buscar_trechos_relevantes`
+cai para os chunks mais recentes, nunca quebra nem finge uma busca que não
+rodou. `embedding_modelo` guarda de qual dos dois (e de qual arquivo/
+versão, no caso do local) cada vetor veio — nunca compara vetores de
+proveniências diferentes entre si.
 """
 from datetime import datetime
 

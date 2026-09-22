@@ -1,5 +1,83 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -123. Varredura de tudo que ainda dependia de IA em PENDENCIAS.md — resolvido o único item viável (embedding local), o resto continua bloqueado por motivo não-técnico
+
+**Pedido do usuário:** "veja tudo em pendencias e já implemente tudo que a IA local possa resolver, se
+precisar melhorar ou ajustar algo nessa IA local para resolver algo faça isso" — varredura de todo o
+histórico de pendências à procura de itens que dependessem de "um agente"/IA pra serem resolvidos.
+
+**O que essa varredura encontrou:** dos 10 itens da lista de pipeline de IA jurídica original (seção -101),
+9 já tinham sido implementados em rodadas anteriores (seções -101 a -108). Restava exatamente UM ponto onde
+"melhorar a IA local" resolvia algo de verdade — os outros dois pontos ainda em aberto (item 2, baixar autos
+de tribunal com login automatizado — bloqueado por CAPTCHA/Cloudflare e risco jurídico real, não por falta
+de IA; item 8, jurisprudência real com ementa/link — precisa de provedor pago tipo Jusbrasil/Escavador, não
+contratado) não são coisa que IA nenhuma, local ou paga, resolve sozinha — são bloqueios técnicos/de
+contrato, registrados como tal desde que foram analisados, e continuam exatamente como estavam.
+
+**O que foi implementado — embedding local (índice vetorial de graça, sem chave nenhuma):**
+
+Antes desta seção, a busca semântica da indexação de documentos (item 3 do pipeline — seção -103) só
+funcionava de verdade para empresa com chave do Gemini cadastrada (BYOK, paga) — sem isso, o sistema ainda
+indexava documentos (o corte por evento já ajudava sozinho), mas a busca por RELEVÂNCIA ficava indisponível,
+caindo pra "chunks mais recentes". O MESMO motor que já roda o chat local (llama-cpp-python,
+`app/utils/ia_local.py`) sabe gerar embedding também — só precisa de um SEGUNDO modelo, bem menor
+(~130 MB, contra ~1,1 GB do modelo de chat, arquitetura de embedding tipo MiniLM/BERT, multilíngue —
+inclui português). Implementado: `ia_local.gerar_embeddings_lote()`/`embedding_disponivel()`/
+`nome_modelo_embedding()` (novo, mesma lógica de lazy-load/singleton do modelo de chat, mas um `Llama`
+separado com `embedding=True`) e `app/utils/indexacao_documentos.py` passou a escolher entre os DOIS
+provedores possíveis — Gemini primeiro, quando a empresa tem chave (mais preciso, é a opção paga), senão o
+modelo local (grátis, sem BYOK nenhum) — em vez de só existir com Gemini. **Isso não muda comportamento
+NENHUM pra quem já usa Gemini** (continua tendo prioridade, exatamente como antes); só passa a existir busca
+semântica de verdade pra quem nunca configurou nada.
+
+⚠️ **Cuidado deliberado com vetores de modelos diferentes:** embedding de modelos diferentes NUNCA são
+comparáveis entre si (a "similaridade" entre um vetor do Gemini e um vetor do modelo local não significa
+nada — são espaços vetoriais diferentes). Por isso `buscar_trechos_relevantes` agora só considera, na
+comparação de similaridade, chunks cujo `embedding_modelo` bate exatamente com o provedor ativo NESTE
+momento da busca — um chunk antigo, indexado num momento em que a empresa tinha (ou não tinha) chave do
+Gemini, nunca é comparado como se fosse do mesmo modelo do vetor da consulta atual; ele continua existindo
+e contando pro fallback de "mais recentes", só sai da comparação semântica até ser reindexado.
+
+⚠️ **RAM — decisão consciente, aprendida do erro já registrado na seção -6:** ao contrário da tentativa
+anterior de trocar pra um modelo de CHAT maior (Qwen3-4B, ~2,5 GB — revertida por risco real de OOM), este
+modelo de embedding é ~20x menor (~130 MB) e carrega dentro do MESMO processo do worker de fila (RQ,
+`SimpleWorker` — só 1 cópia na memória, nunca multiplicado pelos workers do gunicorn, mesma arquitetura já
+documentada nas seções -31/-32) — não repete o problema de RAM da vez anterior.
+
+⚠️ **Honestidade sobre o que não pôde ser confirmado daqui:** o repositório/arquivo escolhido pro modelo de
+embedding (`second-state/paraphrase-multilingual-MiniLM-L12-v2-GGUF`, no Hugging Face) foi pesquisado, mas
+**não confirmado por um download real** — este ambiente de geração de código não tem acesso de rede a
+huggingface.co (mesma restrição já registrada pra outras integrações do projeto). Por isso, diferente do
+download do modelo de chat (que quebra o build de propósito se falhar), este é **best-effort** no
+Dockerfile (`|| true` com aviso no log) — se o link tiver mudado, o deploy não quebra, só a busca semântica
+sem Gemini continua indisponível até alguém baixar manualmente ou ajustar o nome do arquivo (ver comentário
+no topo de `baixar_modelo_ia_local.py`).
+
+**Onde:** `app/utils/ia_local.py` (`gerar_embeddings_lote`, `embedding_disponivel`, `nome_modelo_embedding`,
+segundo `Llama` com `embedding=True`), `app/utils/indexacao_documentos.py` (`_provedor_embedding_ativo`
+escolhe Gemini > local > nenhum, usado em `indexar_documento` e `buscar_trechos_relevantes`),
+`app/models/indexacao.py` (docstring atualizada — nenhuma coluna nova, `embedding_modelo` já era texto
+livre), `config.py` (`IA_LOCAL_EMBEDDING_MODELO_PATH`, `IA_LOCAL_EMBEDDING_CONTEXT_SIZE`),
+`baixar_modelo_ia_local.py` (novo alvo `"embedding"`), `Dockerfile` (download best-effort do modelo de
+embedding). **Nenhuma dependência nova** — roda pela mesma `llama-cpp-python` já instalada pro chat.
+**Nenhuma tabela/coluna nova** — não precisa rodar `sincronizar_schema.py` por causa desta seção.
+
+**Pendências para o deploy:**
+1. Fazer o deploy normalmente — o `Dockerfile` já tenta baixar o modelo de embedding sozinho, no build.
+2. Confirmar no log do build se o download funcionou (procure por "Modelo 'embedding' salvo em..."). Se
+   aparecer o aviso de falha, rode manualmente no Terminal do EasyPanel, dentro do container:
+   `python baixar_modelo_ia_local.py embedding` (idempotente, pode rodar quantas vezes quiser).
+3. Sem esse arquivo baixado, nada quebra — só continua exatamente como estava antes desta seção (empresa
+   sem chave do Gemini fica sem busca semântica, com o fallback de sempre).
+
+**Testes:** `tests/test_ia_local_embedding.py` (novo, 7 testes — `embedding_disponivel`/
+`nome_modelo_embedding` com e sem arquivo, `gerar_embeddings_lote` levanta erro sem modelo, preserva
+ordem/quantidade, nunca manda texto vazio pro tokenizer) e 5 testes novos em
+`tests/test_indexacao_documentos.py` (usa local sem chave Gemini, Gemini tem prioridade quando os dois
+estão disponíveis, falha no embedding local mantém chunks sem vetor, busca semântica funciona com local,
+**nunca mistura embedding de modelos diferentes numa mesma busca** — o teste mais importante desta seção).
+Suíte completa (710 testes, era 698) passando sem regressão.
+
 ## -122. Agente de IA com ferramentas de verdade (tool-calling) + botão flutuante de suporte com IA para qualquer usuário logado
 
 **Pedido do usuário (dois pedidos no mesmo lote):** "quero melhorar o agente local e se possível treinar

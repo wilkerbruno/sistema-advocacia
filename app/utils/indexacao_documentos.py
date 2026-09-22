@@ -5,8 +5,9 @@ evento". Pipeline completo: extrai texto (com fallback de OCR pra PDF
 escaneado, ver app/utils/ocr_documento.py), corta em pedaços NUNCA no meio
 de uma frase/palavra ("corte por evento" — cada pedaço é uma unidade
 lógica fechada: uma página, ou um trecho dela quando a página é grande),
-gera embedding de cada pedaço (quando a empresa tem chave do Gemini
-configurada — ver app/utils/gemini_api.py) e guarda tudo em
+gera embedding de cada pedaço (via Gemini BYOK, quando a empresa tem chave
+configurada — ver app/utils/gemini_api.py —, ou via o modelo local, sem
+custo, quando não tem — ver app/utils/ia_local.py) e guarda tudo em
 `DocumentoIndexado` (app/models/indexacao.py).
 
 Roda em segundo plano via RQ (app/jobs/indexacao_jobs.py) — nunca dentro
@@ -22,11 +23,18 @@ disponível) em vez do corte cego por caractere que existia antes.
 ⚠️ Escopo real, sem fingir mais do que está pronto: indexação e busca são
 por PROCESSO (nunca cruza processo, muito menos empresa — mesma disciplina
 de isolamento multi-tenant do resto do sistema, ver `processo_id`
-denormalizado em DocumentoIndexado). A qualidade da busca semântica
-depende inteiramente da empresa ter uma chave do Gemini cadastrada — sem
-isso, o sistema ainda indexa (chunking por evento já ajuda sozinho) mas
-`buscar_trechos_relevantes` cai para "mais recentes primeiro", nunca
-inventa uma similaridade que não foi calculada.
+denormalizado em DocumentoIndexado). Embedding tem DOIS caminhos possíveis
+hoje (PENDENCIAS.md, seção -123): Gemini BYOK (empresa com chave
+cadastrada — mais preciso, é a opção paga) OU o modelo local, bem menor,
+que roda pela mesma biblioteca do chat local (`app/utils/ia_local.py`,
+sem custo, sem BYOK) — Gemini sempre tem prioridade quando a empresa tem
+chave; o modelo local só entra pra quem NÃO tem. Sem nenhum dos dois
+disponíveis, o sistema ainda indexa (chunking por evento já ajuda sozinho)
+mas `buscar_trechos_relevantes` cai para "mais recentes primeiro", nunca
+inventa uma similaridade que não foi calculada. Vetores de proveniências
+diferentes NUNCA são comparados entre si — cada linha grava de qual modelo
+veio (`embedding_modelo`), e a busca só considera vetores do MESMO modelo
+que geraria o vetor da consulta agora.
 """
 import json
 import os
@@ -37,7 +45,7 @@ from flask import current_app
 
 from app.extensions import db
 from app.models import Documento, DocumentoIndexado
-from app.utils import gemini_api, cofre
+from app.utils import gemini_api, ia_local, cofre
 from app.utils.ocr_documento import ocr_disponivel, ocr_pagina_pdf, OcrIndisponivelError
 
 TAMANHO_CHUNK_PADRAO = 1500
@@ -71,6 +79,32 @@ def _obter_chave_gemini(empresa):
         return cofre.decifrar_segredo(empresa.agente_ia_gemini_chave_cifrada)
     except Exception:
         return None
+
+
+def _provedor_embedding_ativo(empresa):
+    """
+    Decide QUAL caminho de embedding usar agora, nesta ordem (PENDENCIAS.md,
+    seção -123): Gemini BYOK primeiro (empresa com chave cadastrada — mais
+    preciso, é a opção paga), senão o modelo local (grátis, sem BYOK,
+    disponível quando o arquivo de pesos foi baixado — ver
+    app/utils/ia_local.py::embedding_disponivel), senão nenhum.
+
+    Devolve uma tupla (gerar_fn, nome_modelo) ou (None, None) quando nenhum
+    dos dois está disponível. `gerar_fn(textos)` sempre tem a MESMA
+    assinatura nos dois casos (lista de textos -> lista de vetores),
+    escondendo a diferença de API entre gemini_api e ia_local de quem chama.
+    """
+    chave = _obter_chave_gemini(empresa)
+    if chave:
+        return (lambda textos: gemini_api.gerar_embeddings_lote(textos, chave)), gemini_api.MODELO_EMBEDDING_PADRAO
+    if ia_local.embedding_disponivel():
+        return ia_local.gerar_embeddings_lote, ia_local.nome_modelo_embedding()
+    return None, None
+
+
+# Os dois erros possíveis (Gemini ou local) — tratados sempre juntos, no
+# mesmo `except`, pelos dois pontos deste módulo que chamam `gerar_fn`.
+ErrosProvedorEmbeddingIndisponivel = (gemini_api.GeminiIndisponivelError, ia_local.ModeloIndisponivelError)
 
 
 def _particionar_paragrafo_longo(texto, tamanho_alvo):
@@ -250,16 +284,16 @@ def indexar_documento(documento, upload_folder):
     erro_embedding = None
     if linhas:
         empresa = documento.processo.unidade.empresa if documento.processo and documento.processo.unidade else None
-        chave = _obter_chave_gemini(empresa)
-        if chave:
+        gerar_fn, nome_modelo = _provedor_embedding_ativo(empresa)
+        if gerar_fn:
             try:
-                vetores = gemini_api.gerar_embeddings_lote([l.texto for l in linhas], chave)
+                vetores = gerar_fn([l.texto for l in linhas])
                 for linha, vetor in zip(linhas, vetores):
                     if vetor:
                         linha.embedding = json.dumps(vetor)
-                        linha.embedding_modelo = gemini_api.MODELO_EMBEDDING_PADRAO
+                        linha.embedding_modelo = nome_modelo
                         com_embedding += 1
-            except gemini_api.GeminiIndisponivelError as e:
+            except ErrosProvedorEmbeddingIndisponivel as e:
                 # Degrada com honestidade: os chunks (já criados acima) ficam
                 # SEM embedding, mas continuam indexados e úteis pro fallback
                 # de buscar_trechos_relevantes — nunca perde a indexação
@@ -334,14 +368,19 @@ def buscar_trechos_relevantes(processo, consulta, top_k=6):
     RELEVANTES para `consulta` (texto livre — ex.: a delimitação do objeto
     ou o tipo de peça pedido, ver app/utils/analise_processo_ia.py).
 
-    Caminho principal (busca semântica de verdade): se a empresa tem chave
-    do Gemini configurada e existe pelo menos um chunk COM embedding pra
-    este processo, embeda `consulta` e ordena por similaridade de cosseno.
+    Caminho principal (busca semântica de verdade): se existe algum
+    provedor de embedding disponível agora (Gemini BYOK, ou o modelo local
+    quando a empresa não tem chave — ver `_provedor_embedding_ativo`) E
+    pelo menos um chunk deste processo tem embedding gravado DO MESMO
+    modelo (nunca compara vetores de modelos diferentes entre si — não são
+    o mesmo espaço vetorial, a "similaridade" entre eles não significaria
+    nada), embeda `consulta` e ordena por similaridade de cosseno.
 
-    Caminho de fallback (sem chave/embedding disponível, ou falha na hora):
-    devolve os chunks mais RECENTES, ainda respeitando fronteira de evento
-    (chunk inteiro, nunca corte cru) — pior que busca semântica, mas nunca
-    finge uma relevância que não foi calculada.
+    Caminho de fallback (nenhum provedor disponível, chunk nenhum do
+    modelo atual, ou falha na hora): devolve os chunks mais RECENTES,
+    ainda respeitando fronteira de evento (chunk inteiro, nunca corte cru)
+    — pior que busca semântica, mas nunca finge uma relevância que não foi
+    calculada.
 
     Devolve lista vazia se o processo não tem nenhum documento indexado
     ainda — nunca gera erro pra quem chama (montar_digest_processo só
@@ -352,20 +391,20 @@ def buscar_trechos_relevantes(processo, consulta, top_k=6):
     if not todos:
         return []
 
-    com_embedding = [c for c in todos if c.embedding]
     empresa = processo.unidade.empresa if processo.unidade else None
-    chave = _obter_chave_gemini(empresa) if com_embedding and consulta else None
+    gerar_fn, nome_modelo = _provedor_embedding_ativo(empresa) if consulta else (None, None)
+    com_embedding = [c for c in todos if c.embedding and c.embedding_modelo == nome_modelo] if gerar_fn else []
 
-    if chave:
+    if gerar_fn and com_embedding:
         try:
-            vetor_consulta = gemini_api.gerar_embeddings_lote([consulta], chave)[0]
+            vetor_consulta = gerar_fn([consulta])[0]
             pontuados = [
                 (c, _cosine_similaridade(vetor_consulta, json.loads(c.embedding)))
                 for c in com_embedding
             ]
             pontuados.sort(key=lambda par: par[1], reverse=True)
             return [c for c, _pontuacao in pontuados[:top_k]]
-        except gemini_api.GeminiIndisponivelError:
+        except ErrosProvedorEmbeddingIndisponivel:
             pass  # cai pro fallback abaixo — nunca quebra a geração da análise por causa disso
         except (ValueError, TypeError):
             pass  # embedding salvo malformado numa linha antiga — mesmo fallback, nunca derruba a busca

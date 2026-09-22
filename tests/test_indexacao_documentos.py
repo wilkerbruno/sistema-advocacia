@@ -349,12 +349,94 @@ def test_indexar_documento_sem_chave_gemini_nao_tenta_gerar_embedding(app, cenar
     chamou = []
     monkeypatch.setattr(idx_mod.gemini_api, "gerar_embeddings_lote",
                          lambda *a, **k: chamou.append(1) or [])
+    # embedding local também indisponível neste teste (sem arquivo baixado)
+    # — nenhum dos dois caminhos deveria ser tentado.
+    monkeypatch.setattr(idx_mod.ia_local, "embedding_disponivel", lambda: False)
 
     doc = _doc_txt(app, cenario["processo_id"], "Sem chave nenhuma cadastrada nesta empresa.")
     indexar_documento(doc, app.config["UPLOAD_FOLDER"])
     db.session.commit()
 
     assert not chamou
+
+
+# ---------------------------------------------------------------------
+# indexar_documento — sem chave Gemini, mas com embedding LOCAL disponível
+# (PENDENCIAS.md, seção -123) — mesmo mecanismo de fila em segundo plano,
+# só troca o provedor. `_obter_modelo_embedding` sempre mockado, nunca
+# carrega um GGUF de verdade aqui (ver tests/test_ia_local_embedding.py).
+# ---------------------------------------------------------------------
+
+def _mocka_embedding_local(monkeypatch, vetor_por_texto=None, nome_modelo="local:fake-embedding.gguf"):
+    """`vetor_por_texto`: dict texto->vetor, ou None pra devolver um vetor
+    fixo [0.1, 0.2, 0.3] pra qualquer texto (mesmo padrão de
+    `_fake_embeddings` já usado pros testes do Gemini acima)."""
+    monkeypatch.setattr(idx_mod.ia_local, "embedding_disponivel", lambda: True)
+    monkeypatch.setattr(idx_mod.ia_local, "nome_modelo_embedding", lambda: nome_modelo)
+
+    def _fake(textos):
+        if vetor_por_texto is not None:
+            return [vetor_por_texto.get(t, [0.0, 0.0, 1.0]) for t in textos]
+        return [[0.1, 0.2, 0.3] for _ in textos]
+
+    monkeypatch.setattr(idx_mod.ia_local, "gerar_embeddings_lote", _fake)
+
+
+def test_indexar_documento_sem_chave_gemini_mas_com_embedding_local_usa_local(app, cenario, monkeypatch):
+    _mocka_embedding_local(monkeypatch)
+
+    doc = _doc_txt(app, cenario["processo_id"], "Texto que vai virar embedding local fake.")
+    resumo = indexar_documento(doc, app.config["UPLOAD_FOLDER"])
+    db.session.commit()
+
+    assert resumo["chunks"] == 1
+    assert resumo["com_embedding"] == 1
+    assert resumo["erro"] is None
+    linha = DocumentoIndexado.query.filter_by(documento_id=doc.id).first()
+    assert linha.embedding is not None
+    assert linha.embedding_modelo == "local:fake-embedding.gguf"
+
+
+def test_indexar_documento_com_chave_gemini_e_local_disponivel_prefere_gemini(
+        app, cenario, cofre_configurado, monkeypatch):
+    """Gemini (pago, mais preciso) sempre tem prioridade sobre o modelo
+    local quando os dois estão disponíveis — nunca o contrário."""
+    _empresa_com_chave_gemini(app, cenario["empresa_id"])
+    _mocka_embedding_local(monkeypatch)
+
+    chamou_local = []
+    monkeypatch.setattr(idx_mod.ia_local, "gerar_embeddings_lote", lambda textos: chamou_local.append(1) or [])
+    monkeypatch.setattr(idx_mod.gemini_api, "gerar_embeddings_lote",
+                         lambda textos, api_key, modelo=None: [[0.9, 0.9, 0.9] for _ in textos])
+
+    doc = _doc_txt(app, cenario["processo_id"], "Empresa com os dois provedores disponíveis.")
+    resumo = indexar_documento(doc, app.config["UPLOAD_FOLDER"])
+    db.session.commit()
+
+    assert resumo["com_embedding"] == 1
+    assert not chamou_local
+    linha = DocumentoIndexado.query.filter_by(documento_id=doc.id).first()
+    assert linha.embedding_modelo == gemini_api.MODELO_EMBEDDING_PADRAO
+
+
+def test_indexar_documento_com_falha_no_embedding_local_mantem_chunks_sem_embedding(app, cenario, monkeypatch):
+    monkeypatch.setattr(idx_mod.ia_local, "embedding_disponivel", lambda: True)
+    monkeypatch.setattr(idx_mod.ia_local, "nome_modelo_embedding", lambda: "local:fake-embedding.gguf")
+
+    def _falha(textos):
+        raise idx_mod.ia_local.ModeloIndisponivelError("modelo local indisponível (simulado)")
+
+    monkeypatch.setattr(idx_mod.ia_local, "gerar_embeddings_lote", _falha)
+
+    doc = _doc_txt(app, cenario["processo_id"], "Texto que não vai conseguir gerar embedding local.")
+    resumo = indexar_documento(doc, app.config["UPLOAD_FOLDER"])
+    db.session.commit()
+
+    assert resumo["chunks"] == 1
+    assert resumo["com_embedding"] == 0
+    assert "modelo local indisponível" in resumo["erro"]
+    linha = DocumentoIndexado.query.filter_by(documento_id=doc.id).first()
+    assert linha.embedding is None
 
 
 # ---------------------------------------------------------------------
@@ -433,6 +515,67 @@ def test_buscar_trechos_relevantes_falha_de_embedding_cai_para_fallback_sem_queb
     processo = db.session.get(Processo, cenario["processo_id"])
     trechos = buscar_trechos_relevantes(processo, "consulta qualquer")
     assert len(trechos) == 1  # cai pro fallback (mais recentes) em vez de propagar o erro
+
+
+# ---------------------------------------------------------------------
+# buscar_trechos_relevantes — embedding LOCAL (sem chave Gemini) e a regra
+# de nunca misturar vetores de proveniências diferentes (PENDENCIAS.md,
+# seção -123)
+# ---------------------------------------------------------------------
+
+def test_buscar_trechos_relevantes_sem_chave_gemini_usa_embedding_local(app, cenario, monkeypatch):
+    vetores_documento = {
+        "parecido com a consulta": [1.0, 0.0, 0.0],
+        "oposto da consulta": [-1.0, 0.0, 0.0],
+    }
+    _mocka_embedding_local(monkeypatch, vetor_por_texto=vetores_documento)
+
+    for texto in vetores_documento:
+        doc = _doc_txt(app, cenario["processo_id"], texto, nome=f"{texto[:6]}.txt")
+        indexar_documento(doc, app.config["UPLOAD_FOLDER"])
+        db.session.commit()
+
+    _mocka_embedding_local(monkeypatch, vetor_por_texto={"minha consulta": [1.0, 0.0, 0.0]})
+
+    processo = db.session.get(Processo, cenario["processo_id"])
+    trechos = buscar_trechos_relevantes(processo, "minha consulta", top_k=2)
+
+    assert trechos[0].texto == "parecido com a consulta"
+    assert trechos[-1].texto == "oposto da consulta"
+
+
+def test_buscar_trechos_relevantes_nunca_mistura_embedding_de_modelos_diferentes(
+        app, cenario, cofre_configurado, monkeypatch):
+    """Um chunk indexado com o Gemini (de quando a empresa tinha chave) e
+    outro indexado depois com o modelo local (empresa removeu a chave) —
+    a busca atual (local, sem chave) só pode considerar o chunk do MESMO
+    modelo que vai gerar o vetor da consulta agora; o chunk do Gemini fica
+    de fora da comparação semântica (nunca é tratado como comparável), mas
+    continua existindo (ainda entraria no fallback de "mais recentes")."""
+    _empresa_com_chave_gemini(app, cenario["empresa_id"])
+    monkeypatch.setattr(idx_mod.gemini_api, "gerar_embeddings_lote",
+                         lambda textos, api_key, modelo=None: [[9.0, 9.0, 9.0] for _ in textos])
+    doc_gemini = _doc_txt(app, cenario["processo_id"], "Chunk antigo, indexado com Gemini.", nome="gemini.txt")
+    indexar_documento(doc_gemini, app.config["UPLOAD_FOLDER"])
+    db.session.commit()
+
+    # empresa perdeu a chave do Gemini — próxima indexação usa o local
+    empresa = db.session.get(Empresa, cenario["empresa_id"])
+    empresa.agente_ia_gemini_chave_cifrada = None
+    db.session.commit()
+    _mocka_embedding_local(monkeypatch, vetor_por_texto={"Chunk novo, indexado com o modelo local.": [1.0, 0.0, 0.0]})
+    doc_local = _doc_txt(app, cenario["processo_id"], "Chunk novo, indexado com o modelo local.", nome="local.txt")
+    indexar_documento(doc_local, app.config["UPLOAD_FOLDER"])
+    db.session.commit()
+
+    _mocka_embedding_local(monkeypatch, vetor_por_texto={"consulta atual": [1.0, 0.0, 0.0]})
+    processo = db.session.get(Processo, cenario["processo_id"])
+    trechos = buscar_trechos_relevantes(processo, "consulta atual", top_k=6)
+
+    # só o chunk local participa da comparação semântica — o do Gemini,
+    # com um `embedding_modelo` diferente, nunca é comparado a um vetor do
+    # modelo local (evita uma "similaridade" sem significado nenhum).
+    assert trechos[0].documento_id == doc_local.id
 
 
 # ---------------------------------------------------------------------

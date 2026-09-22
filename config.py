@@ -143,6 +143,30 @@ class Config:
     IA_LOCAL_MAX_TOKENS_RESPOSTA = int(os.environ.get("IA_LOCAL_MAX_TOKENS_RESPOSTA", "700"))
     IA_LOCAL_THREADS = int(os.environ["IA_LOCAL_THREADS"]) if os.environ.get("IA_LOCAL_THREADS") else None
 
+    # Embedding local (índice vetorial da indexação de documentos — item 3 da
+    # lista de pipeline de IA jurídica, ver PENDENCIAS.md seção -123 e
+    # app/utils/ia_local.py::gerar_embeddings_lote). Antes desta seção, busca
+    # semântica só funcionava para empresas com chave do Gemini cadastrada —
+    # este modelo (bem menor que o de chat, ~120 MB) roda pelo MESMO
+    # llama-cpp-python já usado pelo chat local, sem dependência nova, e dá
+    # busca semântica de graça pra QUALQUER empresa, mesmo sem BYOK nenhum.
+    # Baixado à parte (ver baixar_modelo_ia_local.py, argumento "embedding")
+    # — se o arquivo não existir, `embedding_disponivel()` devolve False e a
+    # indexação degrada exatamente como já fazia (cai pra chunks mais
+    # recentes), nunca quebra nem finge similaridade.
+    # Nome do arquivo tem que bater exatamente com `MODELOS["embedding"]["arquivo"]`
+    # em baixar_modelo_ia_local.py — é o mesmo script que baixa este arquivo.
+    IA_LOCAL_EMBEDDING_MODELO_PATH = os.environ.get(
+        "IA_LOCAL_EMBEDDING_MODELO_PATH",
+        os.path.join(BASE_DIR, "app", "ia_local", "modelos", "paraphrase-multilingual-MiniLM-L12-v2-Q8_0.gguf"),
+    )
+    # 512 é o comprimento de sequência com que este tipo de modelo (baseado
+    # em MiniLM/BERT) foi treinado — um chunk maior que isso é truncado pelo
+    # próprio llama.cpp antes de gerar o vetor (o texto INDEXADO continua
+    # inteiro, só o embedding é calculado sobre o trecho truncado — nunca
+    # perde o texto, só a precisão da busca semântica num chunk muito longo).
+    IA_LOCAL_EMBEDDING_CONTEXT_SIZE = int(os.environ.get("IA_LOCAL_EMBEDDING_CONTEXT_SIZE", "512"))
+
     # Captura automática de movimentações via DataJud (API pública e
     # gratuita do CNJ) — ver app/utils/conector_datajud.py. Sem isso
     # definido, o cadastro por CNJ (/governanca/processos/novo-por-cnj)
