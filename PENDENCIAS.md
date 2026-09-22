@@ -1,5 +1,36 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -119. Segunda causa da despesa sumida dos cards: lançamento criado já "pago" ficava sem `data_pagamento`
+
+**Relato do usuário:** depois da correção da seção -118 (cards novos de despesa na "Conta de terceiros"),
+a mesma despesa de exemplo ("Custo de aquisição de licenças de API", R$ 1.289,02, status "pago") continuou
+sem aparecer em nenhum card, incluindo o novo "Repassado este mês" — que era exatamente o card feito pra
+mostrar esse caso.
+
+**Causa:** "Recebido este mês"/"Repassado este mês" sempre filtraram por mês/ano de `data_pagamento` (faz
+sentido — "este mês" só tem significado em cima de QUANDO foi pago, não de quando foi criado o registro).
+O formulário "Novo lançamento", porém, nunca teve um campo de data de pagamento — então criar um lançamento
+já direto como "Pago" (em vez do fluxo mais comum, que é criar como "Pendente" e depois usar o botão
+"Marcar pago" da listagem) deixava `data_pagamento` sempre `None`, mesmo com status "pago". A ação rápida
+"Marcar pago" (`atualizar_status()`) já preenchia essa data sozinha (com a data de hoje) quando faltava —
+só a criação direta pelo formulário não tinha essa mesma lógica, então um lançamento "nasceu pago" sem
+data de pagamento nenhuma, e por isso não batia com o filtro de "este mês" de nenhum card.
+
+**Correção:** `financeiro.novo()` ganhou o mesmo auto-preenchimento que `atualizar_status()` já tinha —
+criar um lançamento com status "pago" sem informar a data usa a data de hoje automaticamente. Além disso,
+o formulário ganhou um campo explícito "Data de pagamento" (opcional, com a mesma explicação "se deixar em
+branco, usa a data de hoje"), pra quem precisar lançar algo que já foi pago em outra data (ex: registrando
+uma despesa de alguns dias atrás).
+
+**Onde:** `app/routes/financeiro.py` (`novo()` — mesma lógica de auto-preenchimento de `atualizar_status()`),
+`app/templates/financeiro/form.html` (campo "Data de pagamento" novo, ao lado de "Status"; layout dos três
+campos daquela linha ajustado de 6/6 pra 4/4/4 colunas pra caber o terceiro). Testado em
+`tests/test_data_pagamento_automatica.py` (novo — 5 testes: despesa de terceiros criada já paga sem
+informar data usa hoje e aparece em "Repassado este mês", receita operacional criada já paga usa hoje e
+aparece em "Recebido este mês", data explícita informada no formulário é respeitada em vez de sobrescrita,
+e lançamento criado pendente continua sem data de pagamento nenhuma — sem regressão no caso comum). Suíte
+completa (616 testes) passando.
+
 ## -118. Despesa na "Conta de terceiros" não aparecia em nenhum card + seta do `<select>` sobrepondo o texto
 
 **Relato do usuário:** lançou uma despesa na aba "Conta de terceiros" e ela não apareceu em nenhum dos três
