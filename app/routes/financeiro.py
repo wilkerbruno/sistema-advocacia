@@ -152,6 +152,32 @@ def listar():
         Lancamento.data_vencimento < date.today(),
     ).with_entities(func.coalesce(func.sum(Lancamento.valor), 0)).scalar()
 
+    # Espelho dos três totais acima, mas do lado DESPESA — só de fato usado
+    # (mostrado) na aba "Conta de terceiros" (ver financeiro/listar.html):
+    # lá, dinheiro passa pelo escritório nas DUAS direções — recebido em
+    # nome de terceiro (receita, os três totais acima) e repassado/pago em
+    # nome de terceiro (despesa, os três abaixo) — ex.: depósito judicial
+    # recebido é receita+terceiros, o repasse desse mesmo valor pro cliente
+    # depois é despesa+terceiros. Antes só existiam os totais de receita,
+    # então uma despesa de conta de terceiros (ex: repasse já pago) não
+    # aparecia em NENHUM card — bug relatado pelo usuário. Na aba
+    # "operacional" essas variáveis são calculadas mas o template não as
+    # exibe (lá o único sentido que interessa nos cards é o de receita/AR,
+    # sempre foi assim) — computar sempre em vez de só quando eh_terceiros
+    # mantém o código mais simples, o custo da query a mais é desprezível.
+    total_a_repassar = base_totais.filter(
+        Lancamento.natureza == "despesa", Lancamento.status == "pendente"
+    ).with_entities(func.coalesce(func.sum(Lancamento.valor), 0)).scalar()
+    total_repassado_mes = base_totais.filter(
+        Lancamento.natureza == "despesa", Lancamento.status == "pago",
+        func.extract("month", Lancamento.data_pagamento) == date.today().month,
+        func.extract("year", Lancamento.data_pagamento) == date.today().year,
+    ).with_entities(func.coalesce(func.sum(Lancamento.valor), 0)).scalar()
+    total_repasse_atrasado = base_totais.filter(
+        Lancamento.natureza == "despesa", Lancamento.status == "pendente",
+        Lancamento.data_vencimento < date.today(),
+    ).with_entities(func.coalesce(func.sum(Lancamento.valor), 0)).scalar()
+
     # Saldo em trânsito na conta de terceiros — mostrado sempre (mesmo
     # olhando "operacional"), como lembrete visual de que existe dinheiro
     # de cliente retido, sem misturar no cálculo dos totais operacionais.
@@ -189,6 +215,8 @@ def listar():
     return render_template("financeiro/listar.html", lancamentos=lancamentos, unidades=unidades,
                             total_a_receber=total_a_receber, total_recebido_mes=total_recebido_mes,
                             total_atrasado=total_atrasado, saldo_terceiros=saldo_terceiros,
+                            total_a_repassar=total_a_repassar, total_repassado_mes=total_repassado_mes,
+                            total_repasse_atrasado=total_repasse_atrasado,
                             conta=conta, status=status, natureza=natureza,
                             qtd_aprovacoes_pendentes=qtd_aprovacoes_pendentes)
 
