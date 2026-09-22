@@ -32,7 +32,7 @@ from app.extensions import db
 from app.models import ConversaAgenteIA, MensagemAgenteIA, Processo, Prazo, Tarefa, Cliente, Lancamento
 from app.utils.acesso import aplicar_escopo_unidade
 from app.utils.notificacoes import registrar_log
-from app.utils import agente_ia_router
+from app.utils import agente_ia_router, agente_ia_ferramentas
 from app.utils.fila import enfileirar
 
 agente_ia_bp = Blueprint("agente_ia", __name__)
@@ -191,6 +191,34 @@ _CONTEXTO_POR_PERSONA = {
 }
 
 
+# ---------------------- Ferramentas (tool-calling) ----------------------
+#
+# Pedido explícito do usuário: "melhorar o agente local... treinar ele
+# para resolver tudo que depende de um agente de forma mais eficaz". Ver
+# docstring completa em app/utils/agente_ia_ferramentas.py — resumo: o
+# contexto pré-carregado acima (prazos vencendo, processos parados etc.)
+# continua existindo, mas agora o agente também pode ir buscar um dado
+# MAIS ESPECÍFICO sob demanda durante a própria conversa (ex: "e o
+# processo 123 do cliente X, como está?"), em vez de só responder com o
+# que já veio pronto no começo.
+FERRAMENTAS_INSTRUCOES = (
+    "\n\nAlém do contexto acima, você TEM ACESSO a ferramentas para consultar dados "
+    "atualizados do sistema, sob demanda — use sempre que a pergunta precisar de um "
+    "dado específico que não esteja no contexto (ex: detalhes de um processo ou "
+    "cliente específico, mais prazos/tarefas do que os já listados, um número "
+    "financeiro diferente do que já foi dado). Ferramentas disponíveis:\n"
+    + agente_ia_ferramentas.descricao_ferramentas_para_prompt()
+    + "\n\nPara usar uma ferramenta, responda com APENAS um bloco JSON — sem nenhum "
+      "texto antes ou depois, sem explicação nenhuma — neste formato exato:\n"
+      '{"ferramenta": "nome_da_ferramenta", "argumentos": {...}}\n'
+      "Você vai receber o resultado em seguida e pode usar outra ferramenta (mesmo "
+      "formato) ou já responder ao usuário normalmente. NUNCA invente um nome de "
+      "ferramenta fora da lista acima, e NUNCA invente um número/dado que deveria vir "
+      "de uma ferramenta sem antes consultá-la. Se não precisar de nenhuma ferramenta "
+      "para responder, responda direto em texto, sem JSON nenhum."
+)
+
+
 # ---------------------- Montagem do pedido (rápido — só leitura de banco) ----------------------
 #
 # Separado da chamada ao modelo de propósito: isto aqui roda dentro da
@@ -207,6 +235,7 @@ def _montar_system_e_mensagens(persona, mensagens_historico, contexto_dados):
         + "\n\nContexto atual do escritório (dados reais, consultados no momento desta mensagem — "
           "use-os para embasar a resposta, nunca invente número diferente destes):\n"
         + contexto_dados
+        + FERRAMENTAS_INSTRUCOES
     )
 
     mensagens_api = [
@@ -325,7 +354,12 @@ def enviar_mensagem(conversa_id):
     empresa_id = current_user.empresa_id_atual
     enfileirar(
         "app.jobs.ia_jobs.processar_mensagem_agente_ia",
-        msg_assistente.id, empresa_id, system, mensagens_api,
+        msg_assistente.id, empresa_id, current_user.id, system, mensagens_api,
+        # job_timeout maior que o padrão (420s): com ferramentas (ver
+        # app/utils/agente_ia_ferramentas.py), uma mensagem pode disparar
+        # até MAX_ITERACOES_FERRAMENTAS chamadas ao modelo em sequência —
+        # no motor local (CPU), cada uma pode levar até alguns minutos.
+        job_timeout=900,
     )
 
     return redirect(url_for("agente_ia.conversa", conversa_id=conversa.id))

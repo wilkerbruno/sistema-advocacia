@@ -1,0 +1,244 @@
+{# ------------------------------------------------------------------
+   Botão flutuante de suporte + painel de chat (pedido explícito do
+   usuário: "um botão flutuante com icone de suporte com um chat aonde o
+   cliente pergunta algo sobre o sistema e uma ia que responde tudo sobre
+   o juscontrol"). Incluído uma vez em base.html, visível em toda tela
+   pra QUALQUER usuário logado.
+
+   Histórico da conversa vive só nesta página (array JS em memória,
+   reenviado a cada pergunta pro backend dar continuidade — ver
+   app/routes/suporte_ia.py) — recarregar a página começa uma conversa
+   nova, de propósito (é um chat de "pergunta rápida", não substitui o
+   Agente de IA de portfólio, que tem histórico persistido de verdade).
+------------------------------------------------------------------ #}
+<button type="button" id="suporte-widget-botao" class="suporte-widget-botao" aria-label="Abrir chat de suporte" title="Suporte JusControl">
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M12 3C7.03 3 3 6.58 3 11c0 2.39 1.19 4.53 3.08 6.02-.1.98-.5 2.32-1.53 3.6a.5.5 0 0 0 .5.79c2-.4 3.6-1.28 4.6-1.98.75.17 1.53.27 2.35.27 4.97 0 9-3.58 9-8s-4.03-8-9-8z" fill="currentColor"/>
+    <text x="12" y="14.5" font-size="9" font-weight="700" text-anchor="middle" fill="var(--paper-0, #faf9f6)">?</text>
+  </svg>
+</button>
+
+<div id="suporte-widget-painel" class="suporte-widget-painel" hidden>
+  <div class="suporte-widget-cabecalho">
+    <div>
+      <div class="suporte-widget-titulo">Suporte JusControl</div>
+      <div class="suporte-widget-subtitulo">Tire dúvidas sobre como o sistema funciona</div>
+    </div>
+    <button type="button" id="suporte-widget-fechar" class="suporte-widget-fechar" aria-label="Fechar chat de suporte">&times;</button>
+  </div>
+
+  <div id="suporte-widget-mensagens" class="suporte-widget-mensagens">
+    <div class="suporte-widget-msg suporte-widget-msg-assistente">
+      Oi! Posso ajudar com dúvidas sobre como o JusControl funciona — processos, financeiro, agenda,
+      permissões e outras telas do sistema. Não tenho acesso aos seus dados (isso é com o Agente de
+      IA, no menu Operação) — só explico como usar o sistema. O que você quer saber?
+    </div>
+  </div>
+
+  <form id="suporte-widget-form" class="suporte-widget-form">
+    <textarea id="suporte-widget-input" class="suporte-widget-input" rows="1"
+              placeholder="Digite sua pergunta..." maxlength="2000"></textarea>
+    <button type="submit" id="suporte-widget-enviar" class="suporte-widget-enviar" aria-label="Enviar pergunta">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M3 12l18-8-8 18-2-8-8-2z" fill="currentColor"/>
+      </svg>
+    </button>
+  </form>
+</div>
+
+<style>
+  .suporte-widget-botao {
+    position: fixed; right: 22px; bottom: 22px; z-index: 1050;
+    width: 54px; height: 54px; border-radius: 50%; border: none;
+    background: var(--brass-500, #b08d57); color: var(--paper-0, #faf9f6);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 4px 14px rgba(20, 23, 31, 0.25); cursor: pointer;
+    transition: transform .15s ease, background .15s ease;
+  }
+  .suporte-widget-botao:hover { background: var(--brass-600, #97753f); transform: scale(1.06); }
+
+  .suporte-widget-painel {
+    position: fixed; right: 22px; bottom: 88px; z-index: 1050;
+    width: 360px; max-width: calc(100vw - 32px);
+    height: 480px; max-height: calc(100vh - 120px);
+    background: var(--paper-0, #fff); border-radius: var(--radius, 6px);
+    box-shadow: 0 8px 30px rgba(20, 23, 31, 0.25);
+    display: flex; flex-direction: column; overflow: hidden;
+    font-family: var(--font-body, sans-serif);
+    border: 1px solid var(--paper-200, #e8e4da);
+  }
+
+  .suporte-widget-cabecalho {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    padding: 14px 14px 12px; background: var(--ink-900, #14171f); color: var(--paper-0, #fff);
+    flex-shrink: 0;
+  }
+  .suporte-widget-titulo { font-weight: 600; font-size: .95rem; }
+  .suporte-widget-subtitulo { font-size: .74rem; opacity: .75; margin-top: 2px; }
+  .suporte-widget-fechar {
+    background: none; border: none; color: inherit; font-size: 1.3rem; line-height: 1;
+    cursor: pointer; padding: 0 2px; opacity: .8;
+  }
+  .suporte-widget-fechar:hover { opacity: 1; }
+
+  .suporte-widget-mensagens {
+    flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px;
+    background: var(--paper-100, #f2f0ea);
+  }
+  .suporte-widget-msg {
+    max-width: 85%; padding: 8px 11px; border-radius: 10px; font-size: .84rem; line-height: 1.4;
+    white-space: pre-wrap; word-wrap: break-word;
+  }
+  .suporte-widget-msg-usuario {
+    align-self: flex-end; background: var(--brass-500, #b08d57); color: var(--paper-0, #fff);
+    border-bottom-right-radius: 2px;
+  }
+  .suporte-widget-msg-assistente {
+    align-self: flex-start; background: #fff; color: var(--ink-800, #1c212c);
+    border: 1px solid var(--paper-200, #e8e4da); border-bottom-left-radius: 2px;
+  }
+  .suporte-widget-msg-erro { color: var(--status-danger, #963f3f); }
+  .suporte-widget-digitando { align-self: flex-start; font-size: .78rem; color: var(--ink-500, #5a6478); padding: 0 4px; }
+
+  .suporte-widget-form {
+    display: flex; gap: 8px; padding: 10px; border-top: 1px solid var(--paper-200, #e8e4da);
+    background: #fff; flex-shrink: 0;
+  }
+  .suporte-widget-input {
+    flex: 1; resize: none; border: 1px solid var(--paper-200, #e8e4da); border-radius: var(--radius, 6px);
+    padding: 8px 10px; font-size: .84rem; font-family: inherit; max-height: 90px;
+  }
+  .suporte-widget-input:focus { outline: none; border-color: var(--brass-500, #b08d57); }
+  .suporte-widget-enviar {
+    border: none; background: var(--brass-500, #b08d57); color: #fff; border-radius: var(--radius, 6px);
+    width: 38px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+  .suporte-widget-enviar:disabled { opacity: .5; cursor: default; }
+
+  @media (max-width: 480px) {
+    .suporte-widget-painel { right: 16px; left: 16px; width: auto; bottom: 82px; }
+    .suporte-widget-botao { right: 16px; bottom: 16px; }
+  }
+</style>
+
+<script>
+(function () {
+  const botao = document.getElementById("suporte-widget-botao");
+  const painel = document.getElementById("suporte-widget-painel");
+  const fechar = document.getElementById("suporte-widget-fechar");
+  const form = document.getElementById("suporte-widget-form");
+  const input = document.getElementById("suporte-widget-input");
+  const enviar = document.getElementById("suporte-widget-enviar");
+  const mensagensEl = document.getElementById("suporte-widget-mensagens");
+  if (!botao || !painel || !form) return;
+
+  const csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+
+  // Histórico só em memória, nesta página (ver docstring do template) —
+  // cada item: {papel: "user"|"assistant", texto: "..."}
+  const historico = [];
+
+  function alternarPainel(abrir) {
+    const vaiAbrir = abrir !== undefined ? abrir : painel.hasAttribute("hidden");
+    painel.hidden = !vaiAbrir;
+    if (vaiAbrir) input.focus();
+  }
+  botao.addEventListener("click", function () { alternarPainel(); });
+  fechar.addEventListener("click", function () { alternarPainel(false); });
+
+  function rolarParaFinal() { mensagensEl.scrollTop = mensagensEl.scrollHeight; }
+
+  function adicionarMensagem(texto, classe) {
+    const div = document.createElement("div");
+    div.className = "suporte-widget-msg " + classe;
+    div.textContent = texto;  // textContent — nunca innerHTML, texto vem de fora (usuário/modelo)
+    mensagensEl.appendChild(div);
+    rolarParaFinal();
+    return div;
+  }
+
+  function ajustarAlturaInput() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 90) + "px";
+  }
+  input.addEventListener("input", ajustarAlturaInput);
+  input.addEventListener("keydown", function (ev) {
+    if (ev.key === "Enter" && !ev.shiftKey) {
+      ev.preventDefault();
+      form.requestSubmit();
+    }
+  });
+
+  async function aguardarResposta(mensagemId) {
+    const inicio = Date.now();
+    const LIMITE_MS = 5 * 60 * 1000;  // desiste depois de 5 minutos de espera
+    while (Date.now() - inicio < LIMITE_MS) {
+      await new Promise(function (resolve) { setTimeout(resolve, 1800); });
+      let resp;
+      try {
+        resp = await fetch(`/suporte-ia/mensagens/${mensagemId}/status`);
+      } catch (e) {
+        continue;  // falha de rede pontual — tenta de novo na próxima rodada
+      }
+      if (!resp.ok) continue;
+      const dado = await resp.json();
+      if (dado.status !== "processando") {
+        return dado.resposta;
+      }
+    }
+    return null;  // estourou o tempo de espera
+  }
+
+  form.addEventListener("submit", async function (ev) {
+    ev.preventDefault();
+    const pergunta = input.value.trim();
+    if (!pergunta) return;
+
+    adicionarMensagem(pergunta, "suporte-widget-msg-usuario");
+    input.value = "";
+    ajustarAlturaInput();
+    input.disabled = true;
+    enviar.disabled = true;
+
+    const indicador = document.createElement("div");
+    indicador.className = "suporte-widget-digitando";
+    indicador.textContent = "digitando...";
+    mensagensEl.appendChild(indicador);
+    rolarParaFinal();
+
+    try {
+      const respPost = await fetch("/suporte-ia/perguntar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRFToken": csrfToken },
+        body: JSON.stringify({ pergunta: pergunta, historico: historico }),
+      });
+      if (!respPost.ok) {
+        const erro = await respPost.json().catch(function () { return {}; });
+        indicador.remove();
+        adicionarMensagem(erro.erro || "Não foi possível enviar a pergunta agora.", "suporte-widget-msg-assistente suporte-widget-msg-erro");
+        return;
+      }
+      const dadoPost = await respPost.json();
+      const resposta = await aguardarResposta(dadoPost.mensagem_id);
+      indicador.remove();
+
+      if (resposta === null) {
+        adicionarMensagem("A resposta está demorando mais que o esperado — tente novamente em instantes.",
+          "suporte-widget-msg-assistente suporte-widget-msg-erro");
+        return;
+      }
+      adicionarMensagem(resposta, "suporte-widget-msg-assistente");
+      historico.push({ papel: "user", texto: pergunta });
+      historico.push({ papel: "assistant", texto: resposta });
+    } catch (e) {
+      indicador.remove();
+      adicionarMensagem("Não foi possível falar com o suporte agora — verifique sua conexão e tente de novo.",
+        "suporte-widget-msg-assistente suporte-widget-msg-erro");
+    } finally {
+      input.disabled = false;
+      enviar.disabled = false;
+      input.focus();
+    }
+  });
+})();
+</script>

@@ -97,6 +97,7 @@ def create_app(config_class=Config):
     from app.routes.leads import leads_bp
     from app.routes.captacao_oab import captacao_oab_bp
     from app.routes.rotina import rotina_bp
+    from app.routes.suporte_ia import suporte_ia_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(dashboard_bp)
@@ -120,6 +121,7 @@ def create_app(config_class=Config):
     app.register_blueprint(leads_bp, url_prefix="/leads")
     app.register_blueprint(captacao_oab_bp)
     app.register_blueprint(rotina_bp)
+    app.register_blueprint(suporte_ia_bp, url_prefix="/suporte-ia")
 
     # A API de integração (/api/v1/*) é autenticada por token Bearer, não
     # por cookie de sessão — CSRF protege contra um navegador enviar um

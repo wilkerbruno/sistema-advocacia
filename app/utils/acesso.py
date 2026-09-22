@@ -84,37 +84,51 @@ def ids_unidades_da_empresa(empresa_id):
     return _ids_unidades_da_empresa(empresa_id)
 
 
-def aplicar_escopo_unidade(query, modelo, unidade_field="unidade_id"):
+def aplicar_escopo_unidade(query, modelo, unidade_field="unidade_id", usuario=None):
     """
     Filtra uma query SQLAlchemy pela unidade do usuário logado.
     - admin desenvolvedor: sem filtro nenhum (vê tudo, de todas as empresas).
     - admin de empresa: filtra por todas as unidades da PRÓPRIA empresa.
     - demais papéis: filtra só pela própria unidade.
+
+    `usuario` (opcional — ver PENDENCIAS.md, seção do "tool-calling" do
+    Agente de IA): por padrão usa `current_user` (proxy de sessão do
+    Flask-Login), igual sempre foi. Só é passado explicitamente quando
+    quem chama roda FORA de uma requisição web autenticada — ex: o worker
+    de fila (app/jobs/ia_jobs.py), que não tem sessão/`current_user`
+    nenhum, mas carrega um `Usuario` de verdade do banco pra reaplicar
+    exatamente esta mesma regra de escopo nas ferramentas do agente
+    (app/utils/agente_ia_ferramentas.py) — single source of truth da regra
+    de acesso, em vez de duplicá-la lá.
     """
-    if not current_user.is_authenticated:
+    usuario = usuario or current_user
+    if not usuario.is_authenticated:
         return query.filter(False)  # nunca deveria chegar aqui sem login
 
     campo = getattr(modelo, unidade_field)
 
-    if current_user.is_admin_desenvolvedor:
+    if usuario.is_admin_desenvolvedor:
         return query
 
-    if current_user.is_admin:
-        ids = _ids_unidades_da_empresa(current_user.empresa_id_atual)
+    if usuario.is_admin:
+        ids = _ids_unidades_da_empresa(usuario.empresa_id_atual)
         return query.filter(campo.in_(ids))
 
-    return query.filter(campo == current_user.unidade_id)
+    return query.filter(campo == usuario.unidade_id)
 
 
-def unidade_permitida(unidade_id):
-    """Verifica se o usuário logado pode acessar dados de uma unidade específica."""
-    if current_user.is_admin_desenvolvedor:
+def unidade_permitida(unidade_id, usuario=None):
+    """Verifica se o usuário logado pode acessar dados de uma unidade
+    específica. `usuario` opcional — mesmo motivo de `aplicar_escopo_unidade`
+    acima."""
+    usuario = usuario or current_user
+    if usuario.is_admin_desenvolvedor:
         return True
-    if current_user.is_admin:
+    if usuario.is_admin:
         from app.models import Unidade
         alvo = Unidade.query.get(unidade_id)
-        return alvo is not None and alvo.empresa_id == current_user.empresa_id_atual
-    return current_user.unidade_id == unidade_id
+        return alvo is not None and alvo.empresa_id == usuario.empresa_id_atual
+    return usuario.unidade_id == unidade_id
 
 
 def checar_acesso_unidade_ou_403(unidade_id):
@@ -122,7 +136,7 @@ def checar_acesso_unidade_ou_403(unidade_id):
         abort(403)
 
 
-def usuario_pode_ver_processo(processo):
+def usuario_pode_ver_processo(processo, usuario=None):
     """
     Regra de acesso a UM processo específico — vai além da checagem de
     unidade de sempre quando o processo está marcado como sigiloso
@@ -135,21 +149,24 @@ def usuario_pode_ver_processo(processo):
       vale pra qualquer outro dado), OU o responsável pelo processo, OU
       quem cadastrou, OU estar na lista explícita de acesso
       (ProcessoAcessoRestrito).
+
+    `usuario` opcional — mesmo motivo de `aplicar_escopo_unidade` acima.
     """
-    if not unidade_permitida(processo.unidade_id):
+    usuario = usuario or current_user
+    if not unidade_permitida(processo.unidade_id, usuario=usuario):
         return False
     if not processo.segredo_justica:
         return True
-    if current_user.is_admin_desenvolvedor or current_user.is_admin:
+    if usuario.is_admin_desenvolvedor or usuario.is_admin:
         return True
-    if processo.responsavel_id == current_user.id:
+    if processo.responsavel_id == usuario.id:
         return True
-    if processo.criado_por_id == current_user.id:
+    if processo.criado_por_id == usuario.id:
         return True
     from app.models import ProcessoAcessoRestrito
     return (
         ProcessoAcessoRestrito.query
-        .filter_by(processo_id=processo.id, usuario_id=current_user.id)
+        .filter_by(processo_id=processo.id, usuario_id=usuario.id)
         .first() is not None
     )
 
@@ -159,7 +176,7 @@ def checar_acesso_processo_ou_403(processo):
         abort(403)
 
 
-def filtrar_processos_visiveis(query):
+def filtrar_processos_visiveis(query, usuario=None):
     """
     Complementa `aplicar_escopo_unidade(query, Processo)`: filtra pra fora
     da listagem qualquer processo sigiloso (segredo_justica=True) que o
@@ -173,19 +190,23 @@ def filtrar_processos_visiveis(query):
     (ex: processos.listar, governanca.painel, governanca.fila_intimacoes)
     — telas de estatística puramente agregada (contagens, médias, sem
     identificar qual processo é qual) não precisam disso.
+
+    `usuario` opcional — mesmo motivo de `aplicar_escopo_unidade` acima
+    (usado pelas ferramentas do Agente de IA, que rodam sem `current_user`).
     """
     from app.models import Processo, ProcessoAcessoRestrito
+    usuario = usuario or current_user
 
-    if current_user.is_admin_desenvolvedor or current_user.is_admin:
+    if usuario.is_admin_desenvolvedor or usuario.is_admin:
         return query
 
-    ids_liberados = db.session.query(ProcessoAcessoRestrito.processo_id).filter_by(usuario_id=current_user.id)
+    ids_liberados = db.session.query(ProcessoAcessoRestrito.processo_id).filter_by(usuario_id=usuario.id)
     return query.filter(
         db.or_(
             db.not_(Processo.segredo_justica),
             Processo.segredo_justica.is_(None),
-            Processo.responsavel_id == current_user.id,
-            Processo.criado_por_id == current_user.id,
+            Processo.responsavel_id == usuario.id,
+            Processo.criado_por_id == usuario.id,
             Processo.id.in_(ids_liberados),
         )
     )

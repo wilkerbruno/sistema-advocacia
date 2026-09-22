@@ -1,5 +1,81 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -122. Agente de IA com ferramentas de verdade (tool-calling) + botão flutuante de suporte com IA para qualquer usuário logado
+
+**Pedido do usuário (dois pedidos no mesmo lote):** "quero melhorar o agente local e se possível treinar
+ele para resolver tudo que depende de um agente de forma mais eficaz possível" + "quero que tenha um botão
+flutuante com icone de suporte com um chat aonde o cliente pergunta algo sobre o sistema e uma ia que
+responde tudo sobre o juscontrol, como tudo funciona, e tudo mais". Perguntei antes de mexer (3 perguntas):
+como "melhorar" o agente (você escolheu "os dois" — ferramentas de verdade + modelo local maior, se a RAM
+permitir), se o conteúdo do chat de suporte deveria ser escrito do zero ou reaproveitar algum material já
+existente (você escolheu escrever do zero) e quem deveria ver o botão flutuante (você escolheu: todos os
+usuários logados, não só admin/gestor).
+
+**1) Ferramentas de verdade no Agente de IA (tool-calling):** treinar/re-treinar os pesos do modelo não é
+viável neste ambiente (sem GPU, sem dados de treino, servidor de produção só com CPU) — o que É viável, e o
+que foi construído, é dar ao agente acesso a FERRAMENTAS de verdade durante a própria conversa, em vez de só
+o resumo pré-carregado que ele já recebia. Implementado como um laço de "pedir ferramenta → executar → dar o
+resultado pro modelo → responder" (até 4 rodadas), em texto puro (o modelo responde com um bloco JSON tipo
+`{"ferramenta": "consultar_prazos", "argumentos": {...}}` quando precisa de um dado; qualquer outra resposta
+é tratada como a resposta final) — escolhido em vez das APIs de "function calling" nativas de cada provedor
+porque esse formato funciona igual nos 3 motores possíveis (modelo local, Claude BYOK, Gemini BYOK), que só
+aceitam uma lista simples de mensagens. 5 ferramentas novas, todas respeitando o MESMO escopo de
+unidade/empresa e as MESMAS permissões de sempre (RBAC — ver `app/utils/acesso.py`) do usuário que está
+conversando: `buscar_processos`, `buscar_cliente`, `consultar_prazos`, `consultar_tarefas` e
+`consultar_financeiro` (essa última recusa educadamente se o usuário não tem `pode_ver_financeiro`). Como o
+laço de ferramentas roda no worker em segundo plano (não na requisição web, porque cada rodada pode chamar o
+modelo de novo — lento no motor local), e o worker não tem sessão de login nem `current_user`, o `usuario_id`
+passa a ser enviado junto na fila e recarregado direto do banco dentro do worker — por isso
+`aplicar_escopo_unidade`/`unidade_permitida`/`usuario_pode_ver_processo`/`filtrar_processos_visiveis` (em
+`app/utils/acesso.py`) ganharam um parâmetro `usuario=None` opcional (usa `current_user` quando não
+informado, 100% compatível com todo o resto do sistema que já chamava essas funções sem esse parâmetro).
+
+**2) Modelo local maior — avaliado, e mantido como está de propósito:** você pediu "os dois" (ferramentas +
+modelo maior), mas antes de trocar eu chequei de novo o histórico de RAM do servidor de produção (seção -6
+abaixo) — na última medição, o EasyPanel já estava com 74,2% da RAM em uso (5,8 GB de 7,8 GB) **antes** de
+qualquer uso da IA, e trocar para o modelo maior (Qwen3-4B, ~5-6 GB só ele com os 2 workers do gunicorn)
+derrubaria o servidor por falta de memória (OOM). Por isso, mantive o modelo pequeno atual
+(Qwen2.5-1.5B-Instruct) como padrão de produção — a troca continua com o mesmo passo a passo documentado na
+seção -6 (editar o `Dockerfile`, variável `IA_LOCAL_MODELO_PATH`, redeploy, checar RAM depois), pronta para
+quando o servidor tiver mais memória livre. As ferramentas do item 1 acima funcionam com QUALQUER um dos dois
+tamanhos de modelo, então o ganho de "eficácia" pedido já vale hoje, mesmo sem trocar de modelo.
+
+**3) Botão flutuante de suporte + chat com IA — visível para todo usuário logado:** botão redondo fixo no
+canto inferior direito, em toda tela do sistema (incluído uma vez em `base.html`), que abre um painel de chat
+simples. Diferente do Agente de IA de portfólio, este assistente de suporte **nunca tem acesso a nenhum dado
+real do escritório** — só explica como o sistema funciona, com base num conteúdo de ajuda escrito do zero
+(pedido explícito) cobrindo as 14 áreas principais do sistema (Painel, Processos/prazos/sigilo, Clientes,
+Financeiro, Agente de IA, Captação/OAB, Regras e parâmetros, Painel de governança, Agenda/Rotina, Minha
+conta/empresa, Segurança/privacidade etc.) — escrito com base numa leitura real do código de cada módulo, não
+inventado. A busca do trecho relevante pra cada pergunta é por palavra-chave simples (sem embeddings, de
+propósito — o mecanismo de embeddings que já existe só funciona com chave Gemini BYOK configurada, e o chat
+de suporte precisa funcionar em qualquer empresa cliente, mesmo sem nenhuma integração paga). Reaproveita o
+MESMO motor de IA (local/Claude BYOK/Gemini BYOK conforme a empresa) e o MESMO mecanismo de fila em segundo
+plano + polling já usados pelo Agente de IA de portfólio — nada novo inventado nessas duas frentes. O
+histórico da conversa vive só na memória do navegador (reenviado a cada pergunta pra dar contexto de
+continuidade) — recarregar a página começa uma conversa nova, de propósito (é um chat de pergunta rápida, não
+substitui o Agente de IA, que tem histórico persistido de verdade); cada pergunta grava uma linha
+(`MensagemSuporteIA`) só pra auditoria, sem vínculo entre si no banco.
+
+**Onde:** `app/utils/acesso.py` (parâmetro `usuario=None` nas 4 funções de escopo),
+`app/utils/agente_ia_ferramentas.py` (novo — as 5 ferramentas + parser do pedido de ferramenta),
+`app/routes/agente_ia.py` (instruções de ferramentas no prompt + `usuario_id` repassado na fila),
+`app/jobs/ia_jobs.py` (laço de ferramentas em `processar_mensagem_agente_ia` + `processar_mensagem_suporte_ia`
+novo), `app/utils/juscontrol_manual.py` (novo — conteúdo de ajuda, 14 tópicos), `app/utils/suporte_ia.py`
+(novo — busca por palavra-chave + montagem do prompt), `app/routes/suporte_ia.py` (novo — rotas
+`/suporte-ia/perguntar` e `/suporte-ia/mensagens/<id>/status`), `app/models/agente_ia.py` (`MensagemSuporteIA`
+novo), `app/templates/_suporte_widget.html` (novo — botão + painel de chat), `app/templates/base.html`
+(inclui o widget pra todo usuário logado), `app/__init__.py` (blueprint novo registrado). Testado em
+`tests/test_agente_ia_ferramentas.py` (26 testes — parser do pedido de ferramenta, cada ferramenta respeitando
+escopo/permissão), `tests/test_agente_ia_tool_loop.py` (8 testes — o laço completo: resposta direta, uma
+ferramenta e depois resposta final, erro de provedor, estourar o limite de rodadas etc.),
+`tests/test_agente_ia_rota.py` (1 teste — rota repassando `usuario_id` certo pra fila) e
+`tests/test_suporte_ia.py` (20 testes novos — busca no manual incluindo acento, rota de pergunta exige login e
+CSRF, rota de status só pro dono da mensagem, job em segundo plano gravando resposta/erro, widget aparecendo
+só pra quem está logado). Suíte completa (698 testes) passando, zero regressão. **Requer rodar
+`python sincronizar_schema.py` (sem `--checar`) no Terminal do EasyPanel depois do deploy** — 1 tabela nova
+(`mensagens_suporte_ia`), mesmo procedimento de sempre pra tabela/coluna nova.
+
 ## -121. Exportar planilha do Financeiro + coluna "Data de pagamento" na listagem + multa/juros de atraso configuráveis
 
 **Pedido do usuário:** três pedidos no mesmo lote, todos valendo tanto para "Caixa do escritório" quanto

@@ -14,7 +14,7 @@ from .senha_processo import SenhaProcesso
 from .observabilidade import Feriado, LogCaptura
 from .licenca import Licenca, Pagamento
 from .apontamento import Apontamento
-from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA, DelimitacaoObjeto
+from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA, DelimitacaoObjeto, MensagemSuporteIA
 from .compromisso import Compromisso
 from .modulo import Modulo, EmpresaModulo
 from .configuracao import ConfiguracaoPlataforma

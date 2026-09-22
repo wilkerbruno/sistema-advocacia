@@ -199,3 +199,51 @@ class DelimitacaoObjeto(db.Model):
 
     def __repr__(self):
         return f"<DelimitacaoObjeto {self.id} processo={self.processo_id}>"
+
+
+class MensagemSuporteIA(db.Model):
+    """
+    Uma pergunta feita ao chat de suporte flutuante (botão visível em toda
+    tela, pedido explícito do usuário: "uma IA que responde tudo sobre o
+    JusControl, como tudo funciona") e a resposta gerada.
+
+    Diferente de ConversaAgenteIA/MensagemAgenteIA (Agente de IA de
+    portfólio) de propósito: aqui não existe uma "conversa" que o usuário
+    volta a abrir depois — é uma pergunta rápida a qualquer momento, sobre
+    COMO O SISTEMA FUNCIONA (nunca sobre dado real do escritório, ver
+    app/utils/suporte_ia.py). O histórico recente de uma sessão do widget
+    fica só na memória do navegador (reenviado a cada pergunta nova, pra
+    dar contexto de continuidade) — cada linha aqui é UMA pergunta-resposta
+    avulsa, guardada só para auditoria/observabilidade (ex.: revisar quais
+    dúvidas os usuários mais têm), nunca lida de volta pra montar contexto
+    de uma pergunta seguinte.
+
+    Mesmo mecanismo de fila em segundo plano + polling do Agente de IA
+    (ver app/jobs/ia_jobs.py e PENDENCIAS.md, seção -32) — resposta pode
+    levar até minutos no motor local, então nunca roda dentro do ciclo de
+    requisição/resposta do gunicorn.
+    """
+    __tablename__ = "mensagens_suporte_ia"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    usuario_id = db.Column(db.Integer, db.ForeignKey("usuarios.id"), nullable=False)
+    usuario = db.relationship("Usuario")
+
+    pergunta = db.Column(db.Text, nullable=False)
+    # nullable=True: fica vazio enquanto status="processando" — o job de
+    # fundo preenche quando termina (mesmo padrão de
+    # AnaliseProcessoIA.resultado, mas nullable de verdade aqui em vez de
+    # default="", sem motivo pra forçar string vazia num campo que também
+    # pode legitimamente não ter nada ainda no meio do processamento).
+    resposta = db.Column(db.Text, nullable=True)
+
+    # "processando" | "pronta" — mesma lógica/motivo de MensagemAgenteIA.status
+    # acima. NULLABLE de propósito (sincronizar_schema.py não aplica DEFAULT
+    # em ALTER TABLE) — `None` é tratado como "pronta" em todo o código.
+    status = db.Column(db.String(20), default="pronta")
+
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<MensagemSuporteIA {self.id} usuario={self.usuario_id}>"
