@@ -95,6 +95,30 @@ def test_duplicar_retainer_cria_cobranca_do_mes_seguinte(client, login, post_csr
     assert duplicado.valor == Decimal("3000.00")
 
 
+def test_duplicar_retainer_carrega_multa_e_juros_configurados(client, login, post_csrf, cenario):
+    """Multa/juros de atraso são condição do CONTRATO da mensalidade, não
+    de uma cobrança isolada — devem continuar valendo na cobrança do mês
+    seguinte, ao contrário de comprovante/aprovações (esses sim
+    específicos de cada cobrança, nunca duplicados)."""
+    login("admin@teste.com")
+    post_csrf("/financeiro/novo", {
+        "descricao": "Retainer com multa e juros", "valor": "3000.00", "natureza": "receita",
+        "modelo_cobranca": "retainer", "status": "pago", "data_vencimento": "2026-08-05",
+        "unidade_id": str(cenario["unidade_id"]), "cliente_id": str(cenario["cliente_id"]),
+        "multa_tipo": "percentual", "multa_valor": "2", "juros_tipo": "dia", "juros_valor": "0.033",
+    }, get_url="/financeiro/novo")
+    retainer = Lancamento.query.filter_by(descricao="Retainer com multa e juros").first()
+
+    r_dup = post_csrf(f"/financeiro/{retainer.id}/duplicar-retainer", {}, get_url="/financeiro/novo")
+    assert r_dup.status_code == 200
+
+    duplicado = Lancamento.query.filter_by(descricao="Retainer com multa e juros").order_by(Lancamento.id).all()[1]
+    assert duplicado.multa_tipo == "percentual"
+    assert duplicado.multa_valor == Decimal("2")
+    assert duplicado.juros_tipo == "dia"
+    assert duplicado.juros_valor == Decimal("0.033")
+
+
 def test_duplicar_retainer_rejeita_lancamento_que_nao_e_retainer(client, login, post_csrf, cenario):
     login("admin@teste.com")
     post_csrf("/financeiro/novo", {

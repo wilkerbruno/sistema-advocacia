@@ -88,6 +88,13 @@
     Aprovações pendentes{% if qtd_aprovacoes_pendentes %} <span class="badge-status badge-urgente">{{ qtd_aprovacoes_pendentes }}</span>{% endif %}
   </a>
   <a href="{{ url_for('financeiro.gerar_cobranca_horas') }}" class="btn btn-outline-doc">Gerar cobrança a partir de horas</a>
+  {# Exportação (ver PENDENCIAS.md): baixa exatamente o que está sendo
+     visto na tela — mesma aba "conta" e mesmos filtros de status/natureza/
+     unidade já aplicados acima, por isso repassa esses três como
+     querystring em vez de um link fixo. #}
+  <a href="{{ url_for('financeiro.exportar', conta=conta, status=status, natureza=natureza, unidade_id=request.args.get('unidade_id')) }}" class="btn btn-outline-doc">
+    Exportar planilha
+  </a>
   <a href="{{ url_for('financeiro.novo') }}" class="btn btn-brass">+ Novo lançamento</a>
 </form>
 
@@ -101,6 +108,7 @@
         {% if current_user.is_admin %}<th>Unidade</th>{% endif %}
         <th>Vencimento</th>
         <th>Valor</th>
+        <th>Data de pagamento</th>
         <th>Status</th>
         <th></th>
       </tr>
@@ -116,7 +124,15 @@
         <td>{{ l.tipo }} · {{ l.natureza }}</td>
         {% if current_user.is_admin %}<td><span class="pill-unidade">{{ l.unidade.codigo }}</span></td>{% endif %}
         <td>{{ l.data_vencimento|data_br }}</td>
-        <td class="{% if l.natureza == 'despesa' %}text-danger{% endif %}">{{ l.valor|moeda }}</td>
+        <td class="{% if l.natureza == 'despesa' %}text-danger{% endif %}">
+          {{ l.valor|moeda }}
+          {% if l.tem_encargos_configurados and l.esta_vencido() %}
+          <br><span class="small text-muted-doc" title="Valor original {{ l.valor|moeda }} + multa/juros de atraso configurados">
+            atualizado: {{ l.calcular_valor_atualizado()|moeda }}
+          </span>
+          {% endif %}
+        </td>
+        <td>{{ l.data_pagamento|data_br }}</td>
         <td><span class="badge-status badge-{{ l.status }}">{{ l.status }}</span></td>
         <td>
           <div class="d-flex flex-wrap gap-1">
@@ -155,7 +171,10 @@
             <form method="post" action="{{ url_for('financeiro.anexar_comprovante', lancamento_id=l.id) }}"
                   enctype="multipart/form-data" class="d-flex gap-1 align-items-center">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="file" name="comprovante" class="form-control form-control-sm" style="max-width: 160px;" required>
+              <label class="btn btn-outline-doc btn-sm mb-0 input-arquivo-label">
+                Escolher arquivo
+                <input type="file" name="comprovante" class="input-arquivo-oculto" required>
+              </label>
               <button class="btn btn-outline-doc btn-sm">Anexar comprovante</button>
             </form>
             {% endif %}

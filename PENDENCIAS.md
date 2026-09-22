@@ -1,5 +1,94 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -121. Exportar planilha do Financeiro + coluna "Data de pagamento" na listagem + multa/juros de atraso configuráveis
+
+**Pedido do usuário:** três pedidos no mesmo lote, todos valendo tanto para "Caixa do escritório" quanto
+para "Conta de terceiros" (pedido explícito): (1) botão de exportar que baixa uma planilha com os dados da
+tela; (2) uma coluna de "Data de pagamento" na listagem, posicionada antes da coluna "Status"; (3) no "Novo
+lançamento", opção de configurar multa (valor fixo em R$ ou percentual — escolha do usuário) e juros de
+atraso (percentual ao dia ou ao mês — escolha do usuário).
+
+**1) Exportar planilha (.xlsx):** nova rota `GET /financeiro/exportar.xlsx`, com botão "Exportar planilha"
+ao lado de "+ Novo lançamento" na listagem. Repassa os MESMOS filtros já aplicados na tela (aba
+`conta`, `status`, `natureza`, `unidade_id`) — a lógica de filtro foi extraída pra
+`_query_com_filtros_da_tela()` (reaproveitada por `listar()` e `exportar()`) pra garantir que a planilha
+baixada sempre bate exatamente com o que está sendo visto, sem duplicar (e arriscar dessincronizar) a
+mesma lógica de filtro em dois lugares. Gerada com `openpyxl` (biblioteca nova — adicionada em
+`requirements.txt`, não fazia parte do projeto até aqui), cabeçalho em negrito, largura de coluna ajustada;
+colunas: Descrição, Tipo, Natureza, Unidade, Cliente, Processo, Vencimento, Valor, Data de pagamento,
+Status, Valor atualizado (com multa/juros), Multa, Juros de atraso, Forma de pagamento, Parcela, Conta de
+terceiros, Observações.
+
+**2) Coluna "Data de pagamento" na listagem:** adicionada em `financeiro/listar.html`, entre "Valor" e
+"Status" (antes de "Status", como pedido). Aproveitado pra também mostrar, embaixo do valor de um
+lançamento vencido com multa/juros configurados, o "valor atualizado" calculado na hora (ver item 3) — só
+um lembrete visual na tela, nunca muda o valor original guardado no lançamento.
+
+**3) Multa e juros de atraso, configuráveis no "Novo lançamento":** `Lancamento` ganhou 4 colunas novas —
+`multa_tipo` ("valor" ou "percentual"), `multa_valor`, `juros_tipo` ("dia" ou "mes"), `juros_valor` — todas
+opcionais/nullable (mesmo motivo de sempre: `ALTER TABLE ... ADD COLUMN NOT NULL` sem `DEFAULT` quebra em
+MySQL numa tabela com linha existente). O formulário ganhou uma seção "Multa e juros de atraso (opcional)"
+com um `<select>` de tipo + campo de valor pra cada um (o campo de valor só aparece depois de escolher um
+tipo, via JS — se o `<select>` ficar em "Nenhuma"/"Nenhum", nenhum valor avulso é salvo, mesmo que o campo
+venha preenchido). Multa é cobrada uma vez só (não cresce com os dias); juros é simples (não composto),
+proporcional aos dias corridos de atraso (tipo "dia") ou aos dias corridos ÷ 30 (tipo "mês"). Isso NUNCA
+muda sozinho o campo `valor` original do lançamento — é só usado sob demanda por
+`Lancamento.calcular_valor_atualizado()` (novo método do modelo) pra saber quanto está devido hoje num
+lançamento vencido (pendente ou "atrasado" e com vencimento já passado), mostrado na listagem e na planilha
+exportada. Bônus: `duplicar_retainer()` (botão "Gerar próximo mês" de um retainer) agora também carrega
+multa/juros pra cobrança do mês seguinte — são condição do contrato da mensalidade, não de uma cobrança
+isolada, então faz sentido continuar valendo (diferente de comprovante/aprovações, que nunca são
+duplicados, por serem específicos de cada cobrança já paga/aprovada).
+
+**Onde:** `app/models/financeiro.py` (colunas novas + `MULTA_TIPOS`/`JUROS_TIPOS` + métodos
+`esta_vencido()`/`calcular_valor_atualizado()`/`tem_encargos_configurados`), `app/routes/financeiro.py`
+(`_query_com_filtros_da_tela()` extraído de `listar()`, rota `exportar()` nova, `novo()` salvando
+multa/juros), `app/templates/financeiro/form.html` (seção nova + JS de mostrar/esconder campo de valor
+conforme o tipo escolhido), `app/templates/financeiro/listar.html` (coluna "Data de pagamento", "valor
+atualizado" quando vencido com encargos, botão "Exportar planilha"), `requirements.txt` (`openpyxl`
+adicionado — necessário pro deploy: sem isso a rota `exportar()` derruba com `ModuleNotFoundError` em
+produção mesmo funcionando aqui, onde já estava instalado por outro motivo). Testado em
+`tests/test_financeiro_exportar.py` (novo — 6 testes: exige login, planilha válida com cabeçalho correto,
+"Data de pagamento" antes de "Status" nas colunas, respeita filtro de conta/status, calcula valor atualizado
+só pra vencido, nome do arquivo inclui a conta) e `tests/test_financeiro_multa_juros.py` (novo — 20 testes:
+campos aparecem no formulário, salva multa em valor/percentual, salva juros ao dia/mês, ignora valor avulso
+sem tipo escolhido, funciona em conta de terceiros também, `calcular_valor_atualizado()`/`esta_vencido()`
+cobertos em várias combinações incluindo pago/cancelado/sem vencimento, coluna nova na listagem), mais 1
+teste novo em `tests/test_modelos_cobranca.py` (retainer duplicado carrega multa/juros configurados). Suíte
+completa (643 testes) passando. **Requer rodar `python sincronizar_schema.py` (sem `--checar`) no Terminal
+do EasyPanel depois do deploy** — 4 colunas novas em `lancamentos_financeiros`, mesmo procedimento de sempre
+pra coluna nova (ver seções -117/-118 acima pro mesmo aviso em pedidos anteriores).
+
+## -120. Texto nativo "Nenhum arquivo escolhido" cortado ("Ne") no mini-formulário "Anexar comprovante"
+
+**Relato do usuário (com print):** no mini-formulário inline de "Anexar comprovante" da listagem do
+Financeiro, ao lado do botão "Escolher arquivo" aparecia só "Ne" — pedaço cortado do texto nativo do
+navegador "Nenhum arquivo escolhido". Pediu pra deixar só o botão "Escolher arquivo", sem esse texto.
+
+**Causa:** `<input type="file">` sempre desenha, nativamente (sem CSS que controle isso), um botão
+("Escolher arquivo") seguido do nome do arquivo selecionado ou, se nenhum, do texto "Nenhum arquivo
+escolhido" — cada navegador desenha esse texto do jeito dele, não dá pra estilizar/remover só ele com CSS.
+Como esse input ficava dentro de uma célula estreita da tabela (`style="max-width: 160px;"`), o texto
+inteiro não cabia e ficava cortado em "Ne".
+
+**Correção:** trocado o `<input type="file">` "cru" por um `<label>` estilizado como botão (mesma classe
+`btn btn-outline-doc btn-sm` usada nos outros botões da tela), com o texto "Escolher arquivo", contendo por
+dentro o `<input type="file" name="comprovante" required>` de verdade — só que visualmente escondido (classe
+`.input-arquivo-oculto`, técnica "visually hidden": `position: absolute` + `clip: rect(0,0,0,0)` etc., não
+`display:none`/`hidden`, que tiraria o campo da árvore de acessibilidade e quebraria a validação nativa de
+campo obrigatório do navegador). Clicar no label abre o seletor de arquivo do input escondido normalmente —
+resultado visual é só o botão "Escolher arquivo", sem nenhum texto de nome de arquivo ao lado (nem cortado,
+nem inteiro), como pedido.
+
+**Onde:** `app/templates/financeiro/listar.html` (mini-formulário "Anexar comprovante" — `<input
+type="file">` trocado por `<label class="btn btn-outline-doc btn-sm input-arquivo-label">` envolvendo o
+input real, agora com classe `input-arquivo-oculto` em vez de `form-control form-control-sm`/`max-width`),
+`app/static/css/estilo.css` (novas regras `.input-arquivo-label`/`.input-arquivo-oculto`, reaproveitáveis
+em qualquer outro upload de arquivo estilo botão que apareça no sistema). Puramente visual — a função de
+upload em si não mudou (mesmo `name="comprovante"`, mesmo `required`, mesma rota); confirmado pelos 13
+testes de `tests/test_comprovante_financeiro.py` continuando a passar sem alteração nenhuma neles. Suíte
+completa (616 testes) passando.
+
 ## -119. Segunda causa da despesa sumida dos cards: lançamento criado já "pago" ficava sem `data_pagamento`
 
 **Relato do usuário:** depois da correção da seção -118 (cards novos de despesa na "Conta de terceiros"),

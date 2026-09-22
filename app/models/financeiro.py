@@ -1,4 +1,5 @@
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from app.extensions import db
 
 
@@ -10,6 +11,8 @@ class Lancamento(db.Model):
     NATUREZAS = ("receita", "despesa")
     STATUS = ("pendente", "pago", "atrasado", "cancelado")
     MODELOS_COBRANCA = ("fixo", "exito", "retainer")
+    MULTA_TIPOS = ("valor", "percentual")
+    JUROS_TIPOS = ("dia", "mes")
 
     id = db.Column(db.Integer, primary_key=True)
     descricao = db.Column(db.String(255), nullable=False)
@@ -64,6 +67,28 @@ class Lancamento(db.Model):
     percentual_exito = db.Column(db.Numeric(5, 2), nullable=True)
     valor_base_exito = db.Column(db.Numeric(14, 2), nullable=True)
 
+    # Multa e juros de atraso (opcional — pedido do usuário): condições
+    # combinadas pra cobrança de um lançamento (receita OU despesa, caixa
+    # próprio OU conta de terceiros — o mesmo formulário "Novo lançamento"
+    # serve pros dois casos, então não há distinção nenhuma aqui) que só
+    # fazem sentido se ele vencer sem ser pago. Nunca aplicados sozinhos no
+    # banco (não existe fila/agendador neste projeto pra "reajustar" valor
+    # ninguém vendo) — servem pra `calcular_valor_atualizado()` abaixo
+    # calcular, SOB DEMANDA (na hora de exibir/exportar), quanto está
+    # devido hoje; o campo `valor` original nunca muda sozinho.
+    #
+    # Multa: cobrada uma vez só, não cresce com o tempo — "valor" (R$ fixo)
+    # ou "percentual" (% sobre `valor`), escolha do usuário no formulário.
+    # Juros: proporcional aos dias de atraso — "dia" ou "mês" (percentual
+    # simples, não composto, pra ficar previsível/auditável), também
+    # escolha do usuário. nullable=True em tudo, mesmo motivo de
+    # `conta_terceiros`/`comprovante_*` acima (ALTER TABLE sem DEFAULT em
+    # MySQL quebra em tabela com linha existente).
+    multa_tipo = db.Column(db.String(12), nullable=True)
+    multa_valor = db.Column(db.Numeric(14, 2), nullable=True)
+    juros_tipo = db.Column(db.String(10), nullable=True)
+    juros_valor = db.Column(db.Numeric(7, 4), nullable=True)
+
     # Comprovante anexado (nota fiscal, recibo, boleto pago etc.) — um
     # arquivo só por lançamento, sempre opcional: nem toda receita/despesa
     # tem o comprovante em mãos na hora de lançar (pode ser anexado depois,
@@ -114,6 +139,57 @@ class Lancamento(db.Model):
     # sentido soltas, sem o lançamento que aprovavam).
     aprovacoes = db.relationship("AprovacaoLancamento", back_populates="lancamento",
                                   cascade="all, delete-orphan", order_by="AprovacaoLancamento.aprovado_em")
+
+    def esta_vencido(self, referencia=None):
+        """Mesmo critério de "atrasado" já usado nos totais da tela Financeiro
+        (`app/routes/financeiro.py::listar()`): pendente (ou marcado à mão
+        como "atrasado") E com vencimento já passado — nunca pago/cancelado,
+        nem sem vencimento cadastrado."""
+        referencia = referencia or date.today()
+        return (self.status in ("pendente", "atrasado")
+                and self.data_vencimento is not None
+                and self.data_vencimento < referencia)
+
+    def calcular_valor_atualizado(self, referencia=None):
+        """
+        Valor devido HOJE (ou na data `referencia`), somando multa + juros
+        de atraso configurados no lançamento — sempre calculado sob
+        demanda, nunca persistido/aplicado sozinho (`valor` continua sendo
+        o valor original combinado). Fora do atraso (em dia, já pago ou
+        cancelado, ou sem multa/juros configurados) é sempre igual a
+        `valor`, sem surpresa nenhuma.
+
+        Multa é cobrada uma vez só (não cresce com os dias). Juros é
+        simples (não composto) — proporcional aos dias corridos de atraso
+        quando `juros_tipo == "dia"`, ou aos dias corridos ÷ 30 quando
+        `juros_tipo == "mes"` (sem calendário de meses "cheios" — mês
+        corrido de 30 dias, mesma aproximação usada em outros cálculos
+        financeiros simples deste sistema, ver `_somar_um_mes` em
+        app/routes/financeiro.py pra um exemplo do mesmo espírito).
+        """
+        if self.valor is None or not self.esta_vencido(referencia):
+            return self.valor
+
+        referencia = referencia or date.today()
+        dias_atraso = (referencia - self.data_vencimento).days
+        total = self.valor
+
+        if self.multa_tipo == "valor" and self.multa_valor:
+            total += self.multa_valor
+        elif self.multa_tipo == "percentual" and self.multa_valor:
+            total += self.valor * (self.multa_valor / Decimal("100"))
+
+        if self.juros_tipo == "dia" and self.juros_valor:
+            total += self.valor * (self.juros_valor / Decimal("100")) * Decimal(dias_atraso)
+        elif self.juros_tipo == "mes" and self.juros_valor:
+            meses_atraso = Decimal(dias_atraso) / Decimal("30")
+            total += self.valor * (self.juros_valor / Decimal("100")) * meses_atraso
+
+        return total
+
+    @property
+    def tem_encargos_configurados(self):
+        return bool(self.multa_tipo or self.juros_tipo)
 
 
 class AprovacaoLancamento(db.Model):

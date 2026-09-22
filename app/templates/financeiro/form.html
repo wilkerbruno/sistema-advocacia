@@ -93,16 +93,54 @@
         </select>
       </div>
 
-      <div class="col-md-6">
+      <div class="col-md-4">
         <label class="form-label">Forma de pagamento</label>
         <input type="text" name="forma_pagamento" class="form-control" placeholder="Pix, boleto, cartão...">
       </div>
-      <div class="col-md-6">
+      <div class="col-md-4">
         <label class="form-label">Status</label>
-        <select name="status" class="form-select">
+        <select name="status" id="status" class="form-select">
           <option value="pendente">Pendente</option>
           <option value="pago">Pago</option>
         </select>
+      </div>
+      <div class="col-md-4" id="bloco-data-pagamento">
+        <label class="form-label">Data de pagamento</label>
+        <input type="date" name="data_pagamento" class="form-control">
+        <p class="small text-muted-doc mb-0 mt-1">Se marcar como "Pago" e deixar em branco, usa a data de hoje.</p>
+      </div>
+
+      <div class="col-12">
+        <hr class="my-1">
+        <p class="small text-muted-doc mb-2">
+          <strong>Multa e juros de atraso (opcional)</strong> — só entram em jogo se o lançamento vencer
+          sem ser pago; servem de referência pra calcular quanto está devido hoje (mostrado como "valor
+          atualizado" na exportação), nunca mudam sozinhos o valor original acima.
+        </p>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Multa</label>
+        <select name="multa_tipo" id="multa_tipo" class="form-select">
+          <option value="">Nenhuma</option>
+          <option value="valor">Valor fixo (R$)</option>
+          <option value="percentual">Percentual (%) sobre o valor</option>
+        </select>
+      </div>
+      <div class="col-md-3 d-none" id="bloco-multa-valor">
+        <label class="form-label" id="label-multa-valor">Valor da multa</label>
+        <input type="number" step="0.01" min="0" name="multa_valor" id="multa_valor" class="form-control">
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">Juros de mora</label>
+        <select name="juros_tipo" id="juros_tipo" class="form-select">
+          <option value="">Nenhum</option>
+          <option value="dia">% ao dia de atraso</option>
+          <option value="mes">% ao mês de atraso</option>
+        </select>
+      </div>
+      <div class="col-md-3 d-none" id="bloco-juros-valor">
+        <label class="form-label">Percentual de juros</label>
+        <input type="number" step="0.0001" min="0" name="juros_valor" id="juros_valor" class="form-control">
       </div>
 
       <div class="col-12">
@@ -193,6 +231,38 @@
   }
 
   atualizarVisibilidade();
+})();
+
+// Multa/juros de atraso (opcional — ver PENDENCIAS.md): mostra o campo de
+// valor só quando um tipo é escolhido, e troca o rótulo do campo de multa
+// entre "Valor da multa (R$)" e "Percentual da multa (%)" conforme o tipo,
+// pra deixar claro o que a pessoa está digitando ali.
+(function () {
+  const selectMultaTipo = document.getElementById("multa_tipo");
+  const blocoMultaValor = document.getElementById("bloco-multa-valor");
+  const labelMultaValor = document.getElementById("label-multa-valor");
+  const selectJurosTipo = document.getElementById("juros_tipo");
+  const blocoJurosValor = document.getElementById("bloco-juros-valor");
+  if (!selectMultaTipo || !selectJurosTipo) return;
+
+  function atualizarMulta() {
+    const temMulta = !!selectMultaTipo.value;
+    blocoMultaValor.classList.toggle("d-none", !temMulta);
+    if (selectMultaTipo.value === "percentual") {
+      labelMultaValor.textContent = "Percentual da multa (%)";
+    } else {
+      labelMultaValor.textContent = "Valor da multa (R$)";
+    }
+  }
+
+  function atualizarJuros() {
+    blocoJurosValor.classList.toggle("d-none", !selectJurosTipo.value);
+  }
+
+  selectMultaTipo.addEventListener("change", atualizarMulta);
+  selectJurosTipo.addEventListener("change", atualizarJuros);
+  atualizarMulta();
+  atualizarJuros();
 })();
 </script>
 {% endblock %}

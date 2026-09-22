@@ -107,10 +107,16 @@ def _parse_decimal(valor):
         return None
 
 
-@financeiro_bp.route("/")
-@login_required
-@requer_acesso_financeiro
-def listar():
+def _query_com_filtros_da_tela():
+    """
+    Monta a query de Lancamento com os mesmos filtros da URL usados tanto
+    pela listagem (`listar()`) quanto pela exportação (`exportar()`) —
+    extraído pra um lugar só quando a exportação foi criada, assim a
+    planilha baixada sempre corresponde exatamente ao que está sendo visto
+    na tela (mesma aba "conta", mesmo filtro de status/natureza/unidade),
+    sem duplicar (e arriscar dessincronizar) a lógica de filtro em dois
+    lugares.
+    """
     # "conta" (ver PENDENCIAS.md, seção -39): separa o caixa OPERACIONAL do
     # escritório (receita/despesa de verdade — o padrão, é o que esta tela
     # sempre mostrou) da conta de TERCEIROS (valor que só passa pelo
@@ -132,6 +138,16 @@ def listar():
         query = query.filter(Lancamento.natureza == natureza)
     if current_user.is_admin and unidade_filtro:
         query = query.filter(Lancamento.unidade_id == int(unidade_filtro))
+
+    return query, conta, status, natureza, unidade_filtro
+
+
+@financeiro_bp.route("/")
+@login_required
+@requer_acesso_financeiro
+def listar():
+    query, conta, status, natureza, unidade_filtro = _query_com_filtros_da_tela()
+    eh_terceiros = conta == "terceiros"
 
     lancamentos = query.order_by(Lancamento.data_vencimento.desc()).all()
 
@@ -221,6 +237,100 @@ def listar():
                             qtd_aprovacoes_pendentes=qtd_aprovacoes_pendentes)
 
 
+def _texto_multa(l):
+    if l.multa_tipo == "valor" and l.multa_valor:
+        return f"R$ {l.multa_valor:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+    if l.multa_tipo == "percentual" and l.multa_valor:
+        return f"{l.multa_valor}%"
+    return ""
+
+
+def _texto_juros(l):
+    if l.juros_tipo and l.juros_valor:
+        return f"{l.juros_valor}% ao {'dia' if l.juros_tipo == 'dia' else 'mês'}"
+    return ""
+
+
+@financeiro_bp.route("/exportar.xlsx")
+@login_required
+@requer_acesso_financeiro
+def exportar():
+    """
+    Exportação em planilha (.xlsx) — baixa exatamente o que está sendo
+    visto na tela (mesma aba "Caixa do escritório"/"Conta de terceiros" e
+    mesmos filtros de status/natureza/unidade aplicados via `?conta=...`),
+    reaproveitando `_query_com_filtros_da_tela()` pra nunca dessincronizar
+    dos filtros de `listar()`. Usa openpyxl (ver requirements.txt) em vez
+    de CSV cru: "planilha" pedido pelo usuário já sai com cabeçalho em
+    negrito e largura de coluna ajustada, sem exigir nenhum tratamento
+    extra de quem for abrir no Excel/Sheets/LibreOffice.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    query, conta, status, natureza, unidade_filtro = _query_com_filtros_da_tela()
+    lancamentos = query.order_by(Lancamento.data_vencimento.desc()).all()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Financeiro"
+
+    # "Data de pagamento" logo antes de "Status", mesma ordem pedida pelo
+    # usuário pra coluna equivalente na listagem em tela (ver
+    # financeiro/listar.html).
+    cabecalhos = ["Descrição", "Tipo", "Natureza", "Unidade", "Cliente", "Processo",
+                  "Vencimento", "Valor", "Data de pagamento", "Status",
+                  "Valor atualizado (com multa/juros)", "Multa", "Juros de atraso",
+                  "Forma de pagamento", "Parcela", "Conta de terceiros", "Observações"]
+    ws.append(cabecalhos)
+    for celula in ws[1]:
+        celula.font = Font(bold=True)
+
+    for l in lancamentos:
+        valor_atualizado = l.calcular_valor_atualizado()
+        ws.append([
+            l.descricao,
+            l.tipo,
+            l.natureza,
+            l.unidade.codigo if l.unidade else "",
+            l.cliente.nome if l.cliente else "",
+            (l.processo.numero_processo or l.processo.numero_interno) if l.processo else "",
+            l.data_vencimento.strftime("%d/%m/%Y") if l.data_vencimento else "",
+            float(l.valor) if l.valor is not None else None,
+            l.data_pagamento.strftime("%d/%m/%Y") if l.data_pagamento else "",
+            l.status,
+            float(valor_atualizado) if valor_atualizado is not None and l.esta_vencido() else "",
+            _texto_multa(l),
+            _texto_juros(l),
+            l.forma_pagamento or "",
+            l.parcela or "",
+            "Sim" if l.conta_terceiros else "Não",
+            l.observacoes or "",
+        ])
+
+    larguras = [40, 14, 12, 10, 24, 18, 13, 14, 16, 12, 22, 16, 18, 18, 10, 12, 40]
+    for indice, largura in enumerate(larguras, start=1):
+        ws.column_dimensions[get_column_letter(indice)].width = largura
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+
+    registrar_log(current_user, "exportou_planilha", "Lancamento", None,
+                  f"{len(lancamentos)} lançamento(s), conta={conta}"
+                  + (f", status={status}" if status else "")
+                  + (f", natureza={natureza}" if natureza else ""))
+    db.session.commit()
+
+    nome_arquivo = f"financeiro_{conta}_{date.today().isoformat()}.xlsx"
+    return send_file(
+        buffer,
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        as_attachment=True, download_name=nome_arquivo,
+    )
+
+
 @financeiro_bp.route("/novo", methods=["GET", "POST"])
 @login_required
 @requer_acesso_financeiro
@@ -237,14 +347,43 @@ def novo():
         if modelo_cobranca not in Lancamento.MODELOS_COBRANCA:
             modelo_cobranca = "fixo"
 
+        status = request.form.get("status", "pendente")
+        data_pagamento = _parse_data(request.form.get("data_pagamento"))
+        # Mesmo auto-preenchimento de `atualizar_status()` (a ação rápida
+        # "Marcar pago" da listagem): lançamento criado JÁ como "pago"
+        # (ex: despesa/receita que a pessoa só está registrando depois de já
+        # ter acontecido) sem informar a data de pagamento explicitamente
+        # cai em `data_pagamento=None` — e como "Recebido este mês"/
+        # "Repassado este mês" filtram por mês/ano de `data_pagamento`, o
+        # lançamento nunca aparecia em NENHUM card, mesmo já pago (bug
+        # relatado pelo usuário: despesa "pago" sumida de todo card). Sem
+        # data explícita, assume hoje — mesma lógica de sempre pra "acabou
+        # de acontecer".
+        if status == "pago" and not data_pagamento:
+            data_pagamento = date.today()
+
+        # Multa/juros de atraso (opcional — ver comentário em
+        # app/models/financeiro.py::Lancamento): mesma regra do
+        # percentual/valor-base de "êxito" logo acima — o tipo escolhido é
+        # que decide se o valor correspondente é salvo; sem tipo escolhido
+        # ("Nenhuma"/"Nenhum" no formulário), fica tudo None, mesmo que o
+        # campo de valor venha preenchido (ex: usuário digitou e depois
+        # voltou o select pra "Nenhuma").
+        multa_tipo = request.form.get("multa_tipo") or None
+        if multa_tipo not in Lancamento.MULTA_TIPOS:
+            multa_tipo = None
+        juros_tipo = request.form.get("juros_tipo") or None
+        if juros_tipo not in Lancamento.JUROS_TIPOS:
+            juros_tipo = None
+
         lancamento = Lancamento(
             descricao=request.form["descricao"],
             tipo=request.form.get("tipo", "honorario"),
             natureza=request.form.get("natureza", "receita"),
             valor=request.form["valor"],
-            status=request.form.get("status", "pendente"),
+            status=status,
             data_vencimento=_parse_data(request.form.get("data_vencimento")),
-            data_pagamento=_parse_data(request.form.get("data_pagamento")),
+            data_pagamento=data_pagamento,
             forma_pagamento=request.form.get("forma_pagamento"),
             parcela=request.form.get("parcela"),
             observacoes=request.form.get("observacoes"),
@@ -255,6 +394,10 @@ def novo():
             # usuário trocou de "exito" pra "fixo" sem limpar os campos).
             percentual_exito=_parse_decimal(request.form.get("percentual_exito")) if modelo_cobranca == "exito" else None,
             valor_base_exito=_parse_decimal(request.form.get("valor_base_exito")) if modelo_cobranca == "exito" else None,
+            multa_tipo=multa_tipo,
+            multa_valor=_parse_decimal(request.form.get("multa_valor")) if multa_tipo else None,
+            juros_tipo=juros_tipo,
+            juros_valor=_parse_decimal(request.form.get("juros_valor")) if juros_tipo else None,
             unidade_id=unidade_id,
             processo_id=request.form.get("processo_id") or None,
             cliente_id=request.form.get("cliente_id") or None,
@@ -626,6 +769,16 @@ def duplicar_retainer(lancamento_id):
         observacoes=original.observacoes,
         conta_terceiros=original.conta_terceiros,
         modelo_cobranca="retainer",
+        # Multa/juros de atraso são condição de cobrança do CONTRATO (a
+        # mensalidade em si), não algo específico de uma cobrança isolada
+        # — faz sentido continuar valendo mês a mês, então carrega junto
+        # na duplicação (diferente de comprovante/aprovações, que são
+        # sempre específicos de uma cobrança já paga/aprovada e nunca
+        # duplicados).
+        multa_tipo=original.multa_tipo,
+        multa_valor=original.multa_valor,
+        juros_tipo=original.juros_tipo,
+        juros_valor=original.juros_valor,
         unidade_id=original.unidade_id,
         processo_id=original.processo_id,
         cliente_id=original.cliente_id,
