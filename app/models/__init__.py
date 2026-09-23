@@ -14,13 +14,17 @@ from .senha_processo import SenhaProcesso
 from .observabilidade import Feriado, LogCaptura
 from .licenca import Licenca, Pagamento
 from .apontamento import Apontamento
-from .agente_ia import ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA, DelimitacaoObjeto, MensagemSuporteIA
+from .agente_ia import (
+    ConversaAgenteIA, MensagemAgenteIA, AnaliseProcessoIA, DelimitacaoObjeto, MensagemSuporteIA,
+    ExemploRespostaIA,
+)
 from .compromisso import Compromisso
 from .modulo import Modulo, EmpresaModulo
 from .configuracao import ConfiguracaoPlataforma
 from .token_integracao import TokenIntegracao
 from .agente_local import AgenteLocalPareado, SolicitacaoBuscaAutos
 from .captacao_oab import OabMonitorada, IntimacaoCapturada
+from .captacao_dou import PalavraChaveDou, PublicacaoDouCapturada
 from .indexacao import DocumentoIndexado
 from .modelo_peca import ModeloPeca
 from .custas import TabelaCustas, CalculoCustas
@@ -59,6 +63,8 @@ __all__ = [
     "MensagemAgenteIA",
     "AnaliseProcessoIA",
     "DelimitacaoObjeto",
+    "MensagemSuporteIA",
+    "ExemploRespostaIA",
     "Compromisso",
     "Modulo",
     "EmpresaModulo",
@@ -68,6 +74,8 @@ __all__ = [
     "SolicitacaoBuscaAutos",
     "OabMonitorada",
     "IntimacaoCapturada",
+    "PalavraChaveDou",
+    "PublicacaoDouCapturada",
     "DocumentoIndexado",
     "ModeloPeca",
     "TabelaCustas",

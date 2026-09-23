@@ -23,7 +23,7 @@ simplicidade, mas dá pra revisitar se isso incomodar na prática.
 import re
 from datetime import datetime
 
-from app.utils import agente_ia_router
+from app.utils import agente_ia_router, exemplos_resposta_ia
 
 LIMITE_PADRAO_ITENS = 20  # nº máx. de andamentos/movimentações/decisões cada, mais recentes primeiro
 # Orçamento aproximado de caracteres do digest — calibrado para caber com
@@ -805,9 +805,34 @@ def gerar_analise(processo, tipo, instrucao=None, texto_referencia=None, tipo_pe
         max_tokens = 1400
 
     empresa = processo.unidade.empresa if processo.unidade else None
+
+    # Banco de exemplos few-shot (PENDENCIAS.md, seção -124 — ver
+    # app/utils/exemplos_resposta_ia.py): mesma lógica do chat do Agente de
+    # IA (app/routes/agente_ia.py) — só injeta exemplos quando o provedor
+    # ATUAL da empresa é o modelo local (Claude/Gemini BYOK já são o
+    # modelo "melhor", e são a FONTE dos exemplos, nunca o destino).
+    # Contexto escopado por TIPO ("analise_processo:resumo" ou
+    # "analise_processo:rascunho_peticao") — nunca mistura exemplo de
+    # resumo com exemplo de rascunho de petição, formatos bem diferentes.
+    contexto_exemplos = f"analise_processo:{tipo}"
+    provedor = agente_ia_router.provedor_atual(empresa)
+    if provedor == "local":
+        bloco_exemplos = exemplos_resposta_ia.montar_bloco_exemplos(empresa, contexto_exemplos, pedido)
+        if bloco_exemplos:
+            system += "\n\n" + bloco_exemplos
+
     resultado = agente_ia_router.gerar_resposta(
         empresa, system, [{"role": "user", "content": pedido}], max_tokens=max_tokens
     )
+
+    # Salva o exemplo (só quando veio de Claude/Gemini BYOK, nunca de
+    # local) com o resultado CRU do modelo, antes do bloco de verificação
+    # automática (_checar_grounding/_checar_ancoras) ser prepended abaixo —
+    # esse bloco é uma anotação NOSSA sobre o texto, não faz parte do que o
+    # modelo gerou, não devia virar "exemplo de resposta". Best-effort,
+    # nunca levanta exceção (ver salvar_exemplo_se_byok).
+    if provedor in ("claude", "gemini"):
+        exemplos_resposta_ia.salvar_exemplo_se_byok(empresa, provedor, contexto_exemplos, pedido, resultado)
 
     # Roda pros dois tipos (resumo E rascunho de petição) — um valor em R$
     # ou citação sem lastro nos dados reais é igualmente enganoso nos dois,

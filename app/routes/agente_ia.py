@@ -32,7 +32,7 @@ from app.extensions import db
 from app.models import ConversaAgenteIA, MensagemAgenteIA, Processo, Prazo, Tarefa, Cliente, Lancamento
 from app.utils.acesso import aplicar_escopo_unidade
 from app.utils.notificacoes import registrar_log
-from app.utils import agente_ia_router, agente_ia_ferramentas
+from app.utils import agente_ia_router, agente_ia_ferramentas, exemplos_resposta_ia
 from app.utils.fila import enfileirar
 
 agente_ia_bp = Blueprint("agente_ia", __name__)
@@ -229,7 +229,7 @@ FERRAMENTAS_INSTRUCOES = (
 # histórico formatado precisa terminar ANTES de enfileirar o job, já que o
 # worker não tem acesso a current_user/à sessão de quem perguntou.
 
-def _montar_system_e_mensagens(persona, mensagens_historico, contexto_dados):
+def _montar_system_e_mensagens(persona, mensagens_historico, contexto_dados, empresa=None, pergunta_atual=None):
     system = (
         PERSONA_CONFIG[persona]["system"]
         + "\n\nContexto atual do escritório (dados reais, consultados no momento desta mensagem — "
@@ -237,6 +237,23 @@ def _montar_system_e_mensagens(persona, mensagens_historico, contexto_dados):
         + contexto_dados
         + FERRAMENTAS_INSTRUCOES
     )
+
+    # Banco de exemplos few-shot (PENDENCIAS.md, seção -124 — ver
+    # app/utils/exemplos_resposta_ia.py): só injeta quando o provedor ATUAL
+    # da empresa é o modelo local. Claude/Gemini BYOK já são o modelo
+    # "melhor" (não precisam de referência de um modelo pior) e são
+    # justamente a FONTE dos exemplos, nunca o destino — ver onde a
+    # resposta é salva em app/jobs/ia_jobs.py::processar_mensagem_agente_ia.
+    # `empresa`/`pergunta_atual` são opcionais (parâmetros novos, com
+    # default None) só pra manter esta função utilizável em qualquer teste
+    # antigo que ainda não passe os dois — sem eles, simplesmente não
+    # injeta exemplo nenhum, comportamento idêntico a antes desta mudança.
+    if empresa is not None and agente_ia_router.provedor_atual(empresa) == "local":
+        bloco_exemplos = exemplos_resposta_ia.montar_bloco_exemplos(
+            empresa, f"agente_ia:{persona}", pergunta_atual,
+        )
+        if bloco_exemplos:
+            system += "\n\n" + bloco_exemplos
 
     mensagens_api = [
         {"role": m.papel, "content": m.conteudo}
@@ -343,7 +360,10 @@ def enviar_mensagem(conversa_id):
     # PENDENCIAS.md, seção -32), pra não travar este worker do gunicorn
     # pelos minutos que o modelo local pode levar.
     contexto_dados = _CONTEXTO_POR_PERSONA[conversa.persona]()
-    system, mensagens_api = _montar_system_e_mensagens(conversa.persona, conversa.mensagens, contexto_dados)
+    system, mensagens_api = _montar_system_e_mensagens(
+        conversa.persona, conversa.mensagens, contexto_dados,
+        empresa=current_user.empresa, pergunta_atual=texto,
+    )
 
     msg_assistente = MensagemAgenteIA(conversa_id=conversa.id, papel="assistant", conteudo="", status="processando")
     db.session.add(msg_assistente)
@@ -360,6 +380,11 @@ def enviar_mensagem(conversa_id):
         # até MAX_ITERACOES_FERRAMENTAS chamadas ao modelo em sequência —
         # no motor local (CPU), cada uma pode levar até alguns minutos.
         job_timeout=900,
+        # PENDENCIAS.md, seção -124: o job precisa saber a persona pra
+        # montar o mesmo `contexto` ("agente_ia:<persona>") usado aqui na
+        # hora de SALVAR o exemplo, se a resposta vier de Claude/Gemini
+        # BYOK (ver app/jobs/ia_jobs.py::processar_mensagem_agente_ia).
+        persona=conversa.persona,
     )
 
     return redirect(url_for("agente_ia.conversa", conversa_id=conversa.id))

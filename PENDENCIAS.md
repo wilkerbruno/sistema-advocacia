@@ -1,5 +1,202 @@
 # Status das pendências do briefing (atualizado em 22/09/2026)
 
+## -125. Vigilância do Diário Oficial da União (DOU) via INLABS — "diário completo", arquitetura própria (novo, requer sincronizar_schema.py + novo cron job + conta INLABS)
+
+**Pedido do usuário:** "quero que verifique se seria possível a gente vincular o diário oficial da união no
+sistema para melhorar ainda mais a entrega do sistema, isso seria possivel?"
+
+**⚠️ Distinção importante, antes de qualquer coisa:** isto é DIFERENTE do DJEN/API Comunica já implementado
+(seção -102 e adiante, `captacao_oab`) — o DJEN é o diário JUDICIAL (intimação/citação ligada a processo). O
+Diário Oficial da União é o diário do GOVERNO FEDERAL (leis, decretos, atos de pessoal, contratos e
+licitações) — nunca publica intimação de processo, então esta funcionalidade NUNCA vincula automaticamente a
+um `Processo`. É só um alerta de "o nome/CNPJ de um cliente (ou uma palavra-chave cadastrada) apareceu numa
+publicação do DOU hoje" — sempre pra revisão humana, nunca vira prazo sozinho.
+
+**Pesquisa feita antes de decidir o caminho técnico (a pedido explícito do usuário: "antes de eu responder
+essa pergunta verifique o que que esse repositório faz e se já resolve de forma eficaz e de preferência com
+o diário completo" — referindo-se a `github.com/gestaogovbr/Ro-dou`, ferramenta open-source do próprio
+Ministério da Gestão e Inovação):** o Ro-DOU realmente resolve bem a ingestão do "diário completo" via
+INLABS (fonte oficial e gratuita da Imprensa Nacional desde 01/01/2020), mas como uma PLATAFORMA separada —
+exige Apache Airflow (scheduler + API + processador de DAG) + Postgres + OpenSearch rodando juntos (6+
+serviços no `docker-compose.yml` oficial, 4GB de RAM mínimo pra instalação). Isso é desproporcional ao
+deploy deste sistema (container único, gunicorn com 1-2 workers por limitação de RAM já documentada em
+seções anteriores). **Decisão: não adotar o Ro-DOU como plataforma — construir um conector próprio,
+enxuto, no mesmo formato já usado por `capturar_intimacoes_oab.py`, estudando a técnica real de ingestão do
+Ro-DOU (código-fonte de `inlabs_hook.py` e do schema Postgres que ele usa) como referência de como o XML do
+INLABS é estruturado.**
+
+**As 3 decisões confirmadas pelo usuário (via AskUserQuestion):**
+1. O que gera alerta: **os dois** — monitoramento automático por nome/CNPJ de cada `Cliente` ativo já
+   cadastrado (não anonimizado — nunca monitora um cliente já anonimizado via LGPD) E palavras-chave extras
+   cadastradas manualmente (`PalavraChaveDou`).
+2. Seções do DOU monitoradas: as três principais — Seção 1 (leis/decretos/portarias/normas), Seção 2 (atos
+   de pessoal), Seção 3 (contratos e licitações). As edições "Extra" (DO1E/DO2E/DO3E) existem no INLABS mas
+   não são baixadas por padrão.
+3. Caminho técnico: **"Diário completo, no nosso próprio jeito"** — baixar a edição completa do dia (todas
+   as seções escolhidas) via INLABS e filtrar localmente, em vez de só buscar por palavra-chave no site
+   público do DOU (que também foi investigado — `dou_hook.py` do Ro-DOU usa um endpoint não documentado,
+   sem exigir login, mas não permite filtrar por CNPJ e teria cobertura mais limitada).
+
+**O que foi implementado:**
+- `app/models/captacao_dou.py` — dois modelos novos: `PalavraChaveDou` (termo extra cadastrado por unidade,
+  ativa/inativa) e `PublicacaoDouCapturada` (o registro de "isto bateu" — seção, órgão, título, ementa, um
+  TRECHO de ~300 caracteres ao redor do termo encontrado — nunca a matéria inteira —, termo encontrado,
+  cliente vinculado se houver, status `pendente_revisao`/`lida`/`ignorada`, motivo quando ignorada). Escopado
+  por `unidade_id` (mesmo padrão de `Cliente`/`OabMonitorada`, compatível com `aplicar_escopo_unidade`).
+  `UniqueConstraint(unidade_id, id_materia_fonte, termo_encontrado)` — a mesma matéria pode gerar mais de uma
+  captura pra mesma unidade se bater em termos DIFERENTES (dois clientes citados na mesma portaria, por
+  exemplo), mas nunca duplica a mesma combinação unidade+matéria+termo em reprocessamento.
+- `config.py` — `INLABS_EMAIL`/`INLABS_SENHA`: credencial ÚNICA da plataforma (não é BYOK por empresa como
+  Claude/Gemini — o DOU é o mesmo diário pra todo mundo). Cadastro gratuito em https://inlabs.in.gov.br/.
+  Sistema continua funcionando normalmente sem essas variáveis — só a captura diária fica desligada, com
+  aviso explícito na tela.
+- `app/utils/conector_inlabs_dou.py` — login (`logar.php`), listagem dos .zip disponíveis pra uma data
+  (`index.php?p=<data>`, raspando `<a title="Baixar Arquivo">` — mais robusto que tentar adivinhar o padrão
+  de URL), download+extração de cada seção, parsing do XML de cada matéria (`id`, `name` — slug usado no
+  link de leitura —, `pubDate`, `Identifica`/órgão, `titulo`, `ementa`, `subtitulo`, `texto` — que vem como
+  HTML embutido, de onde também extrai a assinatura via `<p class="assina">`). Sempre apaga os arquivos
+  temporários (zips e xmls) ao final — nunca guarda o Diário bruto além do tempo da própria captura.
+- `app/utils/captura_dou_pipeline.py` — cruza cada matéria baixada contra todos os termos monitorados de
+  TODAS as unidades (nome/CNPJ de cliente + palavra-chave ativa). Comparação sempre literal
+  (case/acento-insensível), nunca fuzzy — mesmo princípio de `conflito_interesse.py`: "um match 'quase
+  igual' gera mais ruído do que ajuda". CNPJ usa uma regex tolerante a pontuação (bate com
+  "12.345.678/0001-90", "12345678000190" etc., mas nunca concatena dígitos de números vizinhos não
+  relacionados — testado explicitamente contra esse risco). Termos com menos de 4 caracteres normalizados
+  nunca são comparados (ruído demais). Idempotente por reprocessamento do mesmo dia.
+- `app/routes/captacao_dou.py` + `app/templates/captacao_dou/index.html` — uma tela só: cadastro de
+  palavra-chave extra (o monitoramento por cliente é automático, não aparece aqui) + lista do que foi
+  capturado, com "marcar como lida" e "ignorar" (motivo obrigatório, ex.: "homônimo"). Integrado ao menu
+  "Governança de carteira" do `base.html`, com badge de quantidade pendente (mesmo padrão da triagem OAB).
+- `capturar_publicacoes_dou.py` (raiz do projeto) — script de cron, mesmo formato de
+  `capturar_intimacoes_oab.py`: `python capturar_publicacoes_dou.py [--data AAAA-MM-DD] [--secoes DO1,DO2]`.
+  Sai com código 0 e aviso (não erro) se as credenciais não estiverem configuradas. Nunca deixa uma matéria
+  malformada travar o processamento do dia inteiro. Horário sugerido no EasyPanel: madrugada (3h-4h), já que
+  a edição matutina do DOU costuma ser publicada por volta da 0h-1h — **não confirmado a partir deste
+  ambiente**, ver limitação abaixo.
+
+**⚠️ Honestidade sobre o que NÃO foi validado contra o INLABS real:** o proxy de rede deste ambiente de
+geração de código bloqueia qualquer domínio `.gov.br` por política (confirmado via `curl` — erro de proxy
+"CONNECT tunnel failed", diferente de um geobloqueio de verdade vindo do próprio servidor). Por isso:
+  - Os nomes de campo do XML (`id`, `name`, `pubDate`, `Identifica`, `titulo`, `ementa`, `texto` etc.) vêm do
+    código-fonte REAL de ingestão do Ro-DOU (schema Postgres em `dag_load_inlabs/sql/init-db.sql`), não de um
+    arquivo baixado e testado aqui — é uma base bem mais sólida que a do conector DJEN (que também partiu de
+    documentação, não de teste real), mas ainda precisa ser confirmada contra um dia real após o deploy.
+  - `_montar_link_pdf` (em `captura_dou_pipeline.py`) monta o link de leitura como melhor esforço
+    (`https://www.in.gov.br/web/dou/-/<slug>`, baseado no campo `name` do INLABS) — **não confirmado**; se o
+    link não abrir a matéria certa, o trecho capturado continua sendo a informação confiável.
+  - Se o servidor de produção (no Brasil) também não conseguir alcançar `inlabs.in.gov.br`, isso só será
+    descoberto depois do deploy — testar a captura manualmente (`python capturar_publicacoes_dou.py`) assim
+    que as credenciais forem cadastradas.
+  - Não há confirmação de limite de requisições/downloads por dia da conta gratuita do INLABS — como a
+    captura roda só 1x/dia, o volume de uso é baixo por natureza, mas isso não foi confirmado em nenhuma
+    fonte pesquisada.
+
+**⚠️ Falso positivo esperado, principalmente em cliente pessoa física:** nome de pessoa não é identificador
+único — "João da Silva" pode aparecer no DOU por ser outra pessoa (nomeação de servidor, por exemplo) sem
+nenhuma relação com o cliente do escritório. Por isso toda captura nasce `pendente_revisao`: é sempre um
+humano quem decide se é o cliente de verdade ou um homônimo. CNPJ é muito mais confiável (quase-identificador
+único) — CPF não foi implementado porque o DOU tipicamente mascara CPF por exigência de LGPD (ex.:
+"123.***.**9-00"), então dificilmente apareceria completo pra comparar.
+
+**Bug corrigido durante os testes (antes de existir em produção):** `_parsear_materia` buscava "orgao" com
+`nomes=["identifica", "name"]` — como `_valor` verifica todos os atributos da PRIMEIRA fonte (a tag
+`<article>`, que tem um atributo `name` = slug da matéria) antes de olhar os filhos da segunda fonte (o
+`<body>`, que tem o filho `<Identifica>` = nome do órgão de verdade), o campo `orgao` sempre teria virado o
+slug da matéria em vez do nome do órgão, sempre que o XML tivesse os dois campos presentes (o que é o caso
+comum). Corrigido pra buscar só `"identifica"`. De quebra, o campo `"name"` (slug) nunca era incluído no
+dict devolvido por `_parsear_materia`, então `_montar_link_pdf` (que lê `materia.get("name")`) nunca
+encontrava nada e o link de leitura nunca era montado — corrigido adicionando o campo `"name"` ao dict.
+Ambos os bugs foram pegos pelos testes automatizados antes de qualquer captura real rodar.
+
+**Deploy — passo a passo:**
+1. `python sincronizar_schema.py` no Terminal do EasyPanel — duas tabelas novas (`palavras_chave_dou`,
+   `publicacoes_dou_capturadas`).
+2. Cadastrar uma conta gratuita em https://inlabs.in.gov.br/ e configurar `INLABS_EMAIL`/`INLABS_SENHA` nas
+   variáveis de ambiente do EasyPanel.
+3. Criar um novo serviço "Cron Job" no EasyPanel rodando `python capturar_publicacoes_dou.py` 1x por dia
+   (sugestão: madrugada, 3h-4h — ver ressalva de horário acima).
+4. Depois do primeiro deploy com credencial configurada, rodar a captura manualmente uma vez
+   (`python capturar_publicacoes_dou.py`) e conferir o resultado antes de confiar no cron automático — é a
+   primeira validação real contra o INLABS, que não foi possível fazer a partir deste ambiente de geração de
+   código (ver limitação de rede acima).
+
+**Testes:** `tests/test_conector_inlabs_dou.py` (conector — login, listagem, parsing de XML, extração de
+assinatura/texto plano, fluxo completo com limpeza de temporários, tudo com rede mockada), 
+`tests/test_captura_dou_pipeline.py` (normalização, regex de CNPJ, escopo de termos monitorados, match por
+nome/CNPJ, dedup, múltiplos termos na mesma matéria, nunca cruza unidade, recorte de trecho), e
+`tests/test_captacao_dou_rota.py` (cadastro/alternância de palavra-chave, marcar lida, ignorar com motivo
+obrigatório, isolamento multi-tenant). 42 testes novos. Suíte completa: 785 passando (743 + 42 novos), zero
+regressão.
+
+## -124. Banco de exemplos few-shot — o agente local "aprende" com Claude/Gemini sem fine-tuning (novo, requer sincronizar_schema.py)
+
+**Pedido do usuário:** "seria possivel caso o usuario use a api do claude ou do gemini o nosso agente local
+aprender com a resposta deles?"
+
+**⚠️ Resposta honesta, antes de qualquer código:** fine-tuning de verdade (ajustar os PESOS do modelo local)
+foi descartado — não por limitação técnica de hoje, mas por risco de segurança real. Os modelos locais
+(`app/utils/ia_local.py`) são UMA ÚNICA instância compartilhada por TODAS as empresas (tenants) deste
+sistema — não existe um modelo por empresa. Se o conteúdo de uma empresa fosse usado pra ajustar os pesos
+desse modelo único, esse conteúdo vazaria pra QUALQUER outra empresa que usasse o modelo local depois —
+exatamente a mesma classe de bug do vazamento cross-tenant corrigido na seção -54 (prazos/audiências/tarefas
+de uma empresa aparecendo pra outra por falta de filtro de escopo). Isso nunca deve ser assumido aqui.
+
+**O que foi implementado em vez disso — banco de exemplos por empresa (in-context learning/few-shot):**
+sempre que uma empresa configurada pra usar Claude ou Gemini (BYOK — a própria empresa paga a API) recebe uma
+resposta gerada com sucesso (chat do Agente de IA OU Análise de processo — resumo/rascunho de petição), essa
+pergunta+resposta é guardada automaticamente como "exemplo" (`ExemploRespostaIA`,
+`app/models/agente_ia.py`), isolado por empresa E por contexto (`"agente_ia:<persona>"` ou
+`"analise_processo:<tipo>"` — nunca cruza persona/tipo diferente, muito menos empresa diferente). Quando essa
+MESMA empresa volta a usar o modelo LOCAL depois, os exemplos mais parecidos com a pergunta atual são
+injetados no system prompt como referência de estilo/formato (`app/utils/exemplos_resposta_ia.py` —
+`salvar_exemplo_se_byok`/`buscar_exemplos_relevantes`/`montar_bloco_exemplos`), com instrução explícita
+proibindo copiar fato/número/nome/data de um exemplo pra resposta atual — só estilo e nível de detalhe, nunca
+conteúdo. Nada é persistido no modelo em si; desligar/trocar de provedor não deixa rastro nenhum nos pesos.
+
+**Decisões confirmadas pelo usuário (3 perguntas via AskUserQuestion):**
+1. TODAS as respostas do Claude/Gemini são salvas automaticamente como candidatas a exemplo — não só as
+   marcadas manualmente (não existe "marcar manualmente" nesta versão).
+2. Vale tanto para o chat do Agente de IA quanto para a Análise de processo (resumo/rascunho de petição) —
+   os dois pontos foram implementados.
+3. Sem tela de administração — fica só internamente, sem lugar pra ver/apagar exemplos guardados. A única
+   "limpeza" é automática, por volume: no máximo 400 exemplos por empresa+contexto, os mais antigos são
+   apagados além disso (`exemplos_resposta_ia._podar_exemplos_antigos`).
+
+**Reaproveitamento de infraestrutura:** usa o MESMO mecanismo de embedding já construído pra indexação de
+documentos (seção -123 acima) — `indexacao_documentos.provedor_embedding_ativo`/`cosine_similaridade`, agora
+públicos de propósito (antes eram `_provedor_embedding_ativo`/`_cosine_similaridade`, privados) justamente
+pra serem reaproveitados aqui. Mesma regra de nunca misturar vetores de modelos diferentes
+(`embedding_modelo`) — um exemplo salvo com o Gemini como provedor de embedding nunca é comparado por
+similaridade a uma consulta gerada pelo modelo de embedding local, e vice-versa; cai pro fallback de
+"exemplos mais recentes" nesse caso, nunca finge uma similaridade que não foi calculada.
+
+**Onde foi ligado:**
+- `app/utils/agente_ia_router.py::provedor_atual(empresa)` (novo) — devolve `"claude"`/`"gemini"`/`"local"`,
+  usado tanto pra decidir SALVAR (só Claude/Gemini) quanto INJETAR (só local).
+- Chat do Agente de IA (`app/routes/agente_ia.py::_montar_system_e_mensagens` injeta;
+  `app/jobs/ia_jobs.py::processar_mensagem_agente_ia` salva, com um `persona=None` novo parâmetro
+  trailing/opcional — backward-compatible com todas as chamadas antigas/testes existentes). Nunca salva uma
+  resposta de erro (`⚠️ Agente indisponível...`) nem as sentinelas de "resposta vazia"/"não consegui concluir
+  com ferramentas" — só respostas de verdade.
+- Análise de processo (`app/utils/analise_processo_ia.py::gerar_analise` injeta E salva, tudo dentro da
+  mesma função — mais simples que o chat porque `gerar_analise` já roda inteira dentro do job, sem depender
+  de `current_user`). O exemplo salvo é sempre o texto CRU do modelo, antes do bloco de verificação automática
+  de `_checar_grounding`/`_checar_ancoras` ser prependado ao resultado devolvido ao usuário.
+
+**Deploy: esta seção adiciona uma tabela nova** (`exemplos_resposta_ia`, diferente da seção -123 acima, que
+não mexeu em schema) — depois de atualizar os arquivos em produção, é preciso rodar
+`python sincronizar_schema.py` no Terminal do EasyPanel (mesmo procedimento já documentado antes pro chat de
+suporte) antes de usar o sistema, senão qualquer tentativa de salvar ou buscar um exemplo vai falhar com
+"tabela não existe" — sempre de forma tratada (`salvar_exemplo_se_byok` nunca levanta exceção, é
+best-effort), mas sem nenhum exemplo sendo de fato guardado até a tabela existir.
+
+**Testes:** `tests/test_exemplos_resposta_ia.py` (33 testes novos) — cobre `provedor_atual`, salvamento
+(nunca levanta, trunca texto grande, ignora pergunta/resposta vazia, poda por volume, nunca poda entre
+contextos diferentes), busca (nunca cruza empresa/contexto, nunca mistura embedding de modelos diferentes,
+ordena por similaridade, cai pros mais recentes), formatação do bloco de prompt, e a integração ponta a
+ponta nos dois pontos (chat e análise) — incluindo que uma resposta de erro/sentinela NUNCA vira exemplo.
+Suíte completa: 743 passando (710 + 33 novos), zero regressão.
+
 ## -123. Varredura de tudo que ainda dependia de IA em PENDENCIAS.md — resolvido o único item viável (embedding local), o resto continua bloqueado por motivo não-técnico
 
 **Pedido do usuário:** "veja tudo em pendencias e já implemente tudo que a IA local possa resolver, se

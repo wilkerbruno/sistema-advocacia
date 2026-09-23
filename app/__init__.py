@@ -96,6 +96,7 @@ def create_app(config_class=Config):
     from app.routes.conta import conta_bp
     from app.routes.leads import leads_bp
     from app.routes.captacao_oab import captacao_oab_bp
+    from app.routes.captacao_dou import captacao_dou_bp
     from app.routes.rotina import rotina_bp
     from app.routes.suporte_ia import suporte_ia_bp
 
@@ -120,6 +121,7 @@ def create_app(config_class=Config):
     app.register_blueprint(conta_bp)
     app.register_blueprint(leads_bp, url_prefix="/leads")
     app.register_blueprint(captacao_oab_bp)
+    app.register_blueprint(captacao_dou_bp)
     app.register_blueprint(rotina_bp)
     app.register_blueprint(suporte_ia_bp, url_prefix="/suporte-ia")
 
@@ -271,12 +273,16 @@ def create_app(config_class=Config):
         from flask_login import current_user
         qtd_notif = contar_notificacoes_nao_lidas(current_user) if current_user.is_authenticated else 0
         qtd_triagem_oab = 0
+        qtd_pendente_dou = 0
         if current_user.is_authenticated:
-            from app.models import IntimacaoCapturada
+            from app.models import IntimacaoCapturada, PublicacaoDouCapturada
             from app.utils.acesso import aplicar_escopo_unidade
             qtd_triagem_oab = aplicar_escopo_unidade(
                 IntimacaoCapturada.query, IntimacaoCapturada
             ).filter_by(status="pendente_triagem").count()
+            qtd_pendente_dou = aplicar_escopo_unidade(
+                PublicacaoDouCapturada.query, PublicacaoDouCapturada
+            ).filter_by(status="pendente_revisao").count()
         # url_pagina: usado pelo partial templates/_paginacao.html (ver
         # app/utils/paginacao.py, PENDENCIAS.md seção -47) pra montar o
         # link de cada página mantendo os filtros da URL atual.
@@ -295,7 +301,8 @@ def create_app(config_class=Config):
             and req.endpoint == "dashboard.index"
             and (current_user.tour_concluido_em is None or req.args.get("tutorial") == "1")
         )
-        return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, url_pagina=url_pagina,
+        return dict(qtd_notificacoes=qtd_notif, qtd_triagem_oab=qtd_triagem_oab, qtd_pendente_dou=qtd_pendente_dou,
+                    url_pagina=url_pagina,
                     totp_disponivel=totp_disponivel(), tour_deve_iniciar=tour_deve_iniciar)
 
     @app.template_filter("moeda")

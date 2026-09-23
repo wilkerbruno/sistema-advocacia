@@ -175,6 +175,20 @@ class Config:
     # https://datajud-wiki.cnj.jus.br/
     DATAJUD_API_KEY = os.environ.get("DATAJUD_API_KEY", "")
 
+    # Vigilância do Diário Oficial da União (DOU) — ver
+    # app/utils/conector_inlabs_dou.py e PENDENCIAS.md (seção mais recente,
+    # pesquisa do INLABS/Ro-DOU). Credencial ÚNICA da plataforma, nunca por
+    # empresa (BYOK não se aplica aqui — o DOU é o mesmo diário pra todo
+    # mundo, diferente de Claude/Gemini que são chaves de uso pago
+    # individuais de cada empresa cliente). Cadastro gratuito em
+    # https://inlabs.in.gov.br/ (e-mail + senha, sem custo desde 2020,
+    # confirmado no próprio repositório oficial do INLABS). Sem essas duas
+    # variáveis definidas, a captura diária do DOU simplesmente não roda —
+    # loga um aviso e sai sem erro (nunca quebra o cron nem o resto do
+    # sistema), mesmo espírito de DATAJUD_API_KEY acima.
+    INLABS_EMAIL = os.environ.get("INLABS_EMAIL", "")
+    INLABS_SENHA = os.environ.get("INLABS_SENHA", "")
+
     # Lembrete de compromisso da Agenda por WhatsApp, via WAHA
     # (https://waha.devlike.pro — ver app/utils/whatsapp.py e PENDENCIAS.md,
     # seção -4, para o passo a passo completo de deploy no EasyPanel).

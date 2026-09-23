@@ -71,6 +71,24 @@ def descricao_provedor(empresa):
     return "Modelo de IA local (grátis, roda no próprio servidor)"
 
 
+def provedor_atual(empresa):
+    """
+    Nome curto do provedor efetivamente em uso agora para `empresa` —
+    "claude" | "gemini" | "local". Usado pelo banco de exemplos few-shot
+    (PENDENCIAS.md, seção -124 — ver app/utils/exemplos_resposta_ia.py)
+    pra decidir quando SALVAR um exemplo (só em Claude/Gemini BYOK, nunca
+    em local — não faz sentido usar o próprio modelo local como exemplo
+    pra ele mesmo) e quando INJETAR exemplos no prompt (só faz sentido
+    quando local — Claude/Gemini já são o modelo "melhor", não precisam de
+    referência de um modelo pior).
+    """
+    if _usa_claude_byok(empresa):
+        return "claude"
+    if _usa_gemini_byok(empresa):
+        return "gemini"
+    return "local"
+
+
 def gerar_resposta(empresa, system, mensagens_api, max_tokens=None):
     """
     Gera a resposta usando o provedor configurado para `empresa`. Levanta

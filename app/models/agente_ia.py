@@ -247,3 +247,70 @@ class MensagemSuporteIA(db.Model):
 
     def __repr__(self):
         return f"<MensagemSuporteIA {self.id} usuario={self.usuario_id}>"
+
+
+class ExemploRespostaIA(db.Model):
+    """
+    Banco de exemplos de resposta bem-sucedida (few-shot) — PENDENCIAS.md,
+    seção -124. Pedido do usuário: "seria possivel caso o usuario use a api
+    do claude ou do gemini o nosso agente local aprender com a resposta
+    deles?".
+
+    ⚠️ Isto NÃO é fine-tuning nem qualquer ajuste dos pesos do modelo local
+    (app/utils/ia_local.py) — os modelos locais são UMA ÚNICA instância
+    compartilhada por TODAS as empresas deste sistema (não existe modelo
+    por empresa); treinar os pesos com conteúdo de uma empresa vazaria esse
+    conteúdo pra QUALQUER outra empresa que usasse o modelo depois, a MESMA
+    classe de bug do vazamento cross-tenant corrigido em PENDENCIAS.md,
+    seção -54. Fine-tuning de verdade foi descartado por isso — é um risco
+    de segurança, não só uma limitação técnica de hoje.
+
+    O que esta tabela guarda, em vez disso, é um banco de exemplos
+    (pergunta, resposta) ISOLADO POR EMPRESA (`empresa_id`, nunca cruzado
+    entre empresas) e por `contexto` (ex.: "agente_ia:operacao",
+    "analise_processo:resumo" — nunca cruzado entre personas/tipos
+    diferentes também). Toda resposta gerada com sucesso por Claude ou
+    Gemini BYOK (a própria empresa paga a API — ver
+    app/utils/agente_ia_router.py) é salva automaticamente aqui (decisão do
+    usuário: TODAS as respostas, não só as marcadas manualmente). Quando
+    essa MESMA empresa volta a usar o modelo LOCAL depois, os exemplos mais
+    parecidos com a pergunta atual são injetados no prompt como referência
+    de estilo/formato (in-context learning/few-shot — ver
+    app/utils/exemplos_resposta_ia.py) — nada é persistido no modelo em si,
+    só no prompt de UMA resposta específica.
+
+    Sem tela de administração (decisão do usuário) — fica só internamente,
+    sem lugar pra ver/apagar exemplos guardados; a única "limpeza" é
+    automática, por volume (ver
+    exemplos_resposta_ia.py::_podar_exemplos_antigos).
+    """
+    __tablename__ = "exemplos_resposta_ia"
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    empresa_id = db.Column(db.Integer, db.ForeignKey("empresas.id"), nullable=False)
+    empresa = db.relationship("Empresa")
+
+    # Escopo do exemplo — nunca misturado entre contextos diferentes (ver
+    # docstring da classe acima). Formato livre por convenção do caller:
+    # "agente_ia:<persona>" ou "analise_processo:<tipo>".
+    contexto = db.Column(db.String(60), nullable=False)
+
+    # "claude" | "gemini" — nunca "local" (não faz sentido usar o próprio
+    # modelo local como exemplo pra ele mesmo). Guardado só pra
+    # auditoria/debug, nunca usado pra decidir se busca ou não.
+    provedor = db.Column(db.String(20), nullable=False)
+
+    pergunta = db.Column(db.Text, nullable=False)
+    resposta = db.Column(db.Text, nullable=False)
+
+    # Mesmo mecanismo de DocumentoIndexado.embedding/embedding_modelo (ver
+    # app/models/indexacao.py) — JSON-encoded list[float] como TEXT, nunca
+    # comparado entre modelos diferentes.
+    embedding = db.Column(db.Text, nullable=True)
+    embedding_modelo = db.Column(db.String(60), nullable=True)
+
+    criado_em = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ExemploRespostaIA {self.id} empresa={self.empresa_id} contexto={self.contexto}>"

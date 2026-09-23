@@ -33,6 +33,18 @@ from app.extensions import db
 
 _app = None
 
+# Respostas "sentinela"/sem valor de verdade — geradas pelo próprio laço de
+# ferramentas quando algo deu errado sem levantar exceção (modelo respondeu
+# vazio, ou continuou pedindo ferramenta depois de forçado a responder em
+# texto). Nunca salvas no banco de exemplos few-shot (PENDENCIAS.md, seção
+# -124 — ver processar_mensagem_agente_ia abaixo): não são uma resposta de
+# verdade, "aprender" a imitar isso não ajudaria em nada o modelo local.
+_RESPOSTAS_SEM_VALOR_COMO_EXEMPLO = {
+    "[O agente respondeu vazio — tente reformular a pergunta.]",
+    "Não consegui concluir a consulta com as ferramentas disponíveis — "
+    "tente reformular a pergunta de forma mais direta.",
+}
+
 
 def _obter_app():
     global _app
@@ -41,7 +53,8 @@ def _obter_app():
     return _app
 
 
-def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, mensagens_api, max_tokens=None):
+def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, mensagens_api, max_tokens=None,
+                                  persona=None):
     """
     Gera a resposta de uma mensagem do Agente de IA de portfólio (chat,
     ver app/routes/agente_ia.py) e grava direto na linha MensagemAgenteIA
@@ -59,11 +72,20 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, me
     ferramentas, que aplicam o MESMO escopo de unidade/empresa de sempre
     (ver app/utils/acesso.py) a partir desse usuário carregado, nunca de
     um `current_user` que não existe aqui.
+
+    `persona` (opcional, PENDENCIAS.md, seção -124): só usada pro banco de
+    exemplos few-shot (ver app/utils/exemplos_resposta_ia.py) — quando a
+    resposta desta mensagem foi gerada por Claude/Gemini BYOK (nunca pelo
+    modelo local) e é uma resposta de verdade (nunca um erro ou uma
+    sentinela de "não consegui"), é salva automaticamente como exemplo,
+    escopada por "agente_ia:<persona>". Parâmetro NOVO, trailing e opcional
+    de propósito — chamadas antigas/testes que não passam `persona`
+    simplesmente não salvam exemplo nenhum, sem quebrar nada.
     """
     app = _obter_app()
     with app.app_context():
         from app.models import MensagemAgenteIA, Empresa, Usuario
-        from app.utils import agente_ia_router, agente_ia_ferramentas
+        from app.utils import agente_ia_router, agente_ia_ferramentas, exemplos_resposta_ia
 
         mensagem = db.session.get(MensagemAgenteIA, mensagem_id)
         if mensagem is None:
@@ -73,6 +95,7 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, me
         usuario = db.session.get(Usuario, usuario_id) if usuario_id else None
 
         resposta_texto = ""
+        deu_erro = False
         try:
             mensagens = list(mensagens_api)
             for _ in range(agente_ia_ferramentas.MAX_ITERACOES_FERRAMENTAS):
@@ -113,6 +136,7 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, me
                                        "tente reformular a pergunta de forma mais direta.")
         except agente_ia_router.ProvedorIAIndisponivelError as e:
             resposta_texto = f"⚠️ Agente indisponível: {e}"
+            deu_erro = True
         except Exception as e:  # nunca deixa a mensagem travada em "processando" pra sempre
             # Reporta pro Sentry mesmo tratando com carinho pro usuário (ver
             # app/utils/monitoramento.py) — sem isso, um bug de verdade aqui
@@ -121,10 +145,27 @@ def processar_mensagem_agente_ia(mensagem_id, empresa_id, usuario_id, system, me
             import sentry_sdk
             sentry_sdk.capture_exception(e)
             resposta_texto = f"⚠️ Não foi possível consultar o agente de IA agora: {e}"
+            deu_erro = True
 
         mensagem.conteudo = resposta_texto
         mensagem.status = "pronta"
         db.session.commit()
+
+        # Banco de exemplos few-shot (PENDENCIAS.md, seção -124) — só salva
+        # quando: (a) a mensagem tem uma persona conhecida (chamador novo,
+        # ver app/routes/agente_ia.py), (b) não houve erro/exceção, (c) a
+        # resposta não é uma das sentinelas "sem valor" acima, e (d) o
+        # provedor efetivamente usado foi Claude ou Gemini BYOK (nunca
+        # local — não faz sentido usar o próprio modelo local como exemplo
+        # pra ele mesmo). `salvar_exemplo_se_byok` é sempre best-effort —
+        # nunca levanta, então isto nunca compromete a resposta já gravada.
+        if persona and not deu_erro and resposta_texto not in _RESPOSTAS_SEM_VALOR_COMO_EXEMPLO:
+            provedor = agente_ia_router.provedor_atual(empresa)
+            if provedor in ("claude", "gemini"):
+                pergunta_atual = mensagens_api[-1]["content"] if mensagens_api else ""
+                exemplos_resposta_ia.salvar_exemplo_se_byok(
+                    empresa, provedor, f"agente_ia:{persona}", pergunta_atual, resposta_texto,
+                )
 
 
 def processar_mensagem_suporte_ia(mensagem_id, empresa_id, system, mensagens_api, max_tokens=None):

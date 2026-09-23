@@ -81,7 +81,7 @@ def _obter_chave_gemini(empresa):
         return None
 
 
-def _provedor_embedding_ativo(empresa):
+def provedor_embedding_ativo(empresa):
     """
     Decide QUAL caminho de embedding usar agora, nesta ordem (PENDENCIAS.md,
     seção -123): Gemini BYOK primeiro (empresa com chave cadastrada — mais
@@ -93,6 +93,11 @@ def _provedor_embedding_ativo(empresa):
     dos dois está disponível. `gerar_fn(textos)` sempre tem a MESMA
     assinatura nos dois casos (lista de textos -> lista de vetores),
     escondendo a diferença de API entre gemini_api e ia_local de quem chama.
+
+    Função pública (PENDENCIAS.md, seção -124) — reaproveitada por
+    app/utils/exemplos_resposta_ia.py pra gerar o embedding das perguntas
+    do banco de exemplos few-shot, mesma regra de nunca misturar
+    proveniências de embedding diferentes entre si.
     """
     chave = _obter_chave_gemini(empresa)
     if chave:
@@ -284,7 +289,7 @@ def indexar_documento(documento, upload_folder):
     erro_embedding = None
     if linhas:
         empresa = documento.processo.unidade.empresa if documento.processo and documento.processo.unidade else None
-        gerar_fn, nome_modelo = _provedor_embedding_ativo(empresa)
+        gerar_fn, nome_modelo = provedor_embedding_ativo(empresa)
         if gerar_fn:
             try:
                 vetores = gerar_fn([l.texto for l in linhas])
@@ -352,7 +357,9 @@ def info_ultima_busca_autos(processo):
     return {"documento": ultimo, "indexado": indexado, "qtd_movimentacoes_novas": qtd_novas}
 
 
-def _cosine_similaridade(a, b):
+def cosine_similaridade(a, b):
+    """Função pública (PENDENCIAS.md, seção -124) — reaproveitada por
+    app/utils/exemplos_resposta_ia.py pro banco de exemplos few-shot."""
     import numpy as np
 
     va, vb = np.array(a, dtype=float), np.array(b, dtype=float)
@@ -370,7 +377,7 @@ def buscar_trechos_relevantes(processo, consulta, top_k=6):
 
     Caminho principal (busca semântica de verdade): se existe algum
     provedor de embedding disponível agora (Gemini BYOK, ou o modelo local
-    quando a empresa não tem chave — ver `_provedor_embedding_ativo`) E
+    quando a empresa não tem chave — ver `provedor_embedding_ativo`) E
     pelo menos um chunk deste processo tem embedding gravado DO MESMO
     modelo (nunca compara vetores de modelos diferentes entre si — não são
     o mesmo espaço vetorial, a "similaridade" entre eles não significaria
@@ -392,14 +399,14 @@ def buscar_trechos_relevantes(processo, consulta, top_k=6):
         return []
 
     empresa = processo.unidade.empresa if processo.unidade else None
-    gerar_fn, nome_modelo = _provedor_embedding_ativo(empresa) if consulta else (None, None)
+    gerar_fn, nome_modelo = provedor_embedding_ativo(empresa) if consulta else (None, None)
     com_embedding = [c for c in todos if c.embedding and c.embedding_modelo == nome_modelo] if gerar_fn else []
 
     if gerar_fn and com_embedding:
         try:
             vetor_consulta = gerar_fn([consulta])[0]
             pontuados = [
-                (c, _cosine_similaridade(vetor_consulta, json.loads(c.embedding)))
+                (c, cosine_similaridade(vetor_consulta, json.loads(c.embedding)))
                 for c in com_embedding
             ]
             pontuados.sort(key=lambda par: par[1], reverse=True)

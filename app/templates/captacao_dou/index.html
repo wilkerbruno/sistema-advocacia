@@ -1,0 +1,155 @@
+{% extends "base.html" %}
+{% block titulo %}Vigilância do Diário Oficial — JusControl{% endblock %}
+{% block eyebrow %}Governança de carteira{% endblock %}
+{% block cabecalho %}Vigilância do Diário Oficial da União{% endblock %}
+
+{% block conteudo %}
+<p class="small text-muted-doc mb-3" style="max-width: 760px;">
+  Toda madrugada o sistema baixa a edição completa do Diário Oficial da União
+  (Seções 1, 2 e 3) e confere se o nome/CNPJ de algum cliente já cadastrado —
+  ou uma palavra-chave cadastrada aqui — aparece em alguma publicação. Isto é
+  DIFERENTE da captação por OAB (<a href="{{ url_for('captacao_oab.index') }}">Captação por OAB</a>):
+  o Diário Oficial da União é o diário do governo federal (leis, decretos,
+  atos de pessoal, contratos e licitações) — nunca publica intimação de
+  processo. É um alerta de "isto apareceu", não algo que vira prazo
+  automaticamente.
+</p>
+
+{% if not configurado %}
+<div class="card-doc tab p-3 mb-3" style="border-left: 3px solid var(--status-warn);">
+  <p class="small mb-0">
+    <strong class="text-danger">Vigilância ainda não configurada</strong> —
+    faltam as credenciais do INLABS (cadastro gratuito em
+    <a href="https://inlabs.in.gov.br/" target="_blank" rel="noopener">inlabs.in.gov.br</a>)
+    nas variáveis de ambiente <code>INLABS_EMAIL</code>/<code>INLABS_SENHA</code>
+    do servidor. Sem isso, a captura diária não roda (mas o resto do sistema
+    continua funcionando normalmente).
+  </p>
+</div>
+{% endif %}
+
+<div class="row">
+  <div class="col-lg-5">
+    <div class="card-doc tab p-4">
+      <p class="small mb-3"><strong>Nova palavra-chave</strong></p>
+      <p class="small text-muted-doc mb-3">
+        O monitoramento por nome/CNPJ dos clientes já cadastrados é automático
+        — não precisa cadastrar aqui. Use este campo só para termos extras
+        (ex.: uma lei específica, um órgão, uma área de atuação do
+        escritório).
+      </p>
+      <form method="post" action="{{ url_for('captacao_dou.nova_palavra_chave') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div class="mb-3">
+          <label class="form-label">Termo</label>
+          <input type="text" name="termo" class="form-control" placeholder="ex: Lei 14.133/2021" required>
+        </div>
+        {% if unidades %}
+        <div class="mb-3">
+          <label class="form-label">Unidade</label>
+          <select name="unidade_id" class="form-select" required>
+            {% for u in unidades %}
+            <option value="{{ u.id }}">{{ u.codigo }} — {{ u.nome }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        {% endif %}
+        <button class="btn btn-brass">Cadastrar</button>
+      </form>
+    </div>
+
+    {% if palavras %}
+    <div class="card-doc tab p-0 mt-3">
+      <table class="table-doc mb-0">
+        <thead><tr><th>Termo</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+          {% for palavra in palavras %}
+          <tr class="{{ '' if palavra.ativa else 'text-muted-doc' }}">
+            <td>{{ palavra.termo }}</td>
+            <td><span class="badge-status {{ 'badge-concluida' if palavra.ativa else 'badge-cancelada' }}">{{ "ativa" if palavra.ativa else "inativa" }}</span></td>
+            <td>
+              <form method="post" action="{{ url_for('captacao_dou.alternar_ativo_palavra_chave', palavra_id=palavra.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">{{ "Desativar" if palavra.ativa else "Ativar" }}</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <div class="card-doc tab p-3 mt-3">
+      <p class="small text-muted-doc mb-0">
+        A captura roda 1x por dia no servidor
+        (<code>python capturar_publicacoes_dou.py</code>, agendado via cron).
+        Fonte: <a href="https://inlabs.in.gov.br/" target="_blank" rel="noopener">INLABS</a>,
+        o serviço oficial e gratuito da Imprensa Nacional.
+      </p>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card-doc tab p-0">
+      {% if capturadas %}
+      <table class="table-doc mb-0">
+        <thead>
+          <tr><th>Data</th><th>Seção</th><th>Encontrado por</th><th>Publicação</th><th></th></tr>
+        </thead>
+        <tbody>
+          {% for pub in capturadas %}
+          <tr>
+            <td>{{ pub.data_publicacao.strftime('%d/%m/%Y') if pub.data_publicacao else "—" }}</td>
+            <td><span class="small">{{ pub.secao_legivel }}</span></td>
+            <td>
+              <strong>{{ pub.termo_encontrado }}</strong>
+              {% if pub.cliente %}<br><span class="small text-muted-doc">cliente cadastrado</span>{% endif %}
+            </td>
+            <td>
+              {% if pub.titulo %}<strong class="small">{{ pub.titulo }}</strong><br>{% endif %}
+              {% if pub.orgao %}<span class="small text-muted-doc">{{ pub.orgao }}</span><br>{% endif %}
+              <span class="small">{{ pub.texto_trecho or pub.ementa or "(sem trecho disponível)" }}</span>
+              {% if pub.link_pdf %}<br><a href="{{ pub.link_pdf }}" target="_blank" rel="noopener" class="small">Abrir publicação original</a>{% endif %}
+            </td>
+            <td style="white-space:nowrap;">
+              <form method="post" action="{{ url_for('captacao_dou.marcar_lida', publicacao_id=pub.id) }}" class="mb-1">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit" class="btn btn-outline-doc btn-sm">Marcar como lida</button>
+              </form>
+              <button type="button" class="btn btn-outline-doc btn-sm" data-bs-toggle="collapse" data-bs-target="#ignorar-{{ pub.id }}">
+                Ignorar
+              </button>
+              <div class="collapse mt-2" id="ignorar-{{ pub.id }}">
+                <form method="post" action="{{ url_for('captacao_dou.ignorar', publicacao_id=pub.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="text" name="motivo" class="form-control form-control-sm mb-1" placeholder="motivo (ex: homônimo)" required>
+                  <button type="submit" class="btn btn-outline-doc btn-sm">Confirmar</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <div class="font-display">Nenhuma publicação pendente de revisão</div>
+        <p class="mb-0">
+          {% if configurado %}
+          A próxima captura diária confere automaticamente o nome/CNPJ dos
+          clientes cadastrados e as palavras-chave desta lista.
+          {% else %}
+          Configure as credenciais do INLABS (aviso acima) para a captura
+          diária começar a rodar.
+          {% endif %}
+        </p>
+      </div>
+      {% endif %}
+    </div>
+    {% if total_ja_revisadas %}
+    <p class="small text-muted-doc mt-2 mb-0">{{ total_ja_revisadas }} publicação(ões) já revisada(s) anteriormente (lida ou ignorada).</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

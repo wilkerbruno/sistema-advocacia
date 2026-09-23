@@ -53,3 +53,6 @@ def test_enviar_mensagem_passa_usuario_id_para_o_job(client, login, post_csrf, c
     assert "ferramenta" in system_enviado.lower()
     assert "buscar_processos" in system_enviado
     assert kwargs.get("job_timeout") == 900
+    # PENDENCIAS.md, seção -124 (banco de exemplos few-shot): o job precisa
+    # da persona pra montar/salvar no contexto certo ("agente_ia:<persona>").
+    assert kwargs.get("persona") == "operacao"
