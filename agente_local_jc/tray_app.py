@@ -6,11 +6,15 @@ e build/instalador.iss) — para rodar/testar direto do código-fonte sem
 instalar nada, use `main.py`.
 
 Fluxo:
-  1. Se não há configuração salva ainda (config_store.py), abre a janela
+  1. Se o advogado configurou um login local (OAB + senha — opcional, ver
+     login_local.py/tela_bloqueio.py), pede a senha ANTES de qualquer
+     outra coisa; errar demais ou cancelar encerra o programa sem abrir
+     nada.
+  2. Se não há configuração salva ainda (config_store.py), abre a janela
      de configuração (config_gui.py) pedindo o endereço do JusControl e
      o token de pareamento.
-  2. Registra o início automático com o Windows, se marcado.
-  3. Sobe o ícone na bandeja (numa thread própria) e, em outra thread à
+  3. Registra o início automático com o Windows, se marcado.
+  4. Sobe o ícone na bandeja (numa thread própria) e, em outra thread à
      parte, fica checando tarefas pendentes a cada N segundos (mesmo
      motor.py usado por main.py) — o ícone muda de cor conforme o
      status. A THREAD PRINCIPAL fica livre pra ser a única a criar/usar
@@ -18,6 +22,9 @@ Fluxo:
      trava sem erro nenhum se usado fora da thread que já está com um
      mainloop dele rodando, e o pystray despacha cada clique de menu
      numa thread própria dele, diferente da principal.
+  5. Reabrir "Configurar..." pelo menu do ícone, depois do primeiro
+     pareamento, passa a exigir o código do autenticador (2FA) da conta
+     JusControl — ver autenticador_local.py.
 """
 import ctypes
 import os
@@ -32,6 +39,9 @@ from PIL import Image, ImageDraw
 
 import config_store
 import config_gui
+import login_local
+import tela_bloqueio
+import autenticador_local
 import motor
 import autostart_windows
 from cliente_api import ClienteJusControl, ErroApiJusControl
@@ -222,7 +232,17 @@ def _bombear_fila_gui():
             continue
 
         if pedido == "configurar":
-            resultado = config_gui.abrir_wizard_configuracao()
+            dados_atuais = config_store.carregar()
+            # Autenticador (2FA) obrigatório pra abrir a Configuração —
+            # pedido do usuário, ver autenticador_local.py. Roda ANTES de
+            # abrir o wizard, na mesma thread principal (a única que pode
+            # tocar em tkinter neste programa — ver aviso em
+            # _abrir_configuracao logo acima).
+            if not autenticador_local.pode_abrir_configuracao(dados_atuais, logar=_log):
+                _log("Acesso à Configuração negado (autenticador não confirmado).")
+                continue
+
+            resultado = config_gui.abrir_wizard_configuracao(dados_atuais)
             if resultado:
                 _aplicar_autostart(resultado)
                 _log("Configuração atualizada pelo usuário.")
@@ -243,6 +263,16 @@ def main():
         return
 
     dados = config_store.carregar()
+
+    # Login local (OAB + senha) — pedido do usuário, ver login_local.py e
+    # tela_bloqueio.py. Só pede alguma coisa se o advogado tiver
+    # configurado isso antes (opcional); roda ANTES de qualquer outra
+    # coisa, inclusive do wizard de primeira configuração — o cadeado
+    # protege o programa como um todo, não só o polling em segundo plano.
+    if login_local.login_local_configurado(dados):
+        if not tela_bloqueio.abrir_tela_bloqueio(dados):
+            return  # senha errada esgotada, ou o usuário cancelou — não abre nada
+
     if not config_store.configuracao_minima_completa(dados):
         dados = config_gui.abrir_wizard_configuracao(dados)
         if not dados:

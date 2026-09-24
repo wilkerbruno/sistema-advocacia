@@ -3,7 +3,12 @@ API que o Agente Local (agente_local_jc/, roda na máquina do próprio
 advogado — ver app/models/agente_local.py) usa para: (1) confirmar que
 o pareamento (token) ainda é válido a cada polling, (2) buscar as
 solicitações de busca de autos pendentes DO PRÓPRIO ADVOGADO dono deste
-agente, e (3) devolver o resultado (PDF) ou um erro de uma solicitação.
+agente, (3) devolver o resultado (PDF) ou um erro de uma solicitação, e
+(4) conferir o código do autenticador (2FA) da conta antes do agente
+abrir a própria tela de Configuração (`status_autenticador`/
+`verificar_autenticador` abaixo — pedido do usuário, ver
+app/models/agente_local.py para a explicação completa das três camadas
+de credencial envolvidas neste recurso).
 
 Autenticação: header `Authorization: Bearer <token>` — token gerado na
 tela /agente-local (ver app/routes/agente_local.py) e validado por
@@ -34,8 +39,16 @@ from app.extensions import db
 from app.models import AgenteLocalPareado, SolicitacaoBuscaAutos, Documento
 from app.utils.notificacoes import registrar_log
 from app.utils.fila import enfileirar
+from app.utils import totp as totp_utils
 
 agente_local_api_bp = Blueprint("agente_local_api", __name__)
+
+# Trava de tentativas do autenticador pedida pela tela de Configuração do
+# agente local — mesmos números do login web (app/routes/auth.py::
+# _MAX_TENTATIVAS_TOTP_LOGIN), por consistência: 5 tentativas erradas
+# bloqueiam por 5 minutos. Ver AgenteLocalPareado.registrar_falha_totp.
+_MAX_TENTATIVAS_TOTP_AGENTE = 5
+_MINUTOS_BLOQUEIO_TOTP_AGENTE = 5
 
 
 def exige_agente(f):
@@ -71,6 +84,68 @@ def ping():
     """Usado pelo agente local só para confirmar que o token ainda é
     válido e medir latência — não devolve nem recebe nada além disso."""
     return jsonify(ok=True, usuario=g.agente_local.usuario.nome, apelido=g.agente_local.apelido)
+
+
+@agente_local_api_bp.route("/status-autenticador")
+@exige_agente
+def status_autenticador():
+    """
+    Usado pela tela de Configuração do agente local (agente_local_jc/
+    autenticador_local.py) pra decidir, ANTES de pedir um código, se vale
+    a pena pedir alguma coisa: se este sistema não tem a funcionalidade
+    de autenticador ligada (`TOTP_CIFRA_KEY` não configurada — ver
+    app/utils/totp.py) OU se o próprio usuário dono deste agente ainda
+    não confirmou o autenticador da conta dele, não faz sentido o agente
+    local exigir algo que a própria conta web ainda não exige pra logar
+    — a Configuração abre direto nesse caso.
+    """
+    usuario = g.agente_local.usuario
+    exigido = bool(totp_utils.totp_disponivel() and usuario.totp_configurado)
+    return jsonify(exigido=exigido)
+
+
+@agente_local_api_bp.route("/verificar-autenticador", methods=["POST"])
+@exige_agente
+def verificar_autenticador():
+    """
+    Confere o código de 6 dígitos do app autenticador contra o MESMO
+    segredo TOTP já configurado na conta JusControl deste usuário (nunca
+    um segredo separado só pro agente) — pedido do usuário: "para o cara
+    acessar a configuração do aplicativo ele tem que autenticar com
+    autenticador igual funciona hoje para logar no sistema web". O
+    servidor já sabe de qual usuário é o pedido através do próprio token
+    de pareamento (Bearer, ver `exige_agente`) — o agente local nunca
+    precisa mandar e-mail nem senha de novo pra isso.
+
+    Se a conta não tem autenticador exigível agora (ver
+    `status_autenticador` acima), devolve sucesso direto — mesma lógica,
+    nunca duplicada.
+    """
+    agente = g.agente_local
+    usuario = agente.usuario
+
+    if not (totp_utils.totp_disponivel() and usuario.totp_configurado):
+        return jsonify(ok=True, exigido=False)
+
+    if agente.totp_bloqueado():
+        restante_segundos = max(1, int((agente.totp_bloqueado_ate - datetime.utcnow()).total_seconds()))
+        return jsonify(
+            ok=False,
+            erro=f"Muitas tentativas erradas — tente de novo em {restante_segundos} segundo(s).",
+        ), 429
+
+    codigo = (request.get_json(silent=True) or {}).get("codigo", "")
+    secret = totp_utils.obter_secret_pendente_ou_confirmado(usuario)
+
+    if secret and totp_utils.verificar_codigo(secret, codigo):
+        agente.resetar_falhas_totp()
+        db.session.commit()
+        return jsonify(ok=True)
+
+    agente.registrar_falha_totp(max_tentativas=_MAX_TENTATIVAS_TOTP_AGENTE,
+                                 minutos_bloqueio=_MINUTOS_BLOQUEIO_TOTP_AGENTE)
+    db.session.commit()
+    return jsonify(ok=False, erro="Código inválido — confira o app autenticador e tente de novo."), 401
 
 
 @agente_local_api_bp.route("/tarefas")

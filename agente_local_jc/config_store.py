@@ -43,6 +43,14 @@ CAMPOS_PADRAO = {
     "juscontrol_url": "",
     "token_pareamento": "",
     "intervalo_polling_segundos": 60,
+    # Login local (OAB + senha) — pedido do usuário, ver login_local.py e
+    # tela_bloqueio.py. Só o HASH+sal ficam salvos, nunca a senha em
+    # texto puro (diferente dos campos de senha do certificado/tribunal
+    # abaixo, que a tela de Configuração grava como o advogado digitou —
+    # ver aviso correspondente lá). Opcional: vazio = sem tela de cadeado.
+    "oab_local": "",
+    "oab_senha_hash": "",
+    "oab_senha_salt": "",
     "certificado_pfx_caminho": "",
     "certificado_pfx_senha": "",
     "pje_tribunal": "",

@@ -48,6 +48,31 @@ momento. A parte que fala de verdade com o tribunal (SOAP/MNI) mora
 inteiramente em agente_local_jc/, roda na máquina do advogado, e ainda
 NÃO foi testada contra nenhum tribunal real — ver
 agente_local_jc/README.md antes de usar isso em produção.
+
+Três camadas de credencial, cada uma protegendo uma coisa diferente (item
+novo, pedido do usuário — ver PENDENCIAS.md, seção mais recente):
+  1. Certificado A1 + senha do tribunal: autentica no TRIBUNAL. Nunca sai
+     da máquina do advogado (agente_local_jc/certificado.py).
+  2. Token de pareamento (este arquivo, `AgenteLocalPareado`): autentica o
+     AGENTE LOCAL no servidor JusControl — decide de qual usuário é cada
+     tarefa (`SolicitacaoBuscaAutos`), nunca entrega tarefa de um advogado
+     pro agente de outro (ver `app/routes/agente_local_api.py::exige_agente`
+     e `_tarefa_do_agente_ou_404`).
+  3. Login local (OAB + senha, só dentro de `agente_local_jc/`, nunca
+     chega aqui no servidor) + autenticador (2FA) pra abrir a tela de
+     Configuração — duas travas NOVAS, só do lado do agente:
+     - OAB+senha: bloqueia o PROGRAMA em si (tela de cadeado ao abrir),
+       conferido 100% localmente (hash+salt em config.json, nunca sai da
+       máquina) — protege quem tem acesso físico ao notebook.
+     - Autenticador: bloqueia a tela de CONFIGURAÇÃO (onde ficam a senha
+       do certificado, o próprio OAB+senha local e o token de
+       pareamento) — usa o MESMO autenticador (TOTP) já configurado na
+       conta JusControl do advogado (`app/utils/totp.py`), conferido por
+       este servidor via `POST /api/agente-local/verificar-autenticador`
+       (o servidor já sabe de qual usuário é o pedido através do próprio
+       token de pareamento — nunca é preciso mandar e-mail nem senha de
+       novo). `totp_falhas_consecutivas`/`totp_bloqueado_ate` acima são a
+       trava de tentativas desse endpoint.
 """
 import hashlib
 import secrets
@@ -72,9 +97,48 @@ class AgenteLocalPareado(db.Model):
     ultimo_contato_em = db.Column(db.DateTime)  # atualizado a cada polling — "visto por último em"
     revogado_em = db.Column(db.DateTime)
 
+    # Trava de tentativas do autenticador (2FA) usado pra abrir a tela de
+    # Configuração do agente local (pedido do usuário: "para o cara
+    # acessar a configuração do aplicativo ele tem que autenticar com
+    # autenticador igual funciona hoje para logar no sistema web" — ver
+    # POST /api/agente-local/verificar-autenticador em
+    # app/routes/agente_local_api.py). Mesmo espírito de
+    # `_MAX_TENTATIVAS_TOTP_LOGIN` em app/routes/auth.py, só que aqui não
+    # existe sessão Flask pra guardar a contagem (é uma API sem estado de
+    # sessão, chamada pelo agente local) — por isso a contagem fica
+    # persistida neste registro, por AGENTE (não por usuário: dois
+    # notebooks pareados do mesmo advogado têm cada um sua própria trava).
+    # Nullable de propósito (sincronizar_schema.py não aplica DEFAULT em
+    # ALTER TABLE numa tabela que já tem linha) — None é tratado como 0
+    # em todo lugar que lê este campo.
+    totp_falhas_consecutivas = db.Column(db.Integer, nullable=True)
+    totp_bloqueado_ate = db.Column(db.DateTime, nullable=True)
+
     @staticmethod
     def _hash_de(valor):
         return hashlib.sha256(valor.encode("utf-8")).hexdigest()
+
+    def totp_bloqueado(self):
+        """True enquanto a trava de tentativas erradas do autenticador
+        estiver valendo para este agente."""
+        return bool(self.totp_bloqueado_ate and self.totp_bloqueado_ate > datetime.utcnow())
+
+    def registrar_falha_totp(self, max_tentativas=5, minutos_bloqueio=5):
+        """Incrementa a contagem de tentativas erradas; ao atingir
+        `max_tentativas`, bloqueia por `minutos_bloqueio` e zera a
+        contagem (mesmo padrão de "N tentativas erradas → bloqueio
+        temporário, contagem reinicia" já usado no login web — ver
+        app/routes/auth.py::_MAX_TENTATIVAS_TOTP_LOGIN). Quem chama ainda
+        precisa dar commit."""
+        from datetime import timedelta
+        self.totp_falhas_consecutivas = (self.totp_falhas_consecutivas or 0) + 1
+        if self.totp_falhas_consecutivas >= max_tentativas:
+            self.totp_bloqueado_ate = datetime.utcnow() + timedelta(minutes=minutos_bloqueio)
+            self.totp_falhas_consecutivas = 0
+
+    def resetar_falhas_totp(self):
+        self.totp_falhas_consecutivas = 0
+        self.totp_bloqueado_ate = None
 
     @classmethod
     def emitir_para(cls, usuario, apelido):

@@ -1,4 +1,70 @@
-# Status das pendências do briefing (atualizado em 22/09/2026)
+# Status das pendências do briefing (atualizado em 24/09/2026)
+
+## -126. Agente Local: login local (OAB + senha) + autenticador (2FA) obrigatório pra abrir a Configuração (novo, requer sincronizar_schema.py)
+
+**Pedido do usuário:** "quero que tenha a opção do usuario logar com o aob do cliente, porem localmente [...]
+outra coisa para o cara acessar a configuração do aplicativo ele tem que autenticar com autenticador igual
+funciona hoje para logar no sistema web. se o usuario buscar um processo por exemplo e o token de pareamento
+dele for diferente do token que esta no sistema local o usuario não consegue buscar os projetos completos com
+os dados que estão no aplicativo."
+
+**Três pedidos distintos, resolvidos separadamente** (3 perguntas confirmadas com o usuário via
+AskUserQuestion, todas com a opção recomendada):
+
+1. **Login local (OAB + senha) pra abrir o Agente Local** — confirmado: senha conferida SÓ localmente (nunca
+   contra o servidor). Implementado em `agente_local_jc/login_local.py` (hash PBKDF2-HMAC-SHA256 + sal
+   aleatório, 200 mil iterações — mesma família de algoritmo do `werkzeug.security.generate_password_hash`
+   usado no login web, reimplementada só com a biblioteca padrão do Python pra não adicionar dependência nova
+   ao instalador) e `agente_local_jc/tela_bloqueio.py` (tkinter — tela de cadeado mostrada toda vez que o
+   agente inicia, 5 tentativas erradas fecham o programa). Configurado na própria janela de Configuração
+   (`config_gui.py`, nova seção "Login local (opcional)") — opcional por desenho: sem OAB+senha cadastrados,
+   o agente abre direto, exatamente como sempre funcionou (backward-compatible com quem já usa o agente
+   hoje). A senha em texto puro NUNCA é gravada em `config.json`, só o par (hash, sal).
+
+2. **Autenticador (2FA) obrigatório pra abrir a tela de Configuração** — confirmado: o MESMO autenticador já
+   configurado na conta JusControl do advogado (não um segredo novo só pro agente), pra ficar "igual funciona
+   hoje para logar no sistema web" da forma mais literal possível. Fluxo: o agente manda o código de 6
+   dígitos pro servidor conferir contra o segredo TOTP real da conta (`app/utils/totp.py`, já existente —
+   PENDENCIAS.md, seção -104), usando o PRÓPRIO token de pareamento pra o servidor saber de qual usuário é o
+   pedido (nunca precisa mandar e-mail/OAB de novo). Dois endpoints novos em `app/routes/agente_local_api.py`:
+   `GET /api/agente-local/status-autenticador` (o agente consulta antes de pedir qualquer código — se a
+   conta não tem 2FA confirmado, ou o sistema não tem `TOTP_CIFRA_KEY` configurada, a Configuração abre
+   direto) e `POST /api/agente-local/verificar-autenticador` (confere o código, com trava de 5 tentativas
+   erradas → 5 minutos de bloqueio, os mesmos números do login web — `AgenteLocalPareado.
+   registrar_falha_totp`, campos novos `totp_falhas_consecutivas`/`totp_bloqueado_ate`, por AGENTE, não por
+   usuário — dois notebooks pareados do mesmo advogado têm cada um sua própria trava). Do lado do agente,
+   `agente_local_jc/autenticador_local.py` decide quando pedir o código (`pode_abrir_configuracao`, chamada
+   antes de abrir `config_gui.py` — ver `tray_app.py`). **Decisão de segurança deliberada: falha de rede =
+   acesso NEGADO** (fail-closed) — bastaria desligar o Wi-Fi pra pular a verificação se o padrão fosse
+   liberar em caso de erro. A única exceção é quando o PRÓPRIO token de pareamento está inválido/revogado: aí
+   a Configuração é o único jeito de corrigir isso (colar um token novo), então deixa abrir mesmo assim — sem
+   risco adicional, porque um token inválido já não consegue buscar nada no servidor de qualquer forma.
+
+3. **Token de pareamento errado não pode devolver dado completo de processo** — conferido no código (nenhuma
+   mudança necessária, já era garantido): `app/routes/agente_local_api.py::exige_agente` rejeita (401)
+   qualquer token que não bata com um `AgenteLocalPareado` ativo, e `_tarefa_do_agente_ou_404` só deixa um
+   agente iniciar/responder uma `SolicitacaoBuscaAutos` que pertence ao MESMO usuário dono do token usado —
+   nunca a de outro advogado, mesmo da mesma empresa (coberto por
+   `test_api_nao_deixa_agente_acessar_tarefa_de_outro_usuario` em `tests/test_agente_local.py`, já existente).
+
+**Deploy: esta seção adiciona duas colunas novas** à tabela `agentes_locais_pareados`
+(`totp_falhas_consecutivas`, `totp_bloqueado_ate`) — depois de atualizar os arquivos em produção, rodar
+`python sincronizar_schema.py`. O instalador do agente (`agente_local_jc/`) precisa ser recompilado e
+republicado (nova tag `agente-vX.Y.Z`, ver seção "Para quem administra o JusControl" do
+`agente_local_jc/README.md`) pra quem já instalou receber as telas novas — advogados com uma versão antiga
+do `.exe` continuam funcionando normalmente (as duas travas são aditivas, nunca quebram o fluxo de quem não
+as configurar), só não veem as novas seções até atualizar.
+
+**Testes:** lado servidor, `tests/test_agente_local_autenticador.py` (12 testes novos — status por conta,
+código certo/errado, bloqueio após 5 tentativas, desbloqueio automático após o tempo passar, trava por
+AGENTE nunca por usuário). Lado do agente local (fora da suíte principal, sem infraestrutura de teste antes
+desta rodada — `agente_local_jc/tests/`, roda com `pytest` direto de dentro de `agente_local_jc/`):
+`test_login_local.py` (hash/verificação, sal aleatório, entradas corrompidas nunca quebram) e
+`test_cliente_api_autenticador.py` (os dois métodos novos do cliente HTTP, com `requests` sempre mockado) —
+18 testes novos, cobrindo tudo que não depende de tkinter/Windows (as telas em si — `tela_bloqueio.py`,
+`autenticador_local.py`'s diálogos, `config_gui.py` — continuam sem cobertura automatizada, mesma limitação
+de sempre deste piloto: precisam de um display e, no caso do autenticador, de rede de verdade). Suíte
+principal completa: 797 passando (785 + 12 novos), zero regressão.
 
 ## -125. Vigilância do Diário Oficial da União (DOU) via INLABS — "diário completo", arquitetura própria (novo, requer sincronizar_schema.py + novo cron job + conta INLABS)
 

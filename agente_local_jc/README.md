@@ -95,6 +95,31 @@ adivinhável (diferente do PJe) — precisa ser obtida direto com o
 tribunal antes de preencher; no caso do e-SAJ, pode ser que o tribunal
 simplesmente não tenha esse serviço pra oferecer (ver aviso acima).
 
+## Login local (OAB + senha) e autenticador na Configuração — opcional
+
+Duas travas novas, pensadas pra quem tem outras pessoas com acesso físico
+ao mesmo computador (ex.: notebook do escritório usado por mais de uma
+pessoa):
+
+- **Tela de cadeado ao abrir o agente** — na janela de Configuração, seção
+  "Login local (opcional)", preencha OAB + senha (duas vezes, pra
+  confirmar). A partir daí, toda vez que o Agente Local iniciar (ou o
+  Windows ligar), ele pede essa senha antes de fazer qualquer coisa — 5
+  tentativas erradas fecham o programa. Essa senha é conferida 100%
+  localmente (nunca é mandada pro JusControl nem pra lugar nenhum — mesmo
+  princípio do certificado A1, ver seção "Segurança" abaixo); deixe os
+  três campos em branco pra não usar essa trava.
+- **Autenticador (2FA) obrigatório pra abrir a Configuração** — depois do
+  primeiro pareamento (token colado e testado), reabrir "Configurar..."
+  pelo menu do ícone passa a pedir o código do MESMO app autenticador já
+  usado pra logar no sistema web do JusControl. O agente manda esse
+  código pro servidor conferir (usando o próprio token de pareamento pra
+  saber de qual conta é) — por isso, diferente da tela de cadeado acima,
+  isto PRECISA de internet no momento de abrir a Configuração. Se a conta
+  ainda não tiver autenticador confirmado no sistema web (ou o sistema
+  não tiver essa funcionalidade ligada), a Configuração abre direto, sem
+  pedir código nenhum.
+
 ## Para quem administra o JusControl: publicar uma versão nova do instalador
 
 O `.exe` é compilado sozinho pelo GitHub Actions (não precisa de um
@@ -177,7 +202,22 @@ python tray_app.py
   da biblioteca HTTP para autenticação mTLS), o arquivo é criado com
   permissão restrita ao seu usuário e apagado logo em seguida.
 - O único dado que sai desta máquina em direção ao JusControl é o
-  RESULTADO já pronto (PDF) — nunca a credencial usada para consegui-lo.
+  RESULTADO já pronto (PDF) — nunca a credencial usada para consegui-lo
+  — com uma única exceção deliberada, de mão única: o CÓDIGO do
+  autenticador digitado na Configuração é conferido pelo servidor (ver
+  seção acima) — mas isso é o mesmo código de 6 dígitos que a conta já
+  usa pra logar no sistema web, nunca o segredo TOTP em si, e nunca é
+  guardado em lugar nenhum, só usado naquele instante.
+- Nunca grava a senha do certificado em disco.
+- A senha do login local (OAB + senha, seção acima) nunca é gravada em
+  texto puro — só um hash (PBKDF2-HMAC-SHA256, com sal aleatório) fica em
+  `config.json`, a mesma técnica usada pra senha de conta no sistema web
+  (ver `login_local.py`).
+- A chave privada do certificado só existe descriptografada na memória
+  deste processo, e só pelo tempo da chamada ao tribunal (ver
+  `certificado.py`) — quando precisa virar arquivo temporário (exigência
+  da biblioteca HTTP para autenticação mTLS), o arquivo é criado com
+  permissão restrita ao seu usuário e apagado logo em seguida.
 - A configuração salva pelo instalador (token, certificado etc.) fica só
   em `%APPDATA%\JusControlAgente\config.json`, nesta máquina — nunca é
   sincronizada com nada.
@@ -187,6 +227,9 @@ python tray_app.py
 - `config.py` — modo desenvolvedor: lê `.env`/variáveis de ambiente (usado por `main.py`).
 - `config_store.py` — modo instalado: lê/grava `%APPDATA%\JusControlAgente\config.json` (usado por `tray_app.py`).
 - `config_gui.py` — janela de configuração (tkinter), usada pelo `tray_app.py`.
+- `login_local.py` — hash/verificação da senha do login local (OAB + senha), 100% local.
+- `tela_bloqueio.py` — tela de cadeado (OAB + senha) mostrada ao iniciar o agente, quando configurada.
+- `autenticador_local.py` — trava por autenticador (2FA da conta web) pra abrir a Configuração.
 - `certificado.py` — abre o `.pfx`/`.p12` em memória.
 - `conector_base.py` — interface que todo conector de tribunal implementa.
 - `conectores/mni_soap.py` — lógica compartilhada do protocolo MNI/SOAP (usada por PJe, Projudi e e-SAJ).

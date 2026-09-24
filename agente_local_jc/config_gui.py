@@ -18,6 +18,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 
 import config_store
+import login_local
 from cliente_api import ClienteJusControl, ErroApiJusControl
 
 
@@ -59,6 +60,108 @@ def abrir_wizard_configuracao(dados_iniciais=None):
     iniciar_var = tk.BooleanVar(value=bool(dados.get("iniciar_com_windows", True)))
     ttk.Checkbutton(quadro, text="Iniciar automaticamente com o Windows",
                     variable=iniciar_var).grid(column=0, row=4, columnspan=2, sticky="w", pady=(10, 0))
+
+    # ---------------- Login local (OAB + senha) — opcional ----------------
+    # Pedido do usuário: "quero que tenha a opção do usuario logar com o
+    # oab do cliente, porem localmente" — ver login_local.py e
+    # tela_bloqueio.py. Guarda OAB+hash+sal em campos_var como qualquer
+    # outro campo (vai pra config_store.salvar normalmente); a SENHA em
+    # texto puro digitada aqui (nova_senha_var/confirmar_senha_var) nunca
+    # entra em campos_var — só serve pra calcular o hash no momento de
+    # salvar (ver _coletar_login_local abaixo).
+    campos_var["oab_local"] = tk.StringVar(value=str(dados.get("oab_local", "")))
+    campos_var["oab_senha_hash"] = tk.StringVar(value=str(dados.get("oab_senha_hash", "")))
+    campos_var["oab_senha_salt"] = tk.StringVar(value=str(dados.get("oab_senha_salt", "")))
+    nova_senha_var = tk.StringVar()
+    confirmar_senha_var = tk.StringVar()
+
+    quadro_login = ttk.LabelFrame(quadro, text="Login local (opcional)", padding=10)
+    quadro_login.grid(column=0, row=5, columnspan=2, sticky="we", pady=(14, 0))
+
+    ttk.Label(
+        quadro_login,
+        text="Se preenchido, o Agente Local pede OAB + senha toda vez que abrir (tela de "
+             "cadeado) — protege quem tem acesso físico a este computador. Nunca é conferido "
+             "com o servidor, fica só nesta máquina.",
+        foreground="#666", font=("Segoe UI", 8), wraplength=380, justify="left",
+    ).grid(column=0, row=0, columnspan=2, sticky="w", pady=(0, 8))
+
+    ttk.Label(quadro_login, text="OAB").grid(column=0, row=1, sticky="w", pady=3)
+    ttk.Entry(quadro_login, textvariable=campos_var["oab_local"], width=30).grid(
+        column=1, row=1, sticky="we", pady=3, padx=(8, 0))
+
+    ttk.Label(quadro_login, text="Nova senha").grid(column=0, row=2, sticky="w", pady=3)
+    ttk.Entry(quadro_login, textvariable=nova_senha_var, width=30, show="*").grid(
+        column=1, row=2, sticky="we", pady=3, padx=(8, 0))
+
+    ttk.Label(quadro_login, text="Confirmar nova senha").grid(column=0, row=3, sticky="w", pady=3)
+    ttk.Entry(quadro_login, textvariable=confirmar_senha_var, width=30, show="*").grid(
+        column=1, row=3, sticky="we", pady=3, padx=(8, 0))
+
+    status_login_var = tk.StringVar()
+
+    def _atualizar_status_login():
+        if login_local.login_local_configurado(
+                {"oab_local": campos_var["oab_local"].get(), "oab_senha_hash": campos_var["oab_senha_hash"].get(),
+                 "oab_senha_salt": campos_var["oab_senha_salt"].get()}):
+            status_login_var.set(
+                f"Login local ativo para OAB {campos_var['oab_local'].get()}. Deixe os campos de senha em "
+                "branco pra manter a senha atual, ou preencha os dois pra trocar."
+            )
+        else:
+            status_login_var.set("Login local desativado — preencha OAB e senha (duas vezes) pra ativar.")
+
+    ttk.Label(quadro_login, textvariable=status_login_var, foreground="#666", font=("Segoe UI", 8),
+              wraplength=380, justify="left").grid(column=0, row=4, columnspan=2, sticky="w", pady=(6, 0))
+    _atualizar_status_login()
+
+    def _remover_login_local():
+        campos_var["oab_local"].set("")
+        campos_var["oab_senha_hash"].set("")
+        campos_var["oab_senha_salt"].set("")
+        nova_senha_var.set("")
+        confirmar_senha_var.set("")
+        _atualizar_status_login()
+
+    ttk.Button(quadro_login, text="Remover login local", command=_remover_login_local).grid(
+        column=0, row=5, columnspan=2, sticky="w", pady=(8, 0))
+
+    def _aplicar_login_local():
+        """Roda dentro de `_salvar()`, antes de persistir — decide se a
+        senha nova digitada substitui o hash guardado, ou se mantém o
+        hash já salvo (campos de senha em branco). Devolve None se está
+        tudo OK, ou uma mensagem de erro pra mostrar e IMPEDIR o salvamento
+        (nunca salva um OAB sem senha utilizável, nem meio-caminho)."""
+        oab = campos_var["oab_local"].get().strip()
+        nova = nova_senha_var.get()
+        confirmar = confirmar_senha_var.get()
+
+        if not oab and not nova and not confirmar:
+            # nada preenchido — login local continua desativado (ou já
+            # estava desativado), nada a fazer.
+            campos_var["oab_senha_hash"].set("")
+            campos_var["oab_senha_salt"].set("")
+            return None
+
+        if not oab:
+            return "Preencha o OAB pra ativar o login local (ou deixe os três campos em branco pra não usar)."
+
+        if nova or confirmar:
+            if nova != confirmar:
+                return "A nova senha e a confirmação não são iguais."
+            erro_regra = login_local.validar_senha_nova(nova)
+            if erro_regra:
+                return erro_regra
+            hash_hex, salt_hex = login_local.gerar_hash(nova)
+            campos_var["oab_senha_hash"].set(hash_hex)
+            campos_var["oab_senha_salt"].set(salt_hex)
+            return None
+
+        # OAB preenchido, senha em branco: só é válido se já existe um
+        # hash salvo de antes (trocando só o OAB, mantendo a senha).
+        if not campos_var["oab_senha_hash"].get() or not campos_var["oab_senha_salt"].get():
+            return "Defina uma senha para o login local (os dois campos de senha)."
+        return None
 
     # Garante que TODOS os campos avançados existem em campos_var desde já
     # (mesmo antes de qualquer sub-janela ser aberta) — é o que _coletar()
@@ -241,16 +344,16 @@ def abrir_wizard_configuracao(dados_iniciais=None):
             avancado_aberto.set(False)
             botao_avancado.config(text="▸ Mostrar configurações avançadas")
         else:
-            quadro_avancado.grid(column=0, row=6, columnspan=2, sticky="we", pady=(10, 0))
+            quadro_avancado.grid(column=0, row=7, columnspan=2, sticky="we", pady=(10, 0))
             avancado_aberto.set(True)
             botao_avancado.config(text="▾ Ocultar configurações avançadas")
 
     botao_avancado = ttk.Button(quadro, text="▸ Mostrar configurações avançadas", command=_alternar_avancado)
-    botao_avancado.grid(column=0, row=5, columnspan=2, sticky="w", pady=(10, 0))
+    botao_avancado.grid(column=0, row=6, columnspan=2, sticky="w", pady=(10, 0))
 
     status_var = tk.StringVar(value="")
     ttk.Label(quadro, textvariable=status_var, foreground="#a33").grid(
-        column=0, row=7, columnspan=2, sticky="w", pady=(10, 0))
+        column=0, row=8, columnspan=2, sticky="w", pady=(10, 0))
 
     def _coletar():
         coletado = {chave: var.get().strip() for chave, var in campos_var.items()}
@@ -275,6 +378,11 @@ def abrir_wizard_configuracao(dados_iniciais=None):
             status_var.set(f"Não foi possível conectar: {e}")
 
     def _salvar():
+        erro_login_local = _aplicar_login_local()
+        if erro_login_local:
+            status_var.set(erro_login_local)
+            return
+
         coletado = _coletar()
         if not coletado["juscontrol_url"] or not coletado["token_pareamento"]:
             status_var.set("Endereço do JusControl e token de pareamento são obrigatórios.")
@@ -287,7 +395,7 @@ def abrir_wizard_configuracao(dados_iniciais=None):
         janela.destroy()
 
     quadro_botoes = ttk.Frame(quadro)
-    quadro_botoes.grid(column=0, row=8, columnspan=2, sticky="e", pady=(14, 0))
+    quadro_botoes.grid(column=0, row=9, columnspan=2, sticky="e", pady=(14, 0))
     ttk.Button(quadro_botoes, text="Testar conexão", command=_testar_conexao).pack(side="left", padx=(0, 8))
     ttk.Button(quadro_botoes, text="Cancelar", command=_cancelar).pack(side="left", padx=(0, 8))
     ttk.Button(quadro_botoes, text="Salvar", command=_salvar).pack(side="left")
